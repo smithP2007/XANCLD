@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎬 XAN Hono
+# 🎬 XANCLD
 
 ### Stream anime without the noise — on Cloudflare Workers Free tier
 
@@ -75,8 +75,8 @@ A modern, full-featured anime streaming web app built with **Hono + Vite + React
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/xan-hono.git
-cd xan-hono
+git clone https://github.com/smithP2007/XANCLD.git
+cd XANCLD
 
 # Install dependencies
 bun install  # or npm install / pnpm install
@@ -121,7 +121,7 @@ bunx wrangler login
 bun run deploy
 ```
 
-Your app will be live at `https://xan-hono.<your-subdomain>.workers.dev` 🎉
+Your app will be live at `https://XANCLD.<your-subdomain>.workers.dev` 🎉
 
 ### Try without an account (temporary preview)
 
@@ -141,7 +141,7 @@ bunx wrangler deploy --temporary
 ## 📁 Project Structure
 
 ```
-xan-hono/
+XANCLD/
 ├── 📂 src/
 │   ├── 📂 worker/
 │   │   └── index.ts              # Hono CORS proxy worker (~86 KB bundle)
@@ -268,7 +268,7 @@ const plaintext = await crypto.subtle.decrypt({ name: "AES-CTR", counter, length
 ### `wrangler.toml`
 
 ```toml
-name = "xan-hono"
+name = "XANCLD"
 main = "src/worker/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
@@ -356,6 +356,6 @@ This project is for **educational purposes only**. It demonstrates:
 
 **Built with ❤️ on Cloudflare Workers Free tier**
 
-[Report Bug](../../issues) · [Request Feature](../../issues) · [⬆ Back to Top](#-xan-hono)
+[Report Bug](../../issues) · [Request Feature](../../issues) · [⬆ Back to Top](#-XANCLD)
 
 </div>

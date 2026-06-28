@@ -1,7 +1,7 @@
 {
-  "name": "xan-hono",
+  "name": "XANCLD",
   "version": "1.0.0",
-  "description": "Stream anime without the noise — Hono + Vite + React on Cloudflare Workers Free tier",
+  "description": "XANCLD — Stream anime on Cloudflare Workers Free tier (Hono + Vite + React)",
   "private": true,
   "type": "module",
   "license": "MIT",

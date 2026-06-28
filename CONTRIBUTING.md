@@ -1,4 +1,4 @@
-# Contributing to XAN Hono
+# Contributing to XANCLD
 
 Thanks for your interest in contributing! This guide will help you get started.
 
@@ -7,8 +7,8 @@ Thanks for your interest in contributing! This guide will help you get started.
 1. **Fork** the repository on GitHub
 2. **Clone** your fork locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/xan-hono.git
-   cd xan-hono
+   git clone https://github.com/smithP2007/XANCLD.git
+   cd XANCLD
    ```
 3. **Install** dependencies:
    ```bash

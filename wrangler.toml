@@ -1,4 +1,4 @@
-name = "xan-hono"
+name = "XANCLD"
 main = "src/worker/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]

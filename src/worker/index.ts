@@ -190,7 +190,7 @@ app.post("/api/proxy-post", async (c) => {
 
 // ─── Health check ──────────────────────────────────────────────
 app.get("/api/health", (c) =>
-  c.json({ ok: true, ts: Date.now(), worker: "xan-hono" }),
+  c.json({ ok: true, ts: Date.now(), worker: "XANCLD" }),
 );
 
 // ─── SPA fallback: serve index.html for all non-API, non-asset routes ──
