@@ -228,7 +228,7 @@ export function Watch() {
         {/* ─── Sidebar: episodes + sources + mode ─── */}
         <div className="space-y-4">
           {/* Episodes panel */}
-          <div className="glass rounded-2xl p-4 lg:sticky lg:top-20">
+          <div className="glass rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-foreground flex items-center gap-2">
                 <Tv className="h-4 w-4 text-xan-crimson" />
@@ -238,7 +238,7 @@ export function Watch() {
                 <span className="text-xs text-muted-foreground">{anime.episodes} total</span>
               )}
             </div>
-            <div className="grid grid-cols-5 gap-1.5 max-h-80 overflow-y-auto pr-1">
+            <div className="grid grid-cols-5 gap-1.5 max-h-64 overflow-y-auto pr-1">
               {(anime?.episodes ? Math.min(anime.episodes, 50) : 12) > 0 &&
                 Array.from(
                   { length: anime?.episodes ? Math.min(anime.episodes, 50) : 12 },
