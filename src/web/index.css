@@ -1,0 +1,367 @@
+@import "tailwindcss";
+
+/* ─── XAN Design System (matching xan-gamma.vercel.app) ─── */
+
+@theme {
+  /* Custom XAN colors */
+  --color-xan-crimson: #e94560;
+  --color-xan-crimson-dark: #c81e3a;
+  --color-xan-violet: #a855f7;
+  --color-xan-card: rgba(255, 255, 255, 0.04);
+  --color-xan-card-hover: rgba(255, 255, 255, 0.08);
+  --color-xan-border: rgba(255, 255, 255, 0.08);
+
+  /* Fonts */
+  --font-display: "Outfit", system-ui, sans-serif;
+  --font-sans: "Nunito", "Inter", system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: rgba(255, 255, 255, 0.04);
+  --card-foreground: #fafafa;
+  --border: rgba(255, 255, 255, 0.08);
+  --primary: #e94560;
+  --primary-foreground: #fafafa;
+  --muted-foreground: #a1a1aa;
+  --popover: #14141a;
+  --popover-foreground: #fafafa;
+  --destructive: #ff6568;
+  --ring: #e94560;
+}
+
+/* Light theme overrides — applied when .dark is NOT on <html> */
+:root:not(.dark) {
+  color-scheme: light;
+  --background: #fafafa;
+  --foreground: #0a0a0a;
+  --card: rgba(0, 0, 0, 0.025);
+  --card-foreground: #0a0a0a;
+  --border: rgba(0, 0, 0, 0.08);
+  --primary: #e94560;
+  --primary-foreground: #fafafa;
+  --muted-foreground: #6b7280;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --destructive: #e40014;
+  --ring: #e94560;
+  /* Override the custom XAN color variables too */
+  --color-xan-card: rgba(0, 0, 0, 0.03);
+  --color-xan-card-hover: rgba(0, 0, 0, 0.06);
+  --color-xan-border: rgba(0, 0, 0, 0.1);
+}
+
+:root:not(.dark) body {
+  background: #fafafa !important;
+  color: #0a0a0a !important;
+}
+
+/* Light theme: override all the dark-specific utility classes */
+/* Use !important to win specificity over Tailwind's generated utilities */
+:root:not(.dark) .bg-xan-card {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+:root:not(.dark) .bg-xan-card-hover {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+:root:not(.dark) .border-xan-border,
+:root:not(.dark) .border-xan-border\/40,
+:root:not(.dark) .border-xan-border\/50,
+:root:not(.dark) .border-xan-border\/60 {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+:root:not(.dark) .bg-background {
+  background-color: #fafafa !important;
+}
+:root:not(.dark) .text-foreground {
+  color: #0a0a0a !important;
+}
+:root:not(.dark) .text-muted-foreground {
+  color: #6b7280 !important;
+}
+:root:not(.dark) .bg-muted {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+:root:not(.dark) .bg-popover {
+  background-color: #ffffff !important;
+}
+:root:not(.dark) .divide-xan-border > * {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Light theme: glass effects need lighter bg */
+:root:not(.dark) .glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+:root:not(.dark) .glass-strong {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Light theme: gradient text stays the same (crimson→violet looks good on light) */
+
+/* Light theme: hero gradient overlays need to be lighter */
+:root:not(.dark) .from-background {
+  --tw-gradient-from: #fafafa;
+}
+:root:not(.dark) .via-background\/50 {
+  --tw-gradient-via: rgba(250, 250, 250, 0.5);
+}
+:root:not(.dark) .via-background\/40 {
+  --tw-gradient-via: rgba(250, 250, 250, 0.4);
+}
+
+/* Light theme: scrollbar */
+:root:not(.dark) ::-webkit-scrollbar-thumb {
+  background: rgba(233, 69, 96, 0.25);
+}
+:root:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(233, 69, 96, 0.45);
+}
+
+/* Light theme: skeleton shimmer */
+:root:not(.dark) .skeleton {
+  background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.04) 75%);
+  background-size: 200% 100%;
+}
+
+/* Light theme: selection */
+:root:not(.dark) ::selection {
+  background: rgba(233, 69, 96, 0.2);
+  color: #0a0a0a;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Nunito", "Inter", system-ui, -apple-system, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(155, 155, 155, 0.3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(155, 155, 155, 0.5); }
+html { scrollbar-color: rgba(155, 155, 155, 0.5) transparent; scrollbar-width: thin; }
+
+/* ─── Utility classes (matching Tailwind semantics used by XAN) ─── */
+.bg-background { background-color: var(--background); }
+.bg-card { background-color: var(--card); }
+.bg-card-hover { background-color: var(--card-hover); }
+.bg-xan-card { background-color: rgba(255, 255, 255, 0.04); }
+.bg-xan-card-hover { background-color: rgba(255, 255, 255, 0.08); }
+.bg-xan-crimson { background-color: var(--color-xan-crimson); }
+.bg-xan-violet { background-color: var(--color-xan-violet); }
+.bg-primary { background-color: var(--primary); }
+.bg-muted { background-color: rgba(255, 255, 255, 0.06); }
+.bg-popover { background-color: var(--popover); }
+
+.text-foreground { color: var(--foreground); }
+.text-muted-foreground { color: var(--muted-foreground); }
+.text-primary { color: var(--primary); }
+.text-xan-crimson { color: var(--color-xan-crimson); }
+.text-xan-violet { color: var(--color-xan-violet); }
+.text-white { color: #fff; }
+
+.border-xan-border { border-color: var(--color-xan-border); }
+.border-xan-crimson { border-color: var(--color-xan-crimson); }
+.border-xan-violet { border-color: var(--color-xan-violet); }
+.border-border { border-color: var(--border); }
+
+.font-display { font-family: "Outfit", system-ui, sans-serif; }
+
+/* ─── Animations ─── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* ─── Line clamp utilities ─── */
+.line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ─── Selection ─── */
+::selection { background: rgba(233, 69, 96, 0.3); color: #fff; }
+
+/* ─── Premium UI polish ─── */
+
+/* Glassmorphism cards */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-strong {
+  background: rgba(10, 10, 10, 0.7);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Glow effects */
+.glow-crimson {
+  box-shadow: 0 0 24px rgba(233, 69, 96, 0.25), 0 0 48px rgba(233, 69, 96, 0.1);
+}
+.glow-violet {
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.25), 0 0 48px rgba(168, 85, 247, 0.1);
+}
+.glow-soft {
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* Premium button */
+.btn-premium {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-premium::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.2), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.6s;
+}
+.btn-premium:hover::before {
+  transform: translateX(100%);
+}
+.btn-premium:hover {
+  transform: translateY(-1px);
+}
+.btn-premium:active {
+  transform: translateY(0);
+}
+
+/* Smooth hover lift */
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-4px);
+}
+
+/* Smooth fade-in with stagger */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up { animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+/* Scale-in */
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in { animation: scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+/* Slide-in */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in { animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #e94560 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Premium scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(233, 69, 96, 0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(233, 69, 96, 0.4); }
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid rgba(233, 69, 96, 0.5);
+  outline-offset: 2px;
+}
+
+/* Card hover glow */
+.card-glow {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-glow:hover {
+  box-shadow: 0 8px 32px rgba(233, 69, 96, 0.15), 0 0 0 1px rgba(233, 69, 96, 0.2);
+}
+
+/* Toggle switch */
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+.toggle-switch.active {
+  background: linear-gradient(135deg, #e94560, #a855f7);
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.toggle-switch.active::after {
+  transform: translateX(20px);
+}
+
+/* Skeleton shimmer */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Pulse glow */
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 20px rgba(233, 69, 96, 0.2); }
+  50% { box-shadow: 0 0 30px rgba(233, 69, 96, 0.4); }
+}
+.pulse-glow { animation: pulseGlow 2s ease-in-out infinite; }
