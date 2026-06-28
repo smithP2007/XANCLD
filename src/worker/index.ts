@@ -188,6 +188,100 @@ app.post("/api/proxy-post", async (c) => {
   }
 });
 
+// ─── Streaming proxy: /api/stream?url=<encoded-url> ────────────
+// Streams video content (MP4, HLS segments) through the worker with
+// proper headers. Used for MP4 sources that require Referer/Origin
+// headers the browser can't set, or that block cross-origin requests.
+//
+// The response body is streamed (not buffered) so large video files
+// don't exhaust worker memory. Supports Range requests for seeking.
+app.get("/api/stream", async (c) => {
+  const url = c.req.query("url");
+  if (!url) {
+    return c.json({ error: "Missing url parameter" }, 400);
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return c.json({ error: "Invalid url" }, 400);
+  }
+
+  // Same allowlist as /api/proxy
+  const ALLOWED_HOSTS = [
+    "api.allanime.day", "allanime.day", "allmanga.to",
+    "tools.fast4speed.rsvp", "megacloud.tv", "vixcloud.co",
+    "youtu-chan.com", "mp4upload.com", "bysekoze.com", "vidnest.io",
+    "ok.ru", "repackager.wixmp.com", "allanimenews.com",
+    "filemoon.sx", "filemoon.to", "vizcloud.co", "vizcloud.xyz",
+    "mycloud.cc", "streamlare.com", "kwik.si", "kwik.cx",
+    "streamta.pe", "streamtape.com", "doodstream.com", "dood.so",
+    "mixdrop.co", "mixdrop.to", "ninjastream.to", "streamwish.to",
+    "streamsb.net",
+  ];
+  const allowed = ALLOWED_HOSTS.some(
+    (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
+  );
+  if (!allowed) {
+    return c.json({ error: `Host not allowed: ${parsed.hostname}` }, 403);
+  }
+
+  // Forward Range header for seeking
+  const reqHeaders: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+    Referer: REFERER,
+    Origin: ORIGIN,
+    Accept: "*/*",
+  };
+  const range = c.req.header("Range");
+  if (range) {
+    reqHeaders["Range"] = range;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(parsed.toString(), {
+      method: "GET",
+      signal: controller.signal,
+      headers: reqHeaders,
+    });
+
+    clearTimeout(timeout);
+
+    // Stream the response body directly (don't buffer)
+    // Forward content-type, content-length, content-range, accept-ranges
+    const respHeaders: Record<string, string> = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Range",
+      "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
+    };
+
+    const forwardHeaders = [
+      "content-type", "content-length", "content-range",
+      "accept-ranges", "cache-control", "etag",
+    ];
+    for (const h of forwardHeaders) {
+      const val = res.headers.get(h);
+      if (val) respHeaders[h] = val;
+    }
+
+    return new Response(res.body, {
+      status: res.status,
+      headers: respHeaders,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Stream proxy failed" },
+      502,
+    );
+  }
+});
+
 // ─── Health check ──────────────────────────────────────────────
 app.get("/api/health", (c) =>
   c.json({ ok: true, ts: Date.now(), worker: "xancld" }),

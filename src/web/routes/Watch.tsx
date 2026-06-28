@@ -397,8 +397,17 @@ function VideoPlayer({
       hlsRef.current = hls;
       hls.loadSource(url);
       hls.attachMedia(video);
+    } else if (stream.type === "mp4") {
+      // MP4 sources: route through the streaming proxy to add proper
+      // Referer/Origin headers and avoid CORS issues. Many CDNs
+      // (tools.fast4speed.rsvp, mp4upload, etc.) block direct browser
+      // access without the right Referer.
+      const proxyUrl = `/api/stream?url=${encodeURIComponent(url)}`;
+      video.src = proxyUrl;
+      video.load();
     } else {
       video.src = url;
+      video.load();
     }
 
     return () => {
