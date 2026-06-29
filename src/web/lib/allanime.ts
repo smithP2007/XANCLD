@@ -388,30 +388,21 @@ export async function extractSource(
   const url = decodeUrl(rawUrl);
   const name = (sourceName || "").toLowerCase();
 
-  // Yt-mp4 → direct MP4 (tools.fast4speed.rsvp) — this IS a direct video URL
+  // Yt-mp4 → direct MP4 (tools.fast4speed.rsvp)
   if (name.includes("yt-mp4")) {
     if (!url.startsWith("http")) return [];
     return [{ url, type: "mp4", quality: null, sourceName }];
   }
 
-  // clock.json sources: Default, Sak, Wixmp, Luf-Mp4, S-Mp4, Uv-mp4, etc.
-  // Try clock.json first (returns direct URLs). If it fails, skip — we can't
-  // iframe these because they're API endpoints, not embed pages.
-  if (
-    name.includes("default") ||
-    name.includes("sak") ||
-    name.includes("wixmp") ||
-    name.includes("luf-mp4") ||
-    name.includes("s-mp4") ||
-    name.includes("uv-mp4") ||
-    name.includes("sl-mp4") ||
-    url.startsWith("/apivtwo/")
-  ) {
+  // clock.json sources: ONLY sources that return a /apivtwo/clock path.
+  // These are API endpoints, not embed pages — can't be iframed.
+  // Check by URL pattern, not by source name (more reliable).
+  if (url.startsWith("/apivtwo/clock")) {
     const clockResults = await fetchClockJson(url);
     if (clockResults.length > 0) {
       return clockResults.map((r) => ({ ...r, sourceName }));
     }
-    return []; // clock.json failed — skip this source
+    return []; // clock.json failed — can't iframe an API endpoint
   }
 
   // Direct video file URLs (.mp4 or .m3u8) — play directly
@@ -420,43 +411,16 @@ export async function extractSource(
     return [{ url, type: isHls ? "hls" : "mp4", quality: null, sourceName }];
   }
 
-  // Embed pages (mp4upload, filemoon, streamwish, streamsb, streamlare,
-  // vizcloud, mycloud, ninjastream, vidnest, bysekoze, etc.)
-  // Try to scrape direct URLs first. If that fails, return as iframe —
-  // the browser will load the embed page in an <iframe> and the embed's
-  // own JS player will handle playback.
-  const EMBED_HOSTS = [
-    "mp4upload.com", "filemoon", "vidnest", "bysekoze",
-    "vizcloud", "mycloud", "streamlare", "streamwish",
-    "streamsb", "streamtape", "streamta.pe", "doodstream",
-    "dood.so", "mixdrop", "ninjastream", "kwik",
-    "megacloud", "vixcloud",
-  ];
-  const isEmbedPage = EMBED_HOSTS.some((h) => url.includes(h)) ||
-    name.includes("mp4") || name.includes("fm-hls") || name.includes("vn-hls") ||
-    name.includes("viz") || name.includes("mycloud") || name.includes("sw") ||
-    name.includes("ss-hls") || name.includes("other");
-
-  if (isEmbedPage) {
+  // All other HTTP URLs are embed pages — try scraping, fall back to iframe.
+  // This covers: mp4upload, streamlare, streamsb, streamwish, filemoon,
+  // vizcloud, mycloud, ninjastream, ok.ru, etc.
+  if (url.startsWith("http")) {
     // Try scraping for direct URLs first
     const scraped = await scrapeEmbedPage(url, sourceName);
     if (scraped.length > 0) {
       return scraped;
     }
-    // Fallback: return as iframe — the embed page's own player will work
-    return [{ url, type: "iframe", quality: null, sourceName }];
-  }
-
-  // Ok.ru, Uni → iframe embed
-  if (
-    (name.includes("ok") && url.includes("ok.ru")) ||
-    name.includes("uni")
-  ) {
-    return [{ url, type: "iframe", quality: null, sourceName }];
-  }
-
-  // Any other HTTP URL — try as iframe (most embed pages work in iframes)
-  if (url.startsWith("http")) {
+    // Fallback: return as iframe — the embed page's own JS player will work
     return [{ url, type: "iframe", quality: null, sourceName }];
   }
 
@@ -477,19 +441,22 @@ export async function extractStreamUrl(
     return { sources, failures };
   }
 
-  // Try each source, collect results
-  for (const entry of sourceUrls.slice(0, 6)) {
-    try {
-      const extracted = await extractSource(entry.sourceUrl, entry.sourceName);
-      if (extracted.length > 0) {
-        sources.push(...extracted);
-      } else {
-        failures.push({ source: entry.sourceName, reason: "no sources extracted" });
-      }
-    } catch (err) {
+  // Try ALL sources in parallel for speed (not just first 6)
+  const results = await Promise.allSettled(
+    sourceUrls.map((entry) => extractSource(entry.sourceUrl, entry.sourceName)),
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const entry = sourceUrls[i];
+    if (result.status === "fulfilled" && result.value.length > 0) {
+      sources.push(...result.value);
+    } else {
       failures.push({
         source: entry.sourceName,
-        reason: err instanceof Error ? err.message : "unknown error",
+        reason: result.status === "rejected"
+          ? (result.reason instanceof Error ? result.reason.message : "error")
+          : "no sources extracted",
       });
     }
   }
