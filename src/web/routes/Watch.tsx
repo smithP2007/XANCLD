@@ -1,19 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
-import Hls from "hls.js";
 import {
   ArrowLeft,
-  Loader2,
-  AlertCircle,
   Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Maximize,
-  RotateCcw,
   SkipForward,
   Star,
   Tv,
+  Volume2,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
 import {
@@ -22,6 +15,7 @@ import {
   type StreamResult,
 } from "../lib/allanime";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
+import { VideoPlayer } from "../components/VideoPlayer";
 
 export function Watch() {
   const { id } = useParams<{ id: string }>();
@@ -36,9 +30,7 @@ export function Watch() {
   const [allSources, setAllSources] = useState<StreamResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Use the default mode from settings as the initial mode
   const [mode, setMode] = useState<"sub" | "dub">(settings.defaultMode);
-  // Resume position from history (if any)
   const [resumeTime, setResumeTime] = useState<number | undefined>(undefined);
 
   useEffect(() => {
@@ -81,7 +73,7 @@ export function Watch() {
           return;
         }
 
-        // Extract stream URL (this does AES decryption + HTML scraping in the browser)
+        // Extract stream URL (AES decryption + HTML scraping in browser)
         const result = await extractStreamUrl(show._id, String(episode), mode);
         if (result.sources.length === 0) {
           setError(
@@ -128,35 +120,73 @@ export function Watch() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
         {/* ─── Main column: player + info ─── */}
         <div className="space-y-5">
-          <VideoPlayer
-            stream={stream}
-            loading={loading}
-            error={error}
-            title={anime ? getTitle(anime.title) : "Loading..."}
-            episode={episode}
-            animeId={animeId}
-            coverImage={anime?.coverImage?.large}
-            totalEpisodes={anime?.episodes}
-            settings={settings}
-            resumeTime={resumeTime}
-            onProgress={(currentTime, duration) => {
-              if (anime && currentTime > 5 && duration > 0) {
-                addToHistory({
-                  animeId,
-                  title: getTitle(anime.title),
-                  coverImage: anime.coverImage?.large ?? "",
-                  episode,
-                  timestamp: currentTime,
-                  duration,
-                });
-              }
-            }}
-            onEnded={() => {
-              if (settings.autoplay && anime?.episodes && episode < anime.episodes) {
-                navigate(`/watch/${animeId}?ep=${episode + 1}`);
-              }
-            }}
-          />
+          {/* Player */}
+          {loading ? (
+            <div className="aspect-video bg-black rounded-2xl flex flex-col items-center justify-center border border-xan-border">
+              <div className="relative">
+                <div className="absolute inset-0 bg-xan-crimson/40 blur-xl rounded-full animate-pulse" />
+                <div className="relative animate-spin h-12 w-12 border-2 border-xan-crimson border-t-transparent rounded-full" />
+              </div>
+              <p className="text-sm text-white/80 mt-4 font-medium">
+                Loading episode {episode}…
+              </p>
+              <p className="text-xs text-white/40 mt-1">
+                Searching AllAnime + decrypting sources
+              </p>
+            </div>
+          ) : error ? (
+            <div className="aspect-video bg-black rounded-2xl flex flex-col items-center justify-center border border-xan-border p-6 text-center">
+              <p className="font-semibold text-foreground text-lg mb-2">Stream Unavailable</p>
+              <p className="text-sm text-muted-foreground max-w-md">{error}</p>
+            </div>
+          ) : stream ? (
+            stream.type === "iframe" ? (
+              <div className="aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
+                <iframe
+                  src={stream.url}
+                  className="w-full h-full"
+                  allowFullScreen
+                  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            ) : (
+              <VideoPlayer
+                stream={stream}
+                title={anime ? getTitle(anime.title) : "Loading..."}
+                episode={episode}
+                settings={settings}
+                resumeTime={resumeTime}
+                onProgress={(currentTime, duration) => {
+                  if (anime && currentTime > 5 && duration > 0) {
+                    addToHistory({
+                      animeId,
+                      title: getTitle(anime.title),
+                      coverImage: anime.coverImage?.large ?? "",
+                      episode,
+                      timestamp: currentTime,
+                      duration,
+                    });
+                  }
+                }}
+                onEnded={() => {
+                  if (settings.autoplay && anime?.episodes && episode < anime.episodes) {
+                    navigate(`/watch/${animeId}?ep=${episode + 1}`);
+                  }
+                }}
+                onNext={
+                  anime?.episodes && episode < anime.episodes
+                    ? () => navigate(`/watch/${animeId}?ep=${episode + 1}`)
+                    : undefined
+                }
+                onPrev={
+                  episode > 1
+                    ? () => navigate(`/watch/${animeId}?ep=${episode - 1}`)
+                    : undefined
+                }
+              />
+            )
+          ) : null}
 
           {/* Title + episode info card */}
           {anime && (
@@ -189,7 +219,6 @@ export function Watch() {
                   }}
                 />
               )}
-              {/* Genre pills */}
               {anime.genres && anime.genres.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {anime.genres.slice(0, 5).map((g) => (
@@ -202,7 +231,7 @@ export function Watch() {
             </div>
           )}
 
-          {/* Navigation buttons (prev/next episode) */}
+          {/* Navigation buttons */}
           {anime?.episodes && (
             <div className="flex items-center gap-3">
               {episode > 1 && (
@@ -225,7 +254,7 @@ export function Watch() {
           )}
         </div>
 
-        {/* ─── Sidebar: episodes + sources + mode ─── */}
+        {/* ─── Sidebar ─── */}
         <div className="space-y-4">
           {/* Episodes panel */}
           <div className="glass rounded-2xl p-4">
@@ -320,316 +349,4 @@ export function Watch() {
       </div>
     </div>
   );
-}
-
-interface VideoPlayerProps {
-  stream: StreamResult | null;
-  loading: boolean;
-  error: string | null;
-  title: string;
-  episode: number;
-  animeId: number;
-  coverImage?: string;
-  totalEpisodes?: number | null;
-  settings: {
-    volume: number;
-    playbackRate: number;
-    skipIntro: boolean;
-    autoplay: boolean;
-  };
-  resumeTime?: number;
-  onProgress?: (currentTime: number, duration: number) => void;
-  onEnded?: () => void;
-}
-
-function VideoPlayer({
-  stream,
-  loading,
-  error,
-  title,
-  episode,
-  animeId,
-  totalEpisodes,
-  settings,
-  resumeTime,
-  onProgress,
-  onEnded,
-}: VideoPlayerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [showSkipIntro, setShowSkipIntro] = useState(false);
-  const lastHistoryWriteRef = useRef(0);
-  const resumeAppliedRef = useRef(false);
-
-  // Apply volume setting
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.volume = settings.volume / 100;
-  }, [settings.volume]);
-
-  // Apply playback rate setting
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.playbackRate = settings.playbackRate;
-  }, [settings.playbackRate]);
-
-  useEffect(() => {
-    if (!stream || !videoRef.current) return;
-
-    const video = videoRef.current;
-    const url = stream.url;
-    resumeAppliedRef.current = false;
-
-    // Cleanup previous
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    if (stream.type === "hls" && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true });
-      hlsRef.current = hls;
-      hls.loadSource(url);
-      hls.attachMedia(video);
-    } else if (stream.type === "mp4") {
-      // MP4 sources: route through the streaming proxy to add proper
-      // Referer/Origin headers and avoid CORS issues. Many CDNs
-      // (tools.fast4speed.rsvp, mp4upload, etc.) block direct browser
-      // access without the right Referer.
-      const proxyUrl = `/api/stream?url=${encodeURIComponent(url)}`;
-      video.src = proxyUrl;
-      video.load();
-    } else {
-      video.src = url;
-      video.load();
-    }
-
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [stream]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onTime = () => {
-      setCurrent(video.currentTime);
-      // Resume position if available (once)
-      if (!resumeAppliedRef.current && resumeTime && resumeTime > 5 && video.duration > resumeTime) {
-        try {
-          video.currentTime = resumeTime;
-          resumeAppliedRef.current = true;
-        } catch {
-          // ignore
-        }
-      }
-      // Skip intro button: show during first 90 seconds if enabled
-      if (settings.skipIntro && video.currentTime > 5 && video.currentTime < 90) {
-        setShowSkipIntro(true);
-      } else {
-        setShowSkipIntro(false);
-      }
-      // Record to history (throttled to every 10 seconds)
-      const now = Date.now();
-      if (onProgress && now - lastHistoryWriteRef.current > 10000 && video.currentTime > 5 && video.duration > 0) {
-        lastHistoryWriteRef.current = now;
-        onProgress(video.currentTime, video.duration);
-      }
-    };
-    const onDur = () => setDuration(video.duration || 0);
-    const onEnded = () => {
-      setPlaying(false);
-      // Final history write
-      if (onProgress && video.duration > 0) {
-        onProgress(video.duration, video.duration);
-      }
-      onEnded?.();
-    };
-
-    video.addEventListener("play", onPlay);
-    video.addEventListener("pause", onPause);
-    video.addEventListener("timeupdate", onTime);
-    video.addEventListener("durationchange", onDur);
-    video.addEventListener("ended", onEnded);
-    return () => {
-      video.removeEventListener("play", onPlay);
-      video.removeEventListener("pause", onPause);
-      video.removeEventListener("timeupdate", onTime);
-      video.removeEventListener("durationchange", onDur);
-      video.removeEventListener("ended", onEnded);
-    };
-  }, [resumeTime, settings.skipIntro, onProgress, onEnded]);
-
-  const togglePlay = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) v.play();
-    else v.pause();
-  }, []);
-
-  const toggleMute = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.muted = !v.muted;
-    setMuted(v.muted);
-  }, []);
-
-  const seek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.currentTime = parseFloat(e.target.value);
-  }, []);
-
-  const skipIntro = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.currentTime = 85; // Skip to 85 seconds (typical OP length)
-    setShowSkipIntro(false);
-  }, []);
-
-  const fullscreen = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (document.fullscreenElement) document.exitFullscreen();
-    else v.requestFullscreen();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="aspect-video bg-black rounded-2xl flex flex-col items-center justify-center border border-xan-border relative overflow-hidden">
-        {/* Animated gradient backdrop */}
-        <div className="absolute inset-0 bg-gradient-to-br from-xan-crimson/10 via-transparent to-xan-violet/10 animate-pulse" />
-        <div className="relative flex flex-col items-center">
-          <div className="relative">
-            <div className="absolute inset-0 bg-xan-crimson/30 blur-xl rounded-full animate-pulse" />
-            <Loader2 className="relative h-12 w-12 animate-spin text-xan-crimson" />
-          </div>
-          <p className="text-sm text-white/80 mt-4 font-medium">
-            Loading episode {episode}…
-          </p>
-          <p className="text-xs text-white/40 mt-1">
-            AES decryption + scraping in browser
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="aspect-video bg-black rounded-2xl flex flex-col items-center justify-center border border-xan-border p-6 text-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-xan-crimson/5 to-transparent" />
-        <div className="relative">
-          <AlertCircle className="h-12 w-12 text-xan-crimson mb-3 mx-auto" />
-          <p className="font-semibold text-foreground text-lg">Stream Unavailable</p>
-          <p className="text-sm text-muted-foreground mt-1 max-w-md">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!stream) return null;
-
-  // Iframe embed sources (ok.ru, mp4upload, streamwish, etc.)
-  // Render an <iframe> — the embed page's own JS player handles playback.
-  // No sandbox: embed players need full permissions to run their DRM/ads/players.
-  if (stream.type === "iframe") {
-    return (
-      <div className="aspect-video bg-black rounded-xl overflow-hidden border border-xan-border">
-        <iframe
-          src={stream.url}
-          className="w-full h-full"
-          allowFullScreen
-          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          referrerPolicy="no-referrer"
-        />
-      </div>
-    );
-  }
-
-  const pct = duration > 0 ? (current / duration) * 100 : 0;
-
-  return (
-    <div className="relative aspect-video bg-black rounded-xl overflow-hidden border border-xan-border group">
-      <video
-        ref={videoRef}
-        className="w-full h-full"
-        poster=""
-        playsInline
-        onClick={togglePlay}
-      />
-
-      {/* Skip Intro button */}
-      {showSkipIntro && (
-        <button
-          onClick={skipIntro}
-          className="btn-premium absolute bottom-20 right-4 px-4 py-2 rounded-lg bg-xan-crimson/90 backdrop-blur text-white text-sm font-medium shadow-lg flex items-center gap-1.5 animate-fade-in"
-        >
-          <SkipForward className="h-4 w-4" /> Skip Intro
-        </button>
-      )}
-
-      {/* Controls */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-        <input
-          type="range"
-          min={0}
-          max={duration || 0}
-          value={current}
-          onChange={seek}
-          className="w-full h-1 rounded-full appearance-none bg-white/20 cursor-pointer
-            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3
-            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-xan-crimson"
-          style={{
-            background: `linear-gradient(to right, #ef4444 ${pct}%, #52525b ${pct}%)`,
-          }}
-        />
-        <div className="flex items-center gap-3 mt-2">
-          <button onClick={togglePlay} className="text-white hover:text-xan-crimson">
-            {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-          </button>
-          <button onClick={toggleMute} className="text-white hover:text-xan-crimson">
-            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-          </button>
-          <span className="text-xs text-white/80">
-            {fmt(current)} / {fmt(duration)}
-          </span>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs px-2 py-0.5 rounded bg-white/20 text-white/90">
-              {stream.sourceName}
-            </span>
-            <button onClick={fullscreen} className="text-white hover:text-xan-crimson">
-              <Maximize className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Title overlay */}
-      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-        <p className="text-sm text-white font-medium">
-          {title} — Episode {episode}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function fmt(s: number): string {
-  if (!isFinite(s) || s < 0) return "0:00";
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
 }

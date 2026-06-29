@@ -246,11 +246,7 @@ async function scrapeEmbedPage(
     const cleanUrl = (u: string) =>
       u.replace(/\\\//g, "/").replace(/\\u002F/g, "/").replace(/&amp;/g, "&");
 
-    // Use DOMParser to extract URLs from the HTML (more robust than regex)
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-
-    // Also use regex as fallback for URLs in JS strings
+    // Pattern 1: Direct .m3u8 URLs
     const hlsMatches = html.matchAll(
       /https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/g,
     );
@@ -261,6 +257,7 @@ async function scrapeEmbedPage(
       out.push({ url, type: "hls", quality: null, sourceName });
     }
 
+    // Pattern 2: Direct .mp4 URLs
     const mp4Matches = html.matchAll(
       /https?:\/\/[^"'\s<>]+\.mp4(?:\?[^"'\s<>]*)?(?=["'\s<>]|$)/g,
     );
@@ -269,6 +266,44 @@ async function scrapeEmbedPage(
       if (seen.has(url)) continue;
       seen.add(url);
       out.push({ url, type: "mp4", quality: null, sourceName });
+    }
+
+    // Pattern 3: JSON sources in JS variables (streamsb, streamtape, etc.)
+    // Look for patterns like: sources: [{"file":"https://...","label":"720p"}]
+    // or: var sources = [{"file":"...","label":"..."}]
+    const jsonSourcePatterns = [
+      /sources\s*[:=]\s*(\[[\s\S]*?\])/g,
+      /\"file\"\s*:\s*\"(https?:\/\/[^\"]+)\"/g,
+      /\"src\"\s*:\s*\"(https?:\/\/[^\"]+)\"/g,
+      /player\.src\s*=\s*\"(https?:\/\/[^\"]+)\"/g,
+      /sources\s*=\s*\"(https?:\/\/[^\"]+)\"/g,
+    ];
+    for (const pattern of jsonSourcePatterns) {
+      for (const m of html.matchAll(pattern)) {
+        const url = cleanUrl(m[1]);
+        if (seen.has(url)) continue;
+        if (url.includes(".m3u8")) {
+          seen.add(url);
+          out.push({ url, type: "hls", quality: null, sourceName });
+        } else if (url.includes(".mp4")) {
+          seen.add(url);
+          out.push({ url, type: "mp4", quality: null, sourceName });
+        }
+      }
+    }
+
+    // Pattern 4: eval/packed JS (streamlare, streamsb use packed JS)
+    // Look for URLs in packed JavaScript
+    const packedUrlMatches = html.matchAll(
+      /https?:\/\/[^"'\s<>]{20,}(?:\/stream|\/download|\/dl|\/get)[^"'\s<>]*/gi,
+    );
+    for (const m of packedUrlMatches) {
+      const url = cleanUrl(m[0]);
+      if (seen.has(url)) continue;
+      if (url.includes(".mp4") || url.includes(".m3u8")) {
+        seen.add(url);
+        out.push({ url, type: url.includes(".m3u8") ? "hls" : "mp4", quality: null, sourceName });
+      }
     }
 
     return out;
