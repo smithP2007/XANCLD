@@ -63,9 +63,20 @@ app.get("/api/proxy", async (c) => {
 
   // Allowlist of hosts we'll proxy (prevents open relay)
   const ALLOWED_HOSTS = [
+    // AllAnime
     "api.allanime.day",
     "allanime.day",
     "allmanga.to",
+    // Gogoanime
+    "gogoanime3.co",
+    "gogoanime.hu",
+    "gogoanime.bid",
+    "ajax.gogocdn.net",
+    "gogocdn.net",
+    "gogoplay.io",
+    "streamani.net",
+    "gogostream.tv",
+    // Common embed hosts
     "tools.fast4speed.rsvp",
     "megacloud.tv",
     "vixcloud.co",

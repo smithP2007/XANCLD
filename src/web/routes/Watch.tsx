@@ -7,6 +7,7 @@ import {
   Star,
   Tv,
   Volume2,
+  Server,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
 import {
@@ -14,8 +15,19 @@ import {
   extractStreamUrl,
   type StreamResult,
 } from "../lib/allanime";
+import { extractGogoStream, type GogoSource } from "../lib/gogoanime";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
 import { VideoPlayer } from "../components/VideoPlayer";
+
+type Provider = "allanime" | "gogoanime";
+
+interface UnifiedSource {
+  url: string;
+  type: "hls" | "mp4" | "iframe";
+  quality: string | null;
+  sourceName: string;
+  provider: Provider;
+}
 
 export function Watch() {
   const { id } = useParams<{ id: string }>();
@@ -26,12 +38,57 @@ export function Watch() {
 
   const [settings] = useSettings();
   const [anime, setAnime] = useState<AnimeDetail | null>(null);
-  const [stream, setStream] = useState<StreamResult | null>(null);
-  const [allSources, setAllSources] = useState<StreamResult[]>([]);
+  const [stream, setStream] = useState<UnifiedSource | null>(null);
+  const [allSources, setAllSources] = useState<UnifiedSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"sub" | "dub">(settings.defaultMode);
   const [resumeTime, setResumeTime] = useState<number | undefined>(undefined);
+  const [provider, setProvider] = useState<Provider>("allanime");
+  const [providerStatus, setProviderStatus] = useState<Record<Provider, "idle" | "loading" | "done" | "error">>({
+    allanime: "idle",
+    gogoanime: "idle",
+  });
+
+  // Load stream from a specific provider
+  const loadFromProvider = async (prov: Provider, title: string) => {
+    setProviderStatus((prev) => ({ ...prev, [prov]: "loading" }));
+    try {
+      let sources: UnifiedSource[] = [];
+
+      if (prov === "allanime") {
+        const show = await findShowByAniListId(animeId, title);
+        if (!show) {
+          setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
+          return [];
+        }
+        const result = await extractStreamUrl(show._id, String(episode), mode);
+        sources = result.sources.map((s) => ({
+          url: s.url,
+          type: s.type,
+          quality: s.quality,
+          sourceName: s.sourceName,
+          provider: "allanime" as const,
+        }));
+      } else if (prov === "gogoanime") {
+        const result = await extractGogoStream(title, episode);
+        sources = result.sources.map((s: GogoSource) => ({
+          url: s.url,
+          type: s.type,
+          quality: s.quality,
+          sourceName: `Gogo-${s.quality}`,
+          provider: "gogoanime" as const,
+        }));
+      }
+
+      setProviderStatus((prev) => ({ ...prev, [prov]: sources.length > 0 ? "done" : "error" }));
+      return sources;
+    } catch (err) {
+      console.error(`[${prov}] failed:`, err);
+      setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
+      return [];
+    }
+  };
 
   useEffect(() => {
     if (!animeId) return;
@@ -39,6 +96,9 @@ export function Watch() {
       setLoading(true);
       setError(null);
       setStream(null);
+      setAllSources([]);
+      setProviderStatus({ allanime: "idle", gogoanime: "idle" });
+
       try {
         const detail = await fetchAnimeDetail(animeId);
         if (!detail) {
@@ -49,7 +109,7 @@ export function Watch() {
         setAnime(detail);
         const title = getTitle(detail.title);
         if (!title.trim()) {
-          setError("No title available to search AllAnime");
+          setError("No title available");
           setLoading(false);
           return;
         }
@@ -65,35 +125,38 @@ export function Watch() {
           setResumeTime(undefined);
         }
 
-        // Find the show on AllAnime
-        const show = await findShowByAniListId(animeId, title);
-        if (!show) {
-          setError("AllAnime couldn't find this anime. Try another title.");
+        // Try the selected provider first, then fall back to the other
+        const primaryProvider = provider;
+        const fallbackProvider = provider === "allanime" ? "gogoanime" : "allanime";
+
+        let sources = await loadFromProvider(primaryProvider, title);
+        if (sources.length === 0) {
+          console.log(`[${primaryProvider}] no sources, trying [${fallbackProvider}]...`);
+          sources = await loadFromProvider(fallbackProvider, title);
+        }
+
+        // Also try the fallback in the background for the source picker
+        loadFromProvider(fallbackProvider, title).then((extraSources) => {
+          if (extraSources.length > 0) {
+            setAllSources((prev) => {
+              const existing = new Set(prev.map((s) => s.url));
+              const newOnes = extraSources.filter((s) => !existing.has(s.url));
+              return [...prev, ...newOnes];
+            });
+          }
+        });
+
+        if (sources.length === 0) {
+          setError("No stream sources found from any provider. Try another episode or anime.");
           setLoading(false);
           return;
         }
 
-        // Extract stream URL (AES decryption + HTML scraping in browser)
-        const result = await extractStreamUrl(show._id, String(episode), mode);
-        if (result.sources.length === 0) {
-          setError(
-            `No stream sources found. Tried: ${result.failures
-              .map((f) => f.source)
-              .join(", ")}`,
-          );
-          setLoading(false);
-          return;
-        }
-
-        setAllSources(result.sources);
+        setAllSources(sources);
         // Prefer direct mp4/hls sources over iframe embeds
-        const directSources = result.sources.filter(
-          (s) => s.type === "mp4" || s.type === "hls",
-        );
-        const iframeSources = result.sources.filter(
-          (s) => s.type === "iframe",
-        );
-        const best = directSources[0] ?? iframeSources[0] ?? result.sources[0];
+        const directSources = sources.filter((s) => s.type === "mp4" || s.type === "hls");
+        const iframeSources = sources.filter((s) => s.type === "iframe");
+        const best = directSources[0] ?? iframeSources[0] ?? sources[0];
         if (best) {
           setStream(best);
         } else {
@@ -105,7 +168,12 @@ export function Watch() {
         setLoading(false);
       }
     })();
-  }, [animeId, episode, mode]);
+  }, [animeId, episode, mode, provider]);
+
+  // Convert UnifiedSource to StreamResult for VideoPlayer
+  const streamForPlayer = stream
+    ? { url: stream.url, type: stream.type, quality: stream.quality, sourceName: stream.sourceName }
+    : null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 space-y-6">
@@ -131,19 +199,33 @@ export function Watch() {
                 Loading episode {episode}…
               </p>
               <p className="text-xs text-white/40 mt-1">
-                Searching AllAnime + decrypting sources
+                Searching {provider} + decrypting sources
               </p>
             </div>
           ) : error ? (
             <div className="aspect-video bg-black rounded-2xl flex flex-col items-center justify-center border border-xan-border p-6 text-center">
               <p className="font-semibold text-foreground text-lg mb-2">Stream Unavailable</p>
               <p className="text-sm text-muted-foreground max-w-md">{error}</p>
+              {/* Show provider status */}
+              <div className="mt-4 flex items-center gap-3 text-xs">
+                {(["allanime", "gogoanime"] as const).map((p) => (
+                  <div key={p} className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${
+                      providerStatus[p] === "done" ? "bg-green-500" :
+                      providerStatus[p] === "error" ? "bg-red-500" :
+                      providerStatus[p] === "loading" ? "bg-yellow-500 animate-pulse" :
+                      "bg-zinc-600"
+                    }`} />
+                    <span className="text-muted-foreground">{p}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          ) : stream ? (
-            stream.type === "iframe" ? (
+          ) : streamForPlayer ? (
+            streamForPlayer.type === "iframe" ? (
               <div className="aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
                 <iframe
-                  src={stream.url}
+                  src={streamForPlayer.url}
                   className="w-full h-full"
                   allowFullScreen
                   allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
@@ -152,7 +234,7 @@ export function Watch() {
               </div>
             ) : (
               <VideoPlayer
-                stream={stream}
+                stream={streamForPlayer}
                 title={anime ? getTitle(anime.title) : "Loading..."}
                 episode={episode}
                 settings={settings}
@@ -256,6 +338,36 @@ export function Watch() {
 
         {/* ─── Sidebar ─── */}
         <div className="space-y-4">
+          {/* Provider selector */}
+          <div className="glass rounded-2xl p-4">
+            <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+              <Server className="h-4 w-4 text-xan-crimson" />
+              Provider
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              {(["allanime", "gogoanime"] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setProvider(p)}
+                  className={`px-3 py-2.5 rounded-xl text-xs font-semibold uppercase transition-all flex flex-col items-center gap-1 ${
+                    provider === p
+                      ? "bg-gradient-to-br from-xan-crimson to-xan-crimson-dark text-white shadow-md shadow-xan-crimson/30"
+                      : "bg-xan-card-hover text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {p}
+                  {providerStatus[p] !== "idle" && (
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      providerStatus[p] === "done" ? "bg-green-400" :
+                      providerStatus[p] === "error" ? "bg-red-400" :
+                      "bg-yellow-400 animate-pulse"
+                    }`} />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Episodes panel */}
           <div className="glass rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
@@ -325,20 +437,25 @@ export function Watch() {
                     key={i}
                     onClick={() => setStream(s)}
                     className={`block w-full text-left px-3 py-2 rounded-lg text-xs transition-all ${
-                      stream === s
+                      stream?.url === s.url
                         ? "bg-xan-crimson/15 text-foreground border border-xan-crimson/40"
                         : "hover:bg-xan-card-hover text-muted-foreground border border-transparent"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-mono font-medium">{s.sourceName}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase ${
-                        s.type === "iframe" ? "bg-purple-500/20 text-purple-400" :
-                        s.type === "hls" ? "bg-blue-500/20 text-blue-400" :
-                        "bg-green-500/20 text-green-400"
-                      }`}>
-                        {s.type}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="px-1 py-0.5 rounded text-[8px] uppercase bg-xan-card text-muted-foreground">
+                          {s.provider}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase ${
+                          s.type === "iframe" ? "bg-purple-500/20 text-purple-400" :
+                          s.type === "hls" ? "bg-blue-500/20 text-blue-400" :
+                          "bg-green-500/20 text-green-400"
+                        }`}>
+                          {s.type}
+                        </span>
+                      </div>
                     </div>
                   </button>
                 ))}
