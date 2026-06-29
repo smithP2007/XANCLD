@@ -161,23 +161,46 @@ export async function searchAllAnime(
     variables: { s: { query }, limit: 10 },
   };
 
-  try {
-    const res = await fetch("/api/proxy-post", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: "https://api.allanime.day/api/graphql", body }),
-    });
-    if (!res.ok) {
-      console.warn(`[AllAnime] search HTTP ${res.status}`);
+  // Retry up to 3 times (AllAnime rate-limits Cloudflare IPs)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch("/api/proxy-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: "https://api.allanime.day/api/graphql", body }),
+      });
+      if (!res.ok) {
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+          continue;
+        }
+        console.warn(`[AllAnime] search HTTP ${res.status}`);
+        return [];
+      }
+      const json: Record<string, unknown> = await res.json();
+
+      // Check for rate limit
+      if (json?.errors) {
+        const errMsg = (json.errors as Array<{ message?: string }>)[0]?.message || "";
+        if (errMsg.includes("Too many requests") && attempt < 2) {
+          console.warn(`[AllAnime] search rate limited, retrying in ${(attempt + 1) * 2}s...`);
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+          continue;
+        }
+      }
+
+      const data = json?.data as { shows?: { edges?: AllAnimeShow[] } } | undefined;
+      return data?.shows?.edges ?? [];
+    } catch (err) {
+      console.error("[AllAnime] search attempt", attempt + 1, "failed:", err);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
       return [];
     }
-    const json: Record<string, unknown> = await res.json();
-    const data = json?.data as { shows?: { edges?: AllAnimeShow[] } } | undefined;
-    return data?.shows?.edges ?? [];
-  } catch (err) {
-    console.error("[AllAnime] search failed:", err);
-    return [];
   }
+  return [];
 }
 
 // ─── AllAnime GraphQL: get episode sources ─────────────────────
@@ -199,36 +222,52 @@ export async function getEpisodeSources(
       }),
     });
 
-  try {
-    const res = await proxiedFetch(url);
-    const json: Record<string, unknown> = await res.json();
-    if (json?.errors) {
-      console.warn("[AllAnime] episode query errors:", (json.errors as Array<{ message?: string }>)[0]?.message);
+  // Retry up to 3 times with delays (AllAnime rate-limits Cloudflare IPs)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await proxiedFetch(url);
+      const json: Record<string, unknown> = await res.json();
+
+      // Check for rate limit error
+      if (json?.errors) {
+        const errMsg = (json.errors as Array<{ message?: string }>)[0]?.message || "";
+        if (errMsg.includes("Too many requests") && attempt < 2) {
+          console.warn(`[AllAnime] rate limited, retrying in ${(attempt + 1) * 2}s...`);
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+          continue;
+        }
+        console.warn("[AllAnime] episode query errors:", errMsg);
+        return null;
+      }
+
+      const data = json?.data as
+        | { episode?: { sourceUrls?: SourceUrl[] }; tobeparsed?: string }
+        | undefined;
+
+      // Case 1: response is cleartext
+      if (data?.episode?.sourceUrls) {
+        return data.episode.sourceUrls;
+      }
+
+      // Case 2: response is encrypted (tobeparsed)
+      if (data?.tobeparsed) {
+        const decrypted = (await decryptTobeparsed(data.tobeparsed)) as
+          | { episode?: { sourceUrls?: SourceUrl[] } | null }
+          | null;
+        return decrypted?.episode?.sourceUrls ?? null;
+      }
+
+      return null;
+    } catch (err) {
+      console.error("[AllAnime] getEpisodeSources attempt", attempt + 1, "failed:", err);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
       return null;
     }
-
-    const data = json?.data as
-      | { episode?: { sourceUrls?: SourceUrl[] }; tobeparsed?: string }
-      | undefined;
-
-    // Case 1: response is cleartext
-    if (data?.episode?.sourceUrls) {
-      return data.episode.sourceUrls;
-    }
-
-    // Case 2: response is encrypted (tobeparsed)
-    if (data?.tobeparsed) {
-      const decrypted = (await decryptTobeparsed(data.tobeparsed)) as
-        | { episode?: { sourceUrls?: SourceUrl[] } | null }
-        | null;
-      return decrypted?.episode?.sourceUrls ?? null;
-    }
-
-    return null;
-  } catch (err) {
-    console.error("[AllAnime] getEpisodeSources failed:", err);
-    return null;
   }
+  return null;
 }
 
 // ─── Embed page HTML scraper (client-side via DOMParser) ───────
