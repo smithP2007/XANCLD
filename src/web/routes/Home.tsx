@@ -80,7 +80,7 @@ export function Home() {
       {/* Hero */}
       {trending.length > 0 && <HeroCarousel anime={trending} />}
 
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-10 md:py-14 space-y-12 md:space-y-16">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-14 space-y-10 md:space-y-14">
         {/* Continue Watching (auto-hides if empty) */}
         <ContinueWatching />
 
@@ -94,7 +94,7 @@ export function Home() {
             {trending.map((a, idx) => (
               <div
                 key={a.id}
-                className="flex-shrink-0 w-[160px] sm:w-[180px] snap-start"
+                className="flex-shrink-0 w-[150px] sm:w-[170px] md:w-[180px] snap-start"
               >
                 <AnimeCard anime={a} index={idx} />
               </div>
@@ -112,7 +112,7 @@ export function Home() {
             {popular.map((a, idx) => (
               <div
                 key={a.id}
-                className="flex-shrink-0 w-[160px] sm:w-[180px] snap-start"
+                className="flex-shrink-0 w-[150px] sm:w-[170px] md:w-[180px] snap-start"
               >
                 <AnimeCard anime={a} index={idx} />
               </div>
@@ -123,18 +123,19 @@ export function Home() {
         {/* Top picks grid — flat grid of popular anime */}
         {popular.length > 6 && (
           <section className="space-y-4">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-xan-card border border-xan-border flex items-center justify-center">
+            <div className="flex items-center gap-3">
+              <div className="w-1 h-7 rounded-full bg-gradient-to-b from-xan-crimson to-xan-violet" />
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-xan-crimson/15 to-xan-violet/15 border border-xan-border flex items-center justify-center">
                 <Flame className="h-4 w-4 text-xan-crimson" />
               </div>
               <div>
-                <h2 className="text-lg md:text-xl font-bold font-display text-foreground">
+                <h2 className="text-base md:text-xl font-bold font-display text-foreground">
                   More to Explore
                 </h2>
-                <p className="text-[11px] text-muted-foreground">Discover something new</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Discover something new</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
               {popular.slice(6).map((a, idx) => (
                 <AnimeCard key={a.id} anime={a} index={idx} />
               ))}

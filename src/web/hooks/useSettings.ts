@@ -39,7 +39,7 @@ const DEFAULTS: XanSettings = {
   tvMode: false,
   bandwidthMode: "auto",
   preferredProvider: "allanime",
-  disabledSources: [],
+  disabledSources: ["gogoanime"],
   pinnedSource: null,
   enhancerEnabled: true,
 };

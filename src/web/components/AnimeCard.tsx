@@ -27,12 +27,12 @@ export function AnimeCard({ anime, index = 0 }: Props) {
       style={{ "--card-index": index } as React.CSSProperties}
     >
       <Link to={`/anime/${anime.id}`} className="block">
-        <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-xan-card border border-xan-border transition-all duration-300 group-hover:border-xan-crimson/40 group-hover:shadow-[0_8px_30px_rgba(0,0,0,0.4)]">
+        <div className="relative aspect-[2/3] rounded-2xl overflow-hidden bg-xan-card border border-xan-border transition-all duration-500 group-hover:border-xan-crimson/50 group-hover:shadow-[0_12px_40px_rgba(0,0,0,0.5),0_0_0_1px_rgba(233,69,96,0.1)] group-hover:-translate-y-1">
           <img
             src={image}
             alt={title}
             loading="lazy"
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
             onError={(e) => {
               (e.target as HTMLImageElement).src = "/placeholder.svg";
             }}
