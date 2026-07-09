@@ -113,18 +113,26 @@ export function VideoEnhancerPanel({ open, onClose }: Props) {
           </button>
         </div>
 
-        {/* Built-in presets — compact grid */}
+        {/* Built-in presets — compact grid with active highlight */}
         <p className="text-[10px] uppercase tracking-wider text-white/50 font-semibold mb-1.5">Presets</p>
         <div className="grid grid-cols-4 sm:grid-cols-5 gap-1 mb-3">
-          {Object.entries(ENHANCER_PRESETS).map(([id, preset]) => (
-            <button
-              key={id}
-              onClick={() => enhancer.applyPreset(id as keyof typeof ENHANCER_PRESETS)}
-              className="px-1 py-1.5 rounded-md text-[10px] font-medium bg-white/5 border border-white/10 hover:border-xan-crimson/40 hover:bg-white/10 text-white/80 hover:text-white transition-all"
-            >
-              {preset.label}
-            </button>
-          ))}
+          {Object.entries(ENHANCER_PRESETS).map(([id, preset]) => {
+            const isActive = enhancer.matchedPresetId === id;
+            return (
+              <button
+                key={id}
+                onClick={() => enhancer.applyPreset(id as keyof typeof ENHANCER_PRESETS)}
+                className={`relative px-1 py-1.5 rounded-md text-[10px] font-medium transition-all border ${
+                  isActive
+                    ? "bg-xan-crimson/25 border-xan-crimson/50 text-white"
+                    : "bg-white/5 border-white/10 hover:border-xan-crimson/40 hover:bg-white/10 text-white/80 hover:text-white"
+                }`}
+              >
+                {preset.label}
+                {isActive && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-xan-crimson" />}
+              </button>
+            );
+          })}
         </div>
 
         {/* Custom presets — collapsible */}
@@ -176,26 +184,36 @@ export function VideoEnhancerPanel({ open, onClose }: Props) {
             {/* Saved presets list */}
             {enhancer.customPresets.length > 0 ? (
               <div className="space-y-1">
-                {enhancer.customPresets.map((cp) => (
-                  <div
-                    key={cp.id}
-                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-white/5 border border-white/10 group"
-                  >
-                    <button
-                      onClick={() => enhancer.applyCustomPreset(cp.id)}
-                      className="flex-1 text-left text-xs text-white/80 hover:text-white font-medium transition-colors"
+                {enhancer.customPresets.map((cp) => {
+                  const isActive = enhancer.matchedCustomPresetId === cp.id;
+                  return (
+                    <div
+                      key={cp.id}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border group transition-colors ${
+                        isActive
+                          ? "bg-xan-crimson/20 border-xan-crimson/40"
+                          : "bg-white/5 border-white/10"
+                      }`}
                     >
-                      {cp.name}
-                    </button>
-                    <button
-                      onClick={() => enhancer.deleteCustomPreset(cp.id)}
-                      className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 transition-all p-0.5"
-                      aria-label="Delete preset"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        onClick={() => enhancer.applyCustomPreset(cp.id)}
+                        className={`flex-1 text-left text-xs font-medium transition-colors ${
+                          isActive ? "text-white" : "text-white/80 hover:text-white"
+                        }`}
+                      >
+                        {cp.name}
+                      </button>
+                      {isActive && <span className="w-1.5 h-1.5 rounded-full bg-xan-crimson" />}
+                      <button
+                        onClick={() => enhancer.deleteCustomPreset(cp.id)}
+                        className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 transition-all p-0.5"
+                        aria-label="Delete preset"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-[10px] text-white/30 text-center py-1">No saved presets yet</p>

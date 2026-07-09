@@ -260,6 +260,48 @@ export function useVideoEnhancer() {
   const filterCss = useMemo(() => buildEnhancerFilterCss(state), [state]);
   const active = useMemo(() => isEnhancerActive(state), [state]);
 
+  // ─── Detect which preset is currently applied ───
+  // Checks if current state matches any built-in or custom preset
+  const matchedPresetId = useMemo(() => {
+    for (const [id, preset] of Object.entries(ENHANCER_PRESETS)) {
+      const v = preset.values;
+      if (
+        state.brightness === v.brightness &&
+        state.contrast === v.contrast &&
+        state.saturation === v.saturation &&
+        state.hue === v.hue &&
+        state.blur === v.blur &&
+        state.sepia === v.sepia &&
+        state.grayscale === v.grayscale &&
+        Math.abs(state.gamma - v.gamma) < 0.001 &&
+        state.sharpen === v.sharpen
+      ) {
+        return id;
+      }
+    }
+    return null;
+  }, [state]);
+
+  const matchedCustomPresetId = useMemo(() => {
+    for (const cp of customPresets) {
+      const v = cp.values;
+      if (
+        state.brightness === v.brightness &&
+        state.contrast === v.contrast &&
+        state.saturation === v.saturation &&
+        state.hue === v.hue &&
+        state.blur === v.blur &&
+        state.sepia === v.sepia &&
+        state.grayscale === v.grayscale &&
+        Math.abs(state.gamma - v.gamma) < 0.001 &&
+        state.sharpen === v.sharpen
+      ) {
+        return cp.id;
+      }
+    }
+    return null;
+  }, [state, customPresets]);
+
   // Clear peeking when enhancer is turned off
   useEffect(() => {
     if (!active) setPeeking(false);
@@ -343,5 +385,8 @@ export function useVideoEnhancer() {
     applyCustomPreset,
     deleteCustomPreset,
     canSaveMoreCustom: customPresets.length < MAX_CUSTOM_PRESETS,
+    // Currently matched preset (for highlighting)
+    matchedPresetId,
+    matchedCustomPresetId,
   };
 }

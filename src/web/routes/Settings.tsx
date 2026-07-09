@@ -355,20 +355,26 @@ export function Settings() {
               Built-in Presets
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {Object.entries(ENHANCER_PRESET_LIST).map(([id, preset]) => (
-                <button
-                  key={id}
-                  onClick={() => enhancer.applyPreset(id as keyof typeof ENHANCER_PRESET_LIST)}
-                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border ${
-                    enhancer.state.enabled
-                      ? "bg-xan-card border-xan-border hover:border-xan-crimson/50 hover:bg-xan-crimson/10 hover:text-foreground text-muted-foreground"
-                      : "bg-xan-card/50 border-xan-border/50 text-muted-foreground/40 cursor-not-allowed"
-                  }`}
-                  disabled={!enhancer.state.enabled}
-                >
-                  {preset.label}
-                </button>
-              ))}
+              {Object.entries(ENHANCER_PRESET_LIST).map(([id, preset]) => {
+                const isActive = enhancer.matchedPresetId === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => enhancer.applyPreset(id as keyof typeof ENHANCER_PRESET_LIST)}
+                    className={`relative px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border ${
+                      !enhancer.state.enabled
+                        ? "bg-xan-card/50 border-xan-border/50 text-muted-foreground/40 cursor-not-allowed"
+                        : isActive
+                          ? "bg-xan-crimson/20 border-xan-crimson/50 text-foreground"
+                          : "bg-xan-card border-xan-border hover:border-xan-crimson/50 hover:bg-xan-crimson/10 hover:text-foreground text-muted-foreground"
+                    }`}
+                    disabled={!enhancer.state.enabled}
+                  >
+                    {preset.label}
+                    {isActive && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-xan-crimson" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -395,30 +401,40 @@ export function Settings() {
             {/* Saved presets list */}
             {enhancer.customPresets.length > 0 ? (
               <div className="mt-2 space-y-1">
-                {enhancer.customPresets.map((cp) => (
-                  <div
-                    key={cp.id}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-xan-card/60 border border-xan-border group hover:border-xan-crimson/30 transition-colors"
-                  >
-                    <button
-                      onClick={() => enhancer.applyCustomPreset(cp.id)}
-                      disabled={!enhancer.state.enabled}
-                      className="flex-1 text-left text-xs text-foreground font-medium hover:text-xan-crimson transition-colors disabled:opacity-40"
+                {enhancer.customPresets.map((cp) => {
+                  const isActive = enhancer.matchedCustomPresetId === cp.id;
+                  return (
+                    <div
+                      key={cp.id}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border group transition-colors ${
+                        isActive
+                          ? "bg-xan-crimson/15 border-xan-crimson/40"
+                          : "bg-xan-card/60 border-xan-border hover:border-xan-crimson/30"
+                      }`}
                     >
-                      {cp.name}
-                    </button>
-                    <span className="text-[9px] text-muted-foreground/50">
-                      B{cp.values.brightness} C{cp.values.contrast} S{cp.values.saturation}
-                    </span>
-                    <button
-                      onClick={() => enhancer.deleteCustomPreset(cp.id)}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all p-0.5"
-                      aria-label="Delete preset"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        onClick={() => enhancer.applyCustomPreset(cp.id)}
+                        disabled={!enhancer.state.enabled}
+                        className={`flex-1 text-left text-xs font-medium transition-colors disabled:opacity-40 ${
+                          isActive ? "text-foreground" : "text-foreground hover:text-xan-crimson"
+                        }`}
+                      >
+                        {cp.name}
+                      </button>
+                      {isActive && <span className="w-1.5 h-1.5 rounded-full bg-xan-crimson" />}
+                      <span className="text-[9px] text-muted-foreground/50">
+                        B{cp.values.brightness} C{cp.values.contrast} S{cp.values.saturation}
+                      </span>
+                      <button
+                        onClick={() => enhancer.deleteCustomPreset(cp.id)}
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all p-0.5"
+                        aria-label="Delete preset"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-[11px] text-muted-foreground/40 italic mt-1">
