@@ -308,6 +308,21 @@ export function Watch() {
                     allowFullScreen
                     allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                     referrerPolicy="no-referrer-when-downgrade"
+                    onLoad={() => {
+                      // Save to history when iframe loads (iframe players don't
+                      // report progress, so we record at least that the user
+                      // started watching this episode)
+                      if (anime) {
+                        addToHistory({
+                          animeId,
+                          title: getTitle(anime.title),
+                          coverImage: anime.coverImage?.large ?? "",
+                          episode,
+                          timestamp: 0,
+                          duration: 0,
+                        });
+                      }
+                    }}
                   />
                 </div>
                 {/* Enhancer panel overlay */}
