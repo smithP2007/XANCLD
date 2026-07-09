@@ -8,6 +8,7 @@ import {
   Tv,
   Volume2,
   Server,
+  Sun,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
 import {
@@ -19,6 +20,9 @@ import { extractGogoStream, type GogoSource } from "../lib/gogoanime";
 import { getKotoSource } from "../lib/providers/koto";
 import { fetchZenSources } from "../lib/providers/zen";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
+import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
+import { VideoEnhancerPanel } from "../components/VideoEnhancerPanel";
+import { VideoEnhancerFilters } from "../components/VideoEnhancerFilters";
 import { VideoPlayer } from "../components/VideoPlayer";
 
 type Provider = "allanime" | "koto" | "zen" | "gogoanime";
@@ -48,6 +52,8 @@ export function Watch() {
   const [resumeTime, setResumeTime] = useState<number | undefined>(undefined);
   const [provider, setProvider] = useState<Provider>(settings.preferredProvider);
   const [autoPlayNext, setAutoPlayNext] = useState(false);
+  const [showEnhancer, setShowEnhancer] = useState(false);
+  const enhancer = useVideoEnhancer();
   const [providerStatus, setProviderStatus] = useState<Record<Provider, "idle" | "loading" | "done" | "error">>({
     allanime: "idle",
     koto: "idle",
@@ -275,15 +281,35 @@ export function Watch() {
                     </span>
                   </div>
                 )}
-                <div className="aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
+                {/* Enhancer toggle for iframe */}
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setShowEnhancer(true)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      enhancer.active
+                        ? "bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30"
+                        : "glass text-muted-foreground hover:text-foreground border border-xan-border"
+                    }`}
+                  >
+                    <Sun className="h-3.5 w-3.5" />
+                    Enhancer
+                    {enhancer.active && <span className="w-1.5 h-1.5 rounded-full bg-xan-crimson animate-pulse" />}
+                  </button>
+                </div>
+                <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
+                  {/* SVG filter defs for gamma + sharpen */}
+                  <VideoEnhancerFilters state={enhancer.rawState} />
                   <iframe
                     src={streamForPlayer.url}
                     className="w-full h-full"
+                    style={enhancer.active ? { filter: enhancer.filterCss } : undefined}
                     allowFullScreen
                     allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                     referrerPolicy="no-referrer-when-downgrade"
                   />
                 </div>
+                {/* Enhancer panel overlay */}
+                <VideoEnhancerPanel open={showEnhancer} onClose={() => setShowEnhancer(false)} />
               </div>
             ) : (
               <VideoPlayer

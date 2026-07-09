@@ -19,12 +19,9 @@ import type { StreamResult } from "../lib/allanime";
 import type { XanSettings } from "../hooks/useSettings";
 import { KeyboardShortcutsOverlay } from "./KeyboardShortcutsOverlay";
 import { AutoPlayOverlay } from "./AutoPlayOverlay";
-import {
-  VideoEnhancerPanel,
-  useVideoEnhancer,
-  enhancerFilterCss,
-  isEnhancerActive,
-} from "./VideoEnhancerPanel";
+import { VideoEnhancerPanel } from "./VideoEnhancerPanel";
+import { VideoEnhancerFilters } from "./VideoEnhancerFilters";
+import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
 
 interface VideoPlayerProps {
   stream: StreamResult;
@@ -100,7 +97,7 @@ export function VideoPlayer({
   const [tapRipples, setTapRipples] = useState<TapRipple[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showEnhancer, setShowEnhancer] = useState(false);
-  const [enhancer, setEnhancer] = useVideoEnhancer();
+  const enhancer = useVideoEnhancer();
 
   // ─── Load stream ───
   useEffect(() => {
@@ -443,6 +440,8 @@ export function VideoPlayer({
           onPrev?.();
           break;
         case "e":
+          e.preventDefault();
+          enhancer.toggleEnabled();
           setShowEnhancer((v) => !v);
           break;
         case "?":
@@ -484,7 +483,7 @@ export function VideoPlayer({
   const pct = duration > 0 ? (current / duration) * 100 : 0;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
   const remainingTime = duration > 0 ? duration - current : 0;
-  const enhancerActive = settings.enhancerEnabled && isEnhancerActive(enhancer);
+  const enhancerActive = enhancer.active;
 
   return (
     <div
@@ -493,11 +492,14 @@ export function VideoPlayer({
       onMouseMove={showControlsTemporarily}
       onMouseLeave={() => playing && setShowControls(false)}
     >
+      {/* SVG filter defs for gamma + sharpen (hidden, referenced by url(#xan-enhancer)) */}
+      <VideoEnhancerFilters state={enhancer.rawState} />
+
       {/* Video element */}
       <video
         ref={videoRef}
         className="w-full h-full"
-        style={{ filter: enhancerActive ? enhancerFilterCss(enhancer) : undefined }}
+        style={enhancer.active ? { filter: enhancer.filterCss } : undefined}
         playsInline
         onClick={handleVideoClick}
         crossOrigin="anonymous"
@@ -828,8 +830,6 @@ export function VideoPlayer({
       <KeyboardShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
       <VideoEnhancerPanel
         open={showEnhancer}
-        settings={enhancer}
-        onChange={setEnhancer}
         onClose={() => setShowEnhancer(false)}
       />
       <AutoPlayOverlay

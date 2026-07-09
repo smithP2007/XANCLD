@@ -29,6 +29,11 @@ import {
   SkipBack,
 } from "lucide-react";
 import { useSettings, clearHistory, getHistory } from "../hooks/useSettings";
+import {
+  useVideoEnhancer,
+  ENHANCER_PRESETS as ENHANCER_PRESET_LIST,
+  type EnhancerState,
+} from "../hooks/useVideoEnhancer";
 
 interface Section {
   id: string;
@@ -52,39 +57,7 @@ export function Settings() {
   const [activeSection, setActiveSection] = useState<string>("appearance");
   const [searchQuery, setSearchQuery] = useState("");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
-  const [enhancer, setEnhancer] = useState<EnhancerState>({
-    brightness: 1,
-    contrast: 1,
-    saturation: 1,
-    hue: 0,
-    gamma: 1,
-    sharpen: 0,
-    blur: 0,
-    sepia: 0,
-    grayscale: 0,
-  });
-
-  const updateEnhancer = (next: EnhancerState) => {
-    setEnhancer(next);
-    localStorage.setItem("xan:video-enhancer", JSON.stringify(next));
-  };
-
-  // Load enhancer settings on mount
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("xan:video-enhancer");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setEnhancer({
-          brightness: 1, contrast: 1, saturation: 1,
-          hue: 0, gamma: 1, sharpen: 0, blur: 0, sepia: 0, grayscale: 0,
-          ...parsed,
-        });
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
+  const enhancer = useVideoEnhancer();
 
   // Scroll-spy: highlight current section in nav
   useEffect(() => {
@@ -328,134 +301,134 @@ export function Settings() {
           id="enhancer"
           icon={Sliders}
           title="Video Enhancer"
-          desc="Color grading for the video player — brightness, contrast, saturation, hue, gamma, and more. Press E while watching to toggle."
+          desc="Color grading for the video player — 9 controls + 20 built-in presets. Applies to both video and iframe players. Press E while watching to toggle."
         >
           <Row
             label="Enable Video Enhancer"
             desc="When on, color grading is applied to the video. When off, all filters are bypassed. Press E in the player to toggle."
           >
             <Toggle
-              checked={settings.enhancerEnabled}
-              onChange={(v) => update({ enhancerEnabled: v })}
+              checked={enhancer.state.enabled}
+              onChange={() => enhancer.toggleEnabled()}
             />
           </Row>
           <Row
             label="Built-in presets"
             desc="Quick one-tap color grading. Click to apply — enhancer turns on automatically."
           >
-            <div className="flex flex-wrap gap-1.5 justify-end">
-              {ENHANCER_PRESETS.map((p) => (
+            <div className="flex flex-wrap gap-1.5 justify-end max-w-md">
+              {Object.entries(ENHANCER_PRESET_LIST).map(([id, preset]) => (
                 <button
-                  key={p.name}
-                  onClick={() => {
-                    const next = { ...p.values };
-                    setEnhancer(next);
-                    localStorage.setItem("xan:video-enhancer", JSON.stringify(next));
-                    if (!settings.enhancerEnabled) update({ enhancerEnabled: true });
-                  }}
+                  key={id}
+                  onClick={() => enhancer.applyPreset(id as keyof typeof ENHANCER_PRESET_LIST)}
                   className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-xan-card border border-xan-border hover:border-xan-crimson/40 hover:text-foreground text-muted-foreground transition-colors"
                 >
-                  {p.name}
+                  {preset.label}
                 </button>
               ))}
             </div>
           </Row>
           <EnhancerRow
             label="Brightness"
-            value={enhancer.brightness}
-            min={0.5}
-            max={1.5}
-            step={0.05}
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, brightness: v })}
+            value={enhancer.state.brightness}
+            min={0}
+            max={200}
+            step={1}
+            neutral={100}
+            unit="%"
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("brightness", v)}
           />
           <EnhancerRow
             label="Contrast"
-            value={enhancer.contrast}
-            min={0.5}
-            max={1.5}
-            step={0.05}
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, contrast: v })}
+            value={enhancer.state.contrast}
+            min={0}
+            max={200}
+            step={1}
+            neutral={100}
+            unit="%"
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("contrast", v)}
           />
           <EnhancerRow
             label="Saturation"
-            value={enhancer.saturation}
+            value={enhancer.state.saturation}
             min={0}
-            max={2}
-            step={0.05}
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, saturation: v })}
+            max={200}
+            step={1}
+            neutral={100}
+            unit="%"
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("saturation", v)}
           />
           <EnhancerRow
             label="Hue"
-            value={enhancer.hue ?? 0}
-            min={0}
-            max={360}
+            value={enhancer.state.hue}
+            min={-180}
+            max={180}
             step={5}
+            neutral={0}
             unit="°"
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, hue: v })}
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("hue", v)}
           />
           <EnhancerRow
             label="Gamma"
-            value={enhancer.gamma ?? 1}
-            min={0.5}
-            max={2}
+            value={enhancer.state.gamma}
+            min={0.2}
+            max={3.0}
             step={0.05}
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, gamma: v })}
+            neutral={1.0}
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("gamma", v)}
           />
           <EnhancerRow
             label="Sharpen"
-            value={enhancer.sharpen ?? 0}
+            value={enhancer.state.sharpen}
             min={0}
             max={100}
             step={5}
+            neutral={0}
             unit="%"
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, sharpen: v })}
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("sharpen", v)}
           />
           <EnhancerRow
             label="Blur"
-            value={enhancer.blur ?? 0}
+            value={enhancer.state.blur}
             min={0}
             max={10}
             step={0.5}
+            neutral={0}
             unit="px"
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, blur: v })}
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("blur", v)}
           />
           <EnhancerRow
             label="Sepia"
-            value={enhancer.sepia ?? 0}
+            value={enhancer.state.sepia}
             min={0}
             max={100}
             step={5}
+            neutral={0}
             unit="%"
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, sepia: v })}
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("sepia", v)}
           />
           <EnhancerRow
             label="Grayscale"
-            value={enhancer.grayscale ?? 0}
+            value={enhancer.state.grayscale}
             min={0}
             max={100}
             step={5}
+            neutral={0}
             unit="%"
-            disabled={!settings.enhancerEnabled}
-            onChange={(v) => updateEnhancer({ ...enhancer, grayscale: v })}
+            disabled={!enhancer.state.enabled}
+            onChange={(v) => enhancer.update("grayscale", v)}
           />
           <Row label="Reset enhancer" desc="Restore all enhancer values to defaults">
             <button
-              onClick={() => {
-                const next = {
-                  brightness: 1, contrast: 1, saturation: 1,
-                  hue: 0, gamma: 1, sharpen: 0, blur: 0, sepia: 0, grayscale: 0,
-                };
-                setEnhancer(next);
-                localStorage.setItem("xan:video-enhancer", JSON.stringify(next));
-              }}
+              onClick={enhancer.reset}
               className="px-3 py-1.5 rounded-lg bg-xan-card border border-xan-border hover:border-xan-crimson/40 text-sm text-muted-foreground hover:text-xan-crimson transition-all flex items-center gap-1.5"
             >
               <RotateCcw className="h-3.5 w-3.5" /> Reset
@@ -716,48 +689,7 @@ function EnhancerSlider({
 }
 
 // ─── Video Enhancer types & data ───
-interface EnhancerState {
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  hue?: number;
-  gamma?: number;
-  sharpen?: number;
-  blur?: number;
-  sepia?: number;
-  grayscale?: number;
-}
-
-const ENHANCER_PRESETS: { name: string; values: EnhancerState }[] = [
-  {
-    name: "Vivid",
-    values: { brightness: 1.05, contrast: 1.15, saturation: 1.3, hue: 0, gamma: 1, sharpen: 0, blur: 0, sepia: 0, grayscale: 0 },
-  },
-  {
-    name: "Cinema",
-    values: { brightness: 0.95, contrast: 1.1, saturation: 0.9, hue: 0, gamma: 1.1, sharpen: 0, blur: 0, sepia: 5, grayscale: 0 },
-  },
-  {
-    name: "Warm",
-    values: { brightness: 1.05, contrast: 1, saturation: 1.1, hue: 10, gamma: 1, sharpen: 0, blur: 0, sepia: 15, grayscale: 0 },
-  },
-  {
-    name: "Cool",
-    values: { brightness: 1, contrast: 1.05, saturation: 0.95, hue: 350, gamma: 1, sharpen: 0, blur: 0, sepia: 0, grayscale: 0 },
-  },
-  {
-    name: "Sharp",
-    values: { brightness: 1, contrast: 1.1, saturation: 1, hue: 0, gamma: 1, sharpen: 40, blur: 0, sepia: 0, grayscale: 0 },
-  },
-  {
-    name: "B&W",
-    values: { brightness: 1.05, contrast: 1.2, saturation: 0, hue: 0, gamma: 1, sharpen: 0, blur: 0, sepia: 0, grayscale: 100 },
-  },
-  {
-    name: "Dreamy",
-    values: { brightness: 1.1, contrast: 0.9, saturation: 1.2, hue: 5, gamma: 0.9, sharpen: 0, blur: 1, sepia: 10, grayscale: 0 },
-  },
-];
+// EnhancerState + ENHANCER_PRESETS are now imported from ../hooks/useVideoEnhancer
 
 function EnhancerRow({
   label,
@@ -765,6 +697,7 @@ function EnhancerRow({
   min,
   max,
   step,
+  neutral,
   unit = "",
   disabled,
   onChange,
@@ -774,12 +707,16 @@ function EnhancerRow({
   min: number;
   max: number;
   step: number;
+  neutral?: number;
   unit?: string;
   disabled?: boolean;
   onChange: (v: number) => void;
 }) {
   const pct = ((value - min) / (max - min)) * 100;
-  const display = unit === "°" ? Math.round(value) : unit === "%" ? Math.round(value) : value.toFixed(2);
+  const isDefault = neutral !== undefined && Math.abs(value - neutral) < 0.001;
+  const display = unit === "°" || unit === "%"
+    ? Math.round(value)
+    : value.toFixed(2);
   return (
     <div
       className={`flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0 ${
@@ -788,7 +725,9 @@ function EnhancerRow({
     >
       <div className="min-w-0 flex-1">
         <p className="font-medium text-sm text-foreground">{label}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">Current: {display}{unit}</p>
+        <p className={`text-xs mt-0.5 ${isDefault ? "text-muted-foreground" : "text-xan-crimson"}`}>
+          {isDefault ? "Default" : `${display}${unit}`}
+        </p>
       </div>
       <div className="shrink-0 flex items-center gap-3">
         <div className="relative w-32">
@@ -811,7 +750,7 @@ function EnhancerRow({
               [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
           />
         </div>
-        <span className="text-xs font-mono text-muted-foreground w-12 text-right">
+        <span className={`text-xs font-mono w-12 text-right ${isDefault ? "text-muted-foreground" : "text-xan-crimson"}`}>
           {display}{unit}
         </span>
       </div>
