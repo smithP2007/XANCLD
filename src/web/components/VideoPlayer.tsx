@@ -20,7 +20,6 @@ import type { XanSettings } from "../hooks/useSettings";
 import { KeyboardShortcutsOverlay } from "./KeyboardShortcutsOverlay";
 import { AutoPlayOverlay } from "./AutoPlayOverlay";
 import { VideoEnhancerPanel } from "./VideoEnhancerPanel";
-import { VideoEnhancerFilters } from "./VideoEnhancerFilters";
 import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
 
 interface VideoPlayerProps {
@@ -492,14 +491,17 @@ export function VideoPlayer({
       onMouseMove={showControlsTemporarily}
       onMouseLeave={() => playing && setShowControls(false)}
     >
-      {/* SVG filter defs for gamma + sharpen (hidden, referenced by url(#xan-enhancer)) */}
-      <VideoEnhancerFilters state={enhancer.rawState} />
-
       {/* Video element */}
       <video
         ref={videoRef}
         className="w-full h-full"
-        style={enhancer.active ? { filter: enhancer.filterCss } : undefined}
+        style={enhancer.active ? {
+          filter: enhancer.filterCss,
+          willChange: "filter",
+          // Force GPU compositing layer so the filter runs on the GPU, not CPU
+          transform: "translateZ(0)",
+          backfaceVisibility: "hidden",
+        } : undefined}
         playsInline
         onClick={handleVideoClick}
         crossOrigin="anonymous"

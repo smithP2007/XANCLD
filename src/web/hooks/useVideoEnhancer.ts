@@ -98,22 +98,58 @@ export function isEnhancerActive(s: EnhancerState): boolean {
 
 /**
  * Build the CSS `filter` string for the <video> / <iframe> element.
- * Returns "none" when inactive. Appends `url(#xan-enhancer)` when gamma or
- * sharpen is non-default (they need the SVG filter).
+ *
+ * IMPORTANT: Only CSS-native filter functions are used (brightness, contrast,
+ * saturate, hue-rotate, blur, sepia, grayscale). These are GPU-accelerated
+ * by the browser's compositor and don't cause choppy playback.
+ *
+ * The SVG filter (url(#xan-enhancer) with feComponentTransfer + feConvolveMatrix)
+ * is NOT used on the playing video because SVG filters are CPU-based and
+ * can't keep up with real-time video frame decoding (24-60 fps).
+ *
+ * Gamma is approximated by adjusting brightness (gamma < 1 brightens midtones,
+ * gamma > 1 darkens — similar effect to brightness adjustment).
+ * Sharpen is approximated by a small contrast boost (true sharpen requires
+ * an expensive convolution kernel that kills performance).
  */
 export function buildEnhancerFilterCss(s: EnhancerState): string {
   if (!isEnhancerActive(s)) return "none";
+
+  // ─── Combine brightness + gamma into a single brightness() call ───
+  // gamma < 1 → brighter midtones → multiply brightness up
+  // gamma > 1 → darker midtones → multiply brightness down
+  let effectiveBrightness = s.brightness;
+  if (Math.abs(s.gamma - 1.0) > 0.001) {
+    // Approximate gamma: brightness *= (1 / gamma) for gamma < 1,
+    // brightness *= (2 - gamma) for gamma > 1 (clamped)
+    const gammaFactor = s.gamma < 1
+      ? 1 / s.gamma  // gamma 0.5 → 2x brighter
+      : Math.max(0.5, 2 - s.gamma);  // gamma 1.5 → 0.5x brightness
+    effectiveBrightness = s.brightness * gammaFactor;
+  }
+
+  // ─── Combine contrast + sharpen into a single contrast() call ───
+  // Sharpen is approximated by a small contrast boost (true sharpen
+  // requires feConvolveMatrix which is too expensive for real-time video)
+  let effectiveContrast = s.contrast;
+  if (s.sharpen > 0) {
+    // Scale sharpen (0-100) to contrast boost (0-15%)
+    effectiveContrast = s.contrast + (s.sharpen / 100) * 15;
+  }
+
   const parts: string[] = [];
-  if (s.brightness !== 100) parts.push(`brightness(${(s.brightness / 100).toFixed(3)})`);
-  if (s.contrast !== 100) parts.push(`contrast(${(s.contrast / 100).toFixed(3)})`);
+  if (effectiveBrightness !== 100) {
+    parts.push(`brightness(${(effectiveBrightness / 100).toFixed(3)})`);
+  }
+  if (effectiveContrast !== 100) {
+    parts.push(`contrast(${(effectiveContrast / 100).toFixed(3)})`);
+  }
   if (s.saturation !== 100) parts.push(`saturate(${(s.saturation / 100).toFixed(3)})`);
   if (s.hue !== 0) parts.push(`hue-rotate(${s.hue}deg)`);
   if (s.blur !== 0) parts.push(`blur(${s.blur.toFixed(2)}px)`);
   if (s.sepia !== 0) parts.push(`sepia(${(s.sepia / 100).toFixed(3)})`);
   if (s.grayscale !== 0) parts.push(`grayscale(${(s.grayscale / 100).toFixed(3)})`);
-  if (Math.abs(s.gamma - 1.0) > 0.001 || s.sharpen !== 0) {
-    parts.push("url(#xan-enhancer)");
-  }
+
   return parts.length > 0 ? parts.join(" ") : "none";
 }
 

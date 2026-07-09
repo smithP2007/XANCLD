@@ -22,7 +22,6 @@ import { fetchZenSources } from "../lib/providers/zen";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
 import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
 import { VideoEnhancerPanel } from "../components/VideoEnhancerPanel";
-import { VideoEnhancerFilters } from "../components/VideoEnhancerFilters";
 import { VideoPlayer } from "../components/VideoPlayer";
 
 type Provider = "allanime" | "koto" | "zen" | "gogoanime";
@@ -297,12 +296,15 @@ export function Watch() {
                   </button>
                 </div>
                 <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
-                  {/* SVG filter defs for gamma + sharpen */}
-                  <VideoEnhancerFilters state={enhancer.rawState} />
                   <iframe
                     src={streamForPlayer.url}
                     className="w-full h-full"
-                    style={enhancer.active ? { filter: enhancer.filterCss } : undefined}
+                    style={enhancer.active ? {
+                      filter: enhancer.filterCss,
+                      willChange: "filter",
+                      transform: "translateZ(0)",
+                      backfaceVisibility: "hidden",
+                    } : undefined}
                     allowFullScreen
                     allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                     referrerPolicy="no-referrer-when-downgrade"
