@@ -27,6 +27,7 @@ import {
   RotateCcw,
   SkipForward,
   SkipBack,
+  X,
 } from "lucide-react";
 import { useSettings, clearHistory, getHistory } from "../hooks/useSettings";
 import {
@@ -129,47 +130,59 @@ export function Settings() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
+    <div className="max-w-4xl mx-auto px-4 md:px-6 py-8 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-8">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-xan-crimson to-xan-violet flex items-center justify-center glow-crimson">
-          <Palette className="h-5 w-5 text-white" />
-        </div>
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold font-display text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground">Customize your XAN experience</p>
-        </div>
+      <div className="space-y-2">
+        <h1 className="text-2xl md:text-4xl font-display font-bold flex items-center gap-3">
+          <span className="bg-gradient-to-r from-xan-crimson to-xan-violet bg-clip-text text-transparent">
+            Settings
+          </span>
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Personalize your XAN streaming experience. Changes are saved automatically.
+        </p>
       </div>
 
-      {/* Search + section nav */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6 sticky top-16 z-10 bg-background/80 backdrop-blur-md py-3 -mx-4 px-4 border-b border-xan-border">
-        <div className="relative flex-1 max-w-xs">
-          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter settings..."
-            className="w-full pl-9 pr-3 h-9 rounded-lg bg-xan-card border border-xan-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-xan-crimson/50"
-          />
-        </div>
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+      {/* Search */}
+      <div className="relative">
+        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search settings… (e.g. theme, autoplay, subtitles)"
+          className="w-full pl-9 pr-9 h-10 rounded-lg bg-xan-card border border-xan-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-xan-crimson/50"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Section nav chips (sticky) */}
+      <nav className="sticky top-16 z-20 -mx-4 px-4 py-2 bg-background/80 backdrop-blur-md border-b border-xan-border">
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
           {filteredSections.map((s) => (
             <button
               key={s.id}
               onClick={() => scrollToSection(s.id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
                 activeSection === s.id
-                  ? "bg-xan-crimson/20 border border-xan-crimson/40 text-foreground"
-                  : "bg-xan-card border border-xan-border text-muted-foreground hover:text-foreground hover:bg-xan-card-hover"
+                  ? "bg-gradient-to-r from-xan-crimson to-xan-violet text-white shadow-lg shadow-xan-crimson/20"
+                  : "bg-xan-card/60 text-muted-foreground hover:text-foreground hover:bg-xan-card-hover border border-xan-border"
               }`}
             >
-              <s.icon className="h-3 w-3" />
+              <s.icon className="h-3.5 w-3.5" />
               {s.label}
             </button>
           ))}
         </div>
-      </div>
+      </nav>
 
       <div className="space-y-6">
         {/* Appearance */}
@@ -715,14 +728,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="glass rounded-2xl p-5 md:p-6 scroll-mt-32">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-8 h-8 rounded-lg bg-xan-card flex items-center justify-center">
+    <section id={id} className="glass rounded-2xl p-4 md:p-6 scroll-mt-32">
+      {/* Section header — gradient icon box like XAN */}
+      <div className="flex items-start gap-3 mb-4">
+        <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-xan-crimson/20 to-xan-violet/20 border border-xan-border flex items-center justify-center flex-shrink-0">
           <Icon className="h-4 w-4 text-xan-crimson" />
         </div>
-        <div>
-          <h2 className="font-bold font-display text-foreground">{title}</h2>
-          <p className="text-xs text-muted-foreground">{desc}</p>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base md:text-lg font-display font-semibold text-foreground">{title}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
         </div>
       </div>
       <div className="divide-y divide-xan-border">{children}</div>
@@ -740,12 +754,12 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 py-4 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
         <p className="font-medium text-sm text-foreground">{label}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{desc}</p>
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="flex-shrink-0 self-start sm:self-center">{children}</div>
     </div>
   );
 }
@@ -830,7 +844,7 @@ function EnhancerRow({
     : value.toFixed(2);
   return (
     <div
-      className={`flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0 ${
+      className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 py-4 first:pt-0 last:pb-0 ${
         disabled ? "opacity-40 pointer-events-none" : ""
       }`}
     >
@@ -840,8 +854,8 @@ function EnhancerRow({
           {isDefault ? "Default" : `${display}${unit}`}
         </p>
       </div>
-      <div className="shrink-0 flex items-center gap-3">
-        <div className="relative w-32">
+      <div className="shrink-0 flex items-center gap-3 self-start sm:self-center">
+        <div className="relative w-full sm:w-32">
           <div className="absolute inset-y-1/2 -translate-y-1/2 left-0 right-0 h-1.5 rounded-full bg-xan-card" />
           <div
             className="absolute inset-y-1/2 -translate-y-1/2 left-0 h-1.5 rounded-full bg-xan-crimson"
