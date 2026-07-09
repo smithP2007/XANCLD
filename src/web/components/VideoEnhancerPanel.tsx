@@ -4,8 +4,6 @@ import {
   RotateCcw,
   X,
   Power,
-  Eye,
-  EyeOff,
   Sparkles,
   Contrast,
   Palette,
@@ -80,19 +78,6 @@ export function VideoEnhancerPanel({ open, onClose }: Props) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Peek button (hold to compare) */}
-            <button
-              onMouseDown={enhancer.peekStart}
-              onMouseUp={enhancer.peekEnd}
-              onMouseLeave={enhancer.peekEnd}
-              onTouchStart={enhancer.peekStart}
-              onTouchEnd={enhancer.peekEnd}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium glass border border-white/15 text-white/80 hover:bg-white/10 transition-colors"
-              title="Hold to peek at original (no filter)"
-            >
-              {enhancer.peeking ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              {enhancer.peeking ? "Peeking" : "Hold to Compare"}
-            </button>
             <button
               onClick={onClose}
               className="w-8 h-8 rounded-lg hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center"

@@ -14,6 +14,8 @@ import {
   Loader2,
   AlertCircle,
   Sun,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import type { StreamResult } from "../lib/allanime";
 import type { XanSettings } from "../hooks/useSettings";
@@ -730,14 +732,27 @@ export function VideoPlayer({
           </button>
           {/* Right side */}
           <div className="ml-auto flex items-center gap-3">
-            {/* Enhancer toggle */}
+            {/* Eye toggle — turns enhancer on/off (only shows when enhancer is enabled) */}
+            {enhancer.state.enabled && (
+              <button
+                onClick={enhancer.toggleEnabled}
+                className={`transition-colors ${
+                  enhancer.state.enabled ? "text-xan-crimson" : "text-white/60 hover:text-white"
+                }`}
+                title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
+                aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
+              >
+                {enhancer.state.enabled ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+              </button>
+            )}
+            {/* Enhancer settings button */}
             <button
               onClick={() => setShowEnhancer(true)}
               className={`transition-colors ${
                 enhancerActive ? "text-xan-crimson" : "text-white hover:text-xan-crimson"
               }`}
-              title="Video enhancer (E)"
-              aria-label="Video enhancer"
+              title="Video enhancer settings (E)"
+              aria-label="Video enhancer settings"
             >
               <Sun className="h-5 w-5" />
             </button>
