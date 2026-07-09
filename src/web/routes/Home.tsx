@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Flame, TrendingUp, Sparkles, AlertCircle } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Flame, TrendingUp, Sparkles, AlertCircle, Clock, ChevronRight, Play } from "lucide-react";
 import {
   fetchTrending,
   fetchPopular,
@@ -10,6 +11,8 @@ import { AnimeCardSkeleton } from "../components/AnimeCardSkeleton";
 import { HeroCarousel } from "../components/HeroCarousel";
 import { ContinueWatching } from "../components/ContinueWatching";
 import { SectionRow } from "../components/SectionRow";
+import { useWatchHistory, type HistoryEntry } from "../hooks/useSettings";
+import { formatTimeAgo } from "../hooks/useCountdownTick";
 
 export function Home() {
   const [trending, setTrending] = useState<AnimeCardType[]>([]);
@@ -80,40 +83,12 @@ export function Home() {
       {/* Hero */}
       {trending.length > 0 && <HeroCarousel anime={trending} />}
 
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-10 md:py-14 space-y-10 md:space-y-14">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-10 md:py-14 space-y-12 md:space-y-16">
         {/* Continue Watching (auto-hides if empty) */}
         <ContinueWatching />
 
-        {/* Top 10 Today — Netflix-style ranked row */}
-        {trending.length > 0 && (
-          <SectionRow
-            title="Top 10 Today"
-            subtitle="Ranked by trending score"
-            badge="Ranked"
-            icon={<Flame className="h-4 w-4 text-xan-crimson" />}
-          >
-            {trending.slice(0, 10).map((a, idx) => (
-              <div
-                key={a.id}
-                className="flex-shrink-0 w-[260px] sm:w-[280px] snap-start card-enter"
-                style={{ "--card-index": idx } as React.CSSProperties}
-              >
-                <div className="relative flex items-end">
-                  {/* Big ranking number */}
-                  <span
-                    className="text-stroke font-display font-extrabold text-[140px] leading-[0.7] mr-[-30px] select-none"
-                    aria-hidden
-                  >
-                    {idx + 1}
-                  </span>
-                  <div className="relative w-[180px] sm:w-[200px]">
-                    <AnimeCard anime={a} index={idx} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </SectionRow>
-        )}
+        {/* Recent History — small section showing last watched */}
+        <RecentHistorySection />
 
         {/* Trending row */}
         {trending.length > 0 && (
@@ -133,22 +108,40 @@ export function Home() {
           </SectionRow>
         )}
 
-        {/* Popular grid */}
+        {/* Popular row */}
         {popular.length > 0 && (
+          <SectionRow
+            title="Popular Anime"
+            subtitle="All-time most watched"
+            icon={<Sparkles className="h-4 w-4 text-xan-crimson" />}
+          >
+            {popular.map((a, idx) => (
+              <div
+                key={a.id}
+                className="flex-shrink-0 w-[160px] sm:w-[180px] snap-start"
+              >
+                <AnimeCard anime={a} index={idx} />
+              </div>
+            ))}
+          </SectionRow>
+        )}
+
+        {/* Top picks grid — flat grid of popular anime */}
+        {popular.length > 6 && (
           <section className="space-y-4">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-xan-card border border-xan-border flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-xan-crimson" />
+                <Flame className="h-4 w-4 text-xan-crimson" />
               </div>
               <div>
                 <h2 className="text-lg md:text-xl font-bold font-display text-foreground">
-                  Popular Anime
+                  More to Explore
                 </h2>
-                <p className="text-[11px] text-muted-foreground">All-time most watched</p>
+                <p className="text-[11px] text-muted-foreground">Discover something new</p>
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {popular.map((a, idx) => (
+              {popular.slice(6).map((a, idx) => (
                 <AnimeCard key={a.id} anime={a} index={idx} />
               ))}
             </div>
@@ -156,5 +149,97 @@ export function Home() {
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Recent History section ───────────────────────────────────
+// Shows the last 6 watched episodes as compact cards. Auto-hides if empty.
+function RecentHistorySection() {
+  const history = useWatchHistory();
+
+  if (history.length === 0) return null;
+
+  // Deduplicate by anime (show only the latest episode per anime)
+  const seen = new Set<number>();
+  const recent = history
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter((e) => {
+      if (seen.has(e.animeId)) return false;
+      seen.add(e.animeId);
+      return true;
+    })
+    .slice(0, 6);
+
+  if (recent.length === 0) return null;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-xan-card border border-xan-border flex items-center justify-center">
+            <Clock className="h-4 w-4 text-xan-crimson" />
+          </div>
+          <div>
+            <h2 className="text-lg md:text-xl font-bold font-display text-foreground">
+              Recently Watched
+            </h2>
+            <p className="text-[11px] text-muted-foreground">Pick up where you left off</p>
+          </div>
+        </div>
+        <Link
+          to="/history"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-xan-crimson transition-colors"
+        >
+          View all
+          <ChevronRight className="h-3 w-3" />
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        {recent.map((entry, idx) => (
+          <RecentHistoryCard key={`${entry.animeId}-${entry.episode}`} entry={entry} index={idx} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecentHistoryCard({ entry, index }: { entry: HistoryEntry; index: number }) {
+  const progress = entry.duration > 0 ? (entry.timestamp / entry.duration) * 100 : 0;
+  return (
+    <Link
+      to={`/watch/${entry.animeId}?ep=${entry.episode}`}
+      className="group relative aspect-video rounded-lg overflow-hidden bg-xan-card border border-xan-border hover:border-xan-crimson/40 transition-all card-enter"
+      style={{ "--card-index": index } as React.CSSProperties}
+    >
+      <img
+        src={entry.coverImage || "/placeholder.svg"}
+        alt={entry.title}
+        loading="lazy"
+        className="absolute inset-0 w-full h-full object-cover opacity-70 group-hover:opacity-80 transition-opacity"
+        onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.3")}
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+      {/* Play button overlay */}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="w-9 h-9 rounded-full bg-xan-crimson/95 flex items-center justify-center shadow-lg scale-90 group-hover:scale-100 transition-transform">
+          <Play className="h-4 w-4 text-white fill-white ml-0.5" />
+        </div>
+      </div>
+      {/* Episode badge */}
+      <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-black/80 backdrop-blur text-white">
+        EP {entry.episode}
+      </div>
+      {/* Bottom content */}
+      <div className="absolute bottom-0 left-0 right-0 p-2">
+        <p className="text-[11px] font-medium text-white line-clamp-1 leading-tight">
+          {entry.title}
+        </p>
+        <p className="text-[9px] text-white/60 mt-0.5">{formatTimeAgo(entry.updatedAt)}</p>
+        {/* Mini progress bar */}
+        <div className="mt-1 h-0.5 rounded-full bg-white/20 overflow-hidden">
+          <div className="h-full bg-xan-crimson" style={{ width: `${Math.min(progress, 100)}%` }} />
+        </div>
+      </div>
+    </Link>
   );
 }

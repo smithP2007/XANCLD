@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { History as HistoryIcon, Play, Trash2, Film, ArrowRight } from "lucide-react";
 import {
-  getHistory,
   removeFromHistory,
   clearHistory,
+  useWatchHistory,
   type HistoryEntry,
 } from "../hooks/useSettings";
 import { formatTimeAgo } from "../hooks/useCountdownTick";
@@ -53,37 +53,27 @@ function fmtTime(s: number): string {
 }
 
 export function History() {
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    setHistory(getHistory());
-    setLoaded(true);
-  }, []);
+  const history = useWatchHistory();
 
   const grouped = useMemo(() => groupByAnime(history), [history]);
 
   const removeGroup = (animeId: number) => {
-    // Remove all episodes for this anime
     for (const ep of history.filter((e) => e.animeId === animeId)) {
       removeFromHistory(animeId, ep.episode);
     }
-    setHistory(getHistory());
   };
 
   const removeEpisode = (animeId: number, episode: number) => {
     removeFromHistory(animeId, episode);
-    setHistory(getHistory());
   };
 
   const clearAll = () => {
     if (confirm("Clear all watch history? This cannot be undone.")) {
       clearHistory();
-      setHistory([]);
     }
   };
 
-  if (!loaded) {
+  if (!history) {
     return (
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
         <div className="flex items-center gap-3 mb-6">

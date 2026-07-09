@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { History, Play, ChevronRight, ChevronLeft } from "lucide-react";
-import { getHistory, type HistoryEntry } from "../hooks/useSettings";
+import { useWatchHistory, type HistoryEntry } from "../hooks/useSettings";
 import { formatTimeAgo } from "../hooks/useCountdownTick";
 
 interface Grouped {
@@ -42,8 +42,8 @@ function formatProgress(timestamp: number, duration: number): number {
 export function ContinueWatching() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Read history synchronously on first render
-  const history = getHistory();
+  // Subscribe to history changes (auto-updates when addToHistory is called)
+  const history = useWatchHistory();
   const grouped = groupByAnime(history).slice(0, 10);
 
   if (grouped.length === 0) return null;

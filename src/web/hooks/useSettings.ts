@@ -183,6 +183,8 @@ export function addToHistory(entry: Omit<HistoryEntry, "updatedAt">): void {
     // Cap at 50 entries
     const capped = filtered.slice(0, 50);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(capped));
+    // Notify subscribers (History page, ContinueWatching, etc.)
+    notifyHistorySubscribers();
   } catch {
     // ignore
   }
@@ -195,6 +197,7 @@ export function removeFromHistory(animeId: number, episode: number): void {
       (e) => !(e.animeId === animeId && e.episode === episode),
     );
     localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
+    notifyHistorySubscribers();
   } catch {
     // ignore
   }
@@ -203,7 +206,37 @@ export function removeFromHistory(animeId: number, episode: number): void {
 export function clearHistory(): void {
   try {
     localStorage.removeItem(HISTORY_KEY);
+    notifyHistorySubscribers();
   } catch {
     // ignore
   }
+}
+
+// ─── History pub/sub (like useBookmarks) ───────────────────────
+// Ensures the History page, ContinueWatching, and Home page history section
+// all update in real-time when addToHistory/removeFromHistory/clearHistory
+// is called from the Watch page.
+const HISTORY_SYNC_EVENT = "xan-history-sync";
+
+function notifyHistorySubscribers(): void {
+  if (typeof window === "undefined") return;
+  queueMicrotask(() => window.dispatchEvent(new CustomEvent(HISTORY_SYNC_EVENT)));
+}
+
+/** React hook that subscribes to history changes and re-reads on every update. */
+export function useWatchHistory(): HistoryEntry[] {
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    const read = () => setHistory(getHistory());
+    read(); // initial read on mount
+    window.addEventListener(HISTORY_SYNC_EVENT, read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener(HISTORY_SYNC_EVENT, read);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
+
+  return history;
 }
