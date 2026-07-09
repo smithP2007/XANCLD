@@ -161,6 +161,45 @@ export function Watch() {
           ...allProviders.filter((p) => p !== provider),
         ];
 
+        // When a source is pinned, we need to try ALL providers to find it —
+        // the pinned source might come from a different provider than the one
+        // that returns results first (e.g. "Koto" comes from the koto provider,
+        // not AllAnime). So we load ALL providers, collect all sources, then
+        // filter for the pinned one.
+        if (settings.pinnedSource) {
+          console.log(`[Watch] Pinned source "${settings.pinnedSource}" — loading all providers to find it`);
+          let allCollectedSources: UnifiedSource[] = [];
+          for (const prov of orderedProviders) {
+            const provSources = await loadFromProvider(prov, title);
+            allCollectedSources = [...allCollectedSources, ...provSources];
+          }
+
+          // Deduplicate by URL
+          const seenUrls = new Set<string>();
+          allCollectedSources = allCollectedSources.filter((s) => {
+            if (seenUrls.has(s.url)) return false;
+            seenUrls.add(s.url);
+            return true;
+          });
+
+          setAllSources(allCollectedSources);
+
+          // Filter for the pinned source
+          const pinnedSources = allCollectedSources.filter((s) => s.sourceName === settings.pinnedSource);
+          if (pinnedSources.length === 0) {
+            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available from any provider`);
+            setError(`Pinned source "${settings.pinnedSource}" is not available for this episode. Unpin it in Settings to use other sources.`);
+            setLoading(false);
+            return;
+          }
+
+          console.log(`[Watch] Pinned source "${settings.pinnedSource}" found (${pinnedSources.length} matches)`);
+          setStream(pinnedSources[0]);
+          setLoading(false);
+          return;
+        }
+
+        // Normal flow (no pinned source)
         let sources: UnifiedSource[] = [];
         for (const prov of orderedProviders) {
           const provSources = await loadFromProvider(prov, title);
@@ -200,24 +239,11 @@ export function Watch() {
 
         setAllSources(sources);
 
-        // Filter sources by user's disabledSources + pinnedSource settings
-        let selectableSources = sources;
-        if (settings.pinnedSource) {
-          // Pinned: only use the pinned source (no fallback)
-          selectableSources = sources.filter((s) => s.sourceName === settings.pinnedSource);
-          if (selectableSources.length === 0) {
-            // Pinned source not available in this episode — show nothing
-            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available`);
-            setError(`Pinned source "${settings.pinnedSource}" is not available for this episode. Unpin it in Settings to use other sources.`);
-            setLoading(false);
-            return;
-          }
-        } else {
-          selectableSources = sources.filter((s) => !settings.disabledSources.includes(s.sourceName));
-          if (selectableSources.length === 0) {
-            // All sources disabled — fallback to showing all
-            selectableSources = sources;
-          }
+        // Filter sources by disabledSources (pinned source already handled above)
+        let selectableSources = sources.filter((s) => !settings.disabledSources.includes(s.sourceName));
+        if (selectableSources.length === 0) {
+          // All sources disabled — fallback to showing all
+          selectableSources = sources;
         }
 
         // Prefer direct mp4/hls sources over iframe embeds
