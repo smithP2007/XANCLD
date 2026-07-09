@@ -7,8 +7,8 @@
 // Architecture: browser → Hono CORS proxy → Gogoanime/Consumet API
 // The proxy adds proper headers and handles CORS.
 
-const GOGOANIME_BASE = "https://gogoanime3.co";
-const GOGOANIME_SEARCH = "https://gogoanime3.co/search.html";
+const GOGOANIME_BASE = "https://gogoanime.fi";
+const GOGOANIME_SEARCH = "https://gogoanime.fi/search.html";
 const GOGOANIME_AJAX = "https://ajax.gogocdn.net/ajax/load-list-episode";
 
 // ─── Types ─────────────────────────────────────────────────────

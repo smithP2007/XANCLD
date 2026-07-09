@@ -1,21 +1,41 @@
 import { useState, useEffect, useCallback } from "react";
 
 export interface XanSettings {
-  theme: "dark" | "light";
+  theme: "dark" | "light" | "system";
   autoplay: boolean;
   skipIntro: boolean;
+  skipOutro: boolean;
+  autoResume: boolean;
   defaultMode: "sub" | "dub";
   volume: number;
   playbackRate: number;
+  hideSpoilers: boolean;
+  hideAdult: boolean;
+  reducedMotion: boolean;
+  tvMode: boolean;
+  // Bandwidth / source
+  bandwidthMode: "auto" | "direct-only" | "proxy-only";
+  preferredProvider: "allanime" | "koto" | "zen" | "gogoanime";
+  // Enhancer
+  enhancerEnabled: boolean;
 }
 
 const DEFAULTS: XanSettings = {
   theme: "dark",
   autoplay: true,
   skipIntro: true,
+  skipOutro: false,
+  autoResume: true,
   defaultMode: "sub",
   volume: 80,
   playbackRate: 1,
+  hideSpoilers: false,
+  hideAdult: false,
+  reducedMotion: false,
+  tvMode: false,
+  bandwidthMode: "auto",
+  preferredProvider: "allanime",
+  enhancerEnabled: true,
 };
 
 const STORAGE_KEY = "xan:settings";
@@ -47,6 +67,13 @@ function notify() {
   }
 }
 
+export function applyRuntimeFlags(s: XanSettings): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  root.classList.toggle("xan-reduce-motion", s.reducedMotion);
+  root.classList.toggle("xan-tv-mode", s.tvMode);
+}
+
 export function updateSettings(updates: Partial<XanSettings>): void {
   currentSettings = { ...currentSettings, ...updates };
   try {
@@ -59,12 +86,19 @@ export function updateSettings(updates: Partial<XanSettings>): void {
   if (updates.theme) {
     applyTheme(updates.theme);
   }
+  applyRuntimeFlags(currentSettings);
 }
 
-export function applyTheme(theme: "dark" | "light"): void {
+export function applyTheme(theme: "dark" | "light" | "system"): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  if (theme === "light") {
+  let actual: "dark" | "light";
+  if (theme === "system") {
+    actual = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  } else {
+    actual = theme;
+  }
+  if (actual === "light") {
     root.classList.remove("dark");
     root.style.colorScheme = "light";
     document.body.style.backgroundColor = "#fafafa";
@@ -75,6 +109,9 @@ export function applyTheme(theme: "dark" | "light"): void {
     document.body.style.backgroundColor = "#0a0a0a";
     document.body.style.color = "#fafafa";
   }
+  // Apply reduced-motion + tv-mode kill switches
+  root.classList.toggle("xan-reduce-motion", false); // toggled below via dedicated settings
+  root.classList.toggle("xan-tv-mode", false);
 }
 
 export function useSettings(): [XanSettings, (updates: Partial<XanSettings>) => void] {
@@ -85,11 +122,20 @@ export function useSettings(): [XanSettings, (updates: Partial<XanSettings>) => 
     currentSettings = loadSettings();
     setSettings(currentSettings);
     applyTheme(currentSettings.theme);
+    applyRuntimeFlags(currentSettings);
+
+    // React to OS theme changes when in "system" mode
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSchemeChange = () => {
+      if (currentSettings.theme === "system") applyTheme("system");
+    };
+    mq.addEventListener("change", onSchemeChange);
 
     const unsub = (s: XanSettings) => setSettings(s);
     subscribers.add(unsub);
     return () => {
       subscribers.delete(unsub);
+      mq.removeEventListener("change", onSchemeChange);
     };
   }, []);
 

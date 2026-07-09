@@ -11,9 +11,10 @@ import { Trending } from "./routes/Trending";
 import { Schedule } from "./routes/Schedule";
 import { History } from "./routes/History";
 import { Settings } from "./routes/Settings";
+import { MyLibrary } from "./routes/MyLibrary";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
-import { useSettings } from "./hooks/useSettings";
+import { useSettings, applyTheme, applyRuntimeFlags } from "./hooks/useSettings";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -27,16 +28,9 @@ function ScrollToTop() {
 function ThemeApplier() {
   const [settings] = useSettings();
   useEffect(() => {
-    // useSettings already calls applyTheme on mount, but this ensures it
-    // re-applies on every route change too
-    if (settings.theme === "light") {
-      document.documentElement.classList.remove("dark");
-      document.documentElement.style.colorScheme = "light";
-    } else {
-      document.documentElement.classList.add("dark");
-      document.documentElement.style.colorScheme = "dark";
-    }
-  }, [settings.theme]);
+    applyTheme(settings.theme);
+    applyRuntimeFlags(settings);
+  }, [settings.theme, settings.reducedMotion, settings.tvMode]);
   return null;
 }
 
@@ -56,7 +50,7 @@ function AppShell() {
       ) : (
         <div className="min-h-screen flex flex-col">
           <Navbar />
-          <main className="flex-1">
+          <main className="flex-1 pt-16">
             <Routes>
               <Route path="/home" element={<Home />} />
               <Route path="/anime/:id" element={<AnimeDetail />} />
@@ -65,6 +59,7 @@ function AppShell() {
               <Route path="/trending" element={<Trending />} />
               <Route path="/schedule" element={<Schedule />} />
               <Route path="/history" element={<History />} />
+              <Route path="/list" element={<MyLibrary />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>

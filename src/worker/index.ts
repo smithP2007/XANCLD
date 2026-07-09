@@ -11,6 +11,7 @@
 // Bundle size: ~50 KB (Hono + this file only)
 
 import { Hono } from "hono";
+import { fetchAllAnimeEpisodeDirect } from "./allanimeCrypto";
 
 // ─── Environment bindings ──────────────────────────────────────
 interface Env {
@@ -34,12 +35,79 @@ app.use("*", async (c, next) => {
   Object.entries(corsHeaders).forEach(([k, v]) => c.header(k, v));
 });
 
-// ─── AllAnime constants (must match the client) ────────────────
+// ─── AllAnime constants ────────────────────────────────────────
+// As of mid-2026, AllAnime migrated from allmanga.to → mkissa.to.
+// The new mkissa.to requires a signed aaReq extension (handled in
+// /api/allanime/episode below). The legacy /api/proxy + /api/proxy-post
+// routes still use these headers for the search query (which doesn't need
+// the new crypto) and for embed-page HTML scraping.
 const ALLANIME_API = "https://api.allanime.day/api";
-const REFERER = "https://allmanga.to/";
-const ORIGIN = "https://allmanga.to";
+const REFERER = "https://mkissa.to/";
+const ORIGIN = "https://mkissa.to";
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0";
+
+// ─── Unified proxy allowlist ──────────────────────────────────
+// Shared between /api/proxy and /api/stream. Covers AllAnime's CDN
+// providers, gogoanime, Koto (megaplay.buzz), Zen (flixcloud.cc),
+// and all common embed hosts. Keep expanded — AllAnime rotates CDNs.
+const PROXY_ALLOWED_HOSTS = [
+  // AllAnime + mkissa.to (new frontend)
+  "api.allanime.day",
+  "allanime.day",
+  "allanime.uns.bio",
+  "allanimenews.com",
+  "mkissa.to",
+  "allmanga.to", // legacy, may still respond for some endpoints
+  // Gogoanime (rotating domains)
+  "gogoanime.fi",
+  "gogoanime.vc",
+  "gogoanime.dk",
+  "gogoanime3.co",
+  "gogoanime.hu",
+  "gogoanime.bid",
+  "ajax.gogocdn.net",
+  "gogocdn.net",
+  "gogoplay.io",
+  "streamani.net",
+  "gogostream.tv",
+  // Koto + Zen (iframe providers)
+  "megaplay.buzz",
+  "flixcloud.cc",
+  // Isekai2nd (another AllAnime path)
+  "isekai2nd.com",
+  // Common HLS/MP4/iframe embed hosts
+  "tools.fast4speed.rsvp",
+  "fast4speed.rsvp",
+  "megacloud.tv",
+  "vixcloud.co",
+  "youtu-chan.com",
+  "mp4upload.com",
+  "bysekoze.com",
+  "vidnest.io",
+  "ok.ru",
+  "repackager.wixmp.com",
+  "wixmp.com",
+  "sharepoint.com",
+  "filemoon.sx",
+  "filemoon.to",
+  "vizcloud.co",
+  "vizcloud.xyz",
+  "mycloud.cc",
+  "streamlare.com",
+  "kwik.si",
+  "kwik.cx",
+  "streamta.pe",
+  "streamtape.com",
+  "streamwish.to",
+  "doodstream.com",
+  "dood.so",
+  "mixdrop.co",
+  "mixdrop.to",
+  // Pahe / nekostream
+  "pahe.nekostream.site",
+  "nekostream.site",
+];
 
 // ─── GET proxy: /api/proxy?url=<encoded-url> ───────────────────
 // Forwards the request with AllAnime headers. Used for:
@@ -62,47 +130,8 @@ app.get("/api/proxy", async (c) => {
   }
 
   // Allowlist of hosts we'll proxy (prevents open relay)
-  const ALLOWED_HOSTS = [
-    // AllAnime
-    "api.allanime.day",
-    "allanime.day",
-    "allmanga.to",
-    // Gogoanime
-    "gogoanime3.co",
-    "gogoanime.hu",
-    "gogoanime.bid",
-    "ajax.gogocdn.net",
-    "gogocdn.net",
-    "gogoplay.io",
-    "streamani.net",
-    "gogostream.tv",
-    // Common embed hosts
-    "tools.fast4speed.rsvp",
-    "megacloud.tv",
-    "vixcloud.co",
-    "youtu-chan.com",
-    "mp4upload.com",
-    "bysekoze.com",
-    "vidnest.io",
-    "ok.ru",
-    "repackager.wixmp.com",
-    "allanimenews.com",
-    "filemoon.sx",
-    "filemoon.to",
-    "vizcloud.co",
-    "vizcloud.xyz",
-    "mycloud.cc",
-    "streamlare.com",
-    "kwik.si",
-    "kwik.cx",
-    "streamta.pe",
-    "streamtape.com",
-    "doodstream.com",
-    "dood.so",
-    "mixdrop.co",
-    "mixdrop.to",
-  ];
-  const allowed = ALLOWED_HOSTS.some(
+  // Uses the unified PROXY_ALLOWED_HOSTS defined at module top.
+  const allowed = PROXY_ALLOWED_HOSTS.some(
     (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
   );
   if (!allowed) {
@@ -219,19 +248,8 @@ app.get("/api/stream", async (c) => {
     return c.json({ error: "Invalid url" }, 400);
   }
 
-  // Same allowlist as /api/proxy
-  const ALLOWED_HOSTS = [
-    "api.allanime.day", "allanime.day", "allmanga.to",
-    "tools.fast4speed.rsvp", "megacloud.tv", "vixcloud.co",
-    "youtu-chan.com", "mp4upload.com", "bysekoze.com", "vidnest.io",
-    "ok.ru", "repackager.wixmp.com", "allanimenews.com",
-    "filemoon.sx", "filemoon.to", "vizcloud.co", "vizcloud.xyz",
-    "mycloud.cc", "streamlare.com", "kwik.si", "kwik.cx",
-    "streamta.pe", "streamtape.com", "doodstream.com", "dood.so",
-    "mixdrop.co", "mixdrop.to", "ninjastream.to", "streamwish.to",
-    "streamsb.net",
-  ];
-  const allowed = ALLOWED_HOSTS.some(
+  // Same allowlist as /api/proxy (unified PROXY_ALLOWED_HOSTS at module top)
+  const allowed = PROXY_ALLOWED_HOSTS.some(
     (h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`),
   );
   if (!allowed) {
@@ -288,6 +306,87 @@ app.get("/api/stream", async (c) => {
     clearTimeout(timeout);
     return c.json(
       { error: err instanceof Error ? err.message : "Stream proxy failed" },
+      502,
+    );
+  }
+});
+
+// ─── AllAnime episode resolver (mkissa.to direct crypto) ──────
+// GET /api/allanime/episode?showId=...&episodeString=...&translationType=sub|dub
+//
+// As of mid-2026, AllAnime requires a signed aaReq extension on every
+// episode query. This route implements the full mkissa.to crypto scheme
+// server-side (fetch __aaCrypto, derive AES key, sign request, decrypt
+// tobeparsed) and returns the resolved source URLs.
+//
+// The browser calls this when the legacy direct query returns AA_CRYPTO_MISSING.
+app.get("/api/allanime/episode", async (c) => {
+  const showId = c.req.query("showId");
+  const episodeString = c.req.query("episodeString");
+  const translationType = (c.req.query("translationType") || "sub") as "sub" | "dub";
+
+  if (!showId || !episodeString) {
+    return c.json({ error: "Missing showId or episodeString" }, 400);
+  }
+  if (translationType !== "sub" && translationType !== "dub") {
+    return c.json({ error: "translationType must be 'sub' or 'dub'" }, 400);
+  }
+
+  const result = await fetchAllAnimeEpisodeDirect(showId, episodeString, translationType);
+
+  return c.json(
+    {
+      sources: result.sources,
+      ...(result.cached ? { cached: true } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    },
+    result.error && !result.sources ? 502 : 200,
+  );
+});
+
+// ─── Zen (flixcloud.cc) CORS proxy ────────────────────────────
+// GET /api/stream-zen?anilistId=...&episode=...
+//
+// flixcloud.cc is behind Cloudflare and returns 403 to direct browser
+// fetches. This route fetches server-side and returns the JSON response
+// with CORS headers so the client can read it.
+app.get("/api/stream-zen", async (c) => {
+  const anilistId = c.req.query("anilistId");
+  const episode = c.req.query("episode");
+
+  if (!anilistId || !episode) {
+    return c.json({ error: "Missing anilistId or episode parameter" }, 400);
+  }
+
+  const upstreamUrl = `https://flixcloud.cc/videos/raw?anilist_id=${encodeURIComponent(anilistId)}&episode=${encodeURIComponent(episode)}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+
+  try {
+    const res = await fetch(upstreamUrl, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      return c.json(
+        { error: `Upstream returned ${res.status}`, status: "error" },
+        502,
+      );
+    }
+
+    const data = await res.json();
+    return c.json(data, 200);
+  } catch (err) {
+    clearTimeout(timeout);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Unknown error", status: "error" },
       502,
     );
   }

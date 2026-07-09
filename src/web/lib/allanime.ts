@@ -209,6 +209,14 @@ export async function getEpisodeSources(
   episodeStr: string,
   mode: "sub" | "dub" = "sub",
 ): Promise<SourceUrl[] | null> {
+  // As of mid-2026, AllAnime requires a signed aaReq extension (AES-GCM
+  // crypto) on every episode query. The browser can't do this directly
+  // because it requires fetching __aaCrypto from mkissa.to first, which
+  // is CORS-blocked. So we go through the worker's /api/allanime/episode
+  // route which implements the full crypto scheme server-side.
+  //
+  // We try the legacy direct query first (in case AllAnime ever reverts
+  // or for older cached responses), then fall back to the crypto route.
   const url =
     `${ALLANIME_API}?` +
     new URLSearchParams({
@@ -228,16 +236,28 @@ export async function getEpisodeSources(
       const res = await proxiedFetch(url);
       const json: Record<string, unknown> = await res.json();
 
-      // Check for rate limit error
+      // Check for rate limit error OR the new AA_CRYPTO_MISSING error
       if (json?.errors) {
-        const errMsg = (json.errors as Array<{ message?: string }>)[0]?.message || "";
+        const firstErr = (json.errors as Array<Record<string, unknown>>)[0] ?? {};
+        const errMsg = (firstErr.message as string) || "";
+        const errCode = (firstErr.extensions as { code?: string })?.code ?? "";
+
+        // Rate limit → retry
         if (errMsg.includes("Too many requests") && attempt < 2) {
           console.warn(`[AllAnime] rate limited, retrying in ${(attempt + 1) * 2}s...`);
           await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
           continue;
         }
-        console.warn("[AllAnime] episode query errors:", errMsg);
-        return null;
+
+        // AA_CRYPTO_MISSING → fall back to the worker's crypto route
+        if (errCode === "AA_CRYPTO_MISSING" || errCode.startsWith("AA_CRYPTO")) {
+          console.warn(`[AllAnime] ${errCode} — falling back to /api/allanime/episode`);
+          return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+        }
+
+        console.warn("[AllAnime] episode query errors:", errMsg, `(${errCode})`);
+        // Try crypto route as a last-resort fallback for any other error too
+        return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
       }
 
       const data = json?.data as
@@ -254,20 +274,58 @@ export async function getEpisodeSources(
         const decrypted = (await decryptTobeparsed(data.tobeparsed)) as
           | { episode?: { sourceUrls?: SourceUrl[] } | null }
           | null;
-        return decrypted?.episode?.sourceUrls ?? null;
+        const sources = decrypted?.episode?.sourceUrls ?? null;
+        if (sources && sources.length > 0) return sources;
+        // Decryption failed or empty → try crypto route
+        return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
       }
 
-      return null;
+      // Empty response → try crypto route
+      return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
     } catch (err) {
       console.error("[AllAnime] getEpisodeSources attempt", attempt + 1, "failed:", err);
       if (attempt < 2) {
         await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
         continue;
       }
-      return null;
+      // Last attempt failed → try crypto route as fallback
+      return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
     }
   }
-  return null;
+  // All retries exhausted → try crypto route
+  return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+}
+
+// ─── Crypto route fallback ─────────────────────────────────────
+// Calls the worker's /api/allanime/episode endpoint which implements
+// the full mkissa.to AES-GCM crypto scheme server-side.
+async function fetchEpisodeViaCryptoRoute(
+  showId: string,
+  episodeStr: string,
+  mode: "sub" | "dub",
+): Promise<SourceUrl[] | null> {
+  try {
+    const params = new URLSearchParams({
+      showId,
+      episodeString: episodeStr,
+      translationType: mode,
+    });
+    const res = await fetch(`/api/allanime/episode?${params}`, {
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      console.warn(`[AllAnime] crypto route HTTP ${res.status}`);
+      return null;
+    }
+    const json: { sources?: SourceUrl[]; error?: string; cached?: boolean } = await res.json();
+    if (json.error && !json.sources) {
+      console.warn("[AllAnime] crypto route error:", json.error);
+    }
+    return json.sources ?? null;
+  } catch (err) {
+    console.warn("[AllAnime] crypto route failed:", err);
+    return null;
+  }
 }
 
 // ─── Embed page HTML scraper (client-side via DOMParser) ───────
@@ -416,10 +474,12 @@ async function fetchClockJson(path: string): Promise<StreamResult[]> {
 }
 
 // ─── Extract a stream from a source URL ────────────────────────
-// Strategy: prefer direct video URLs (mp4/hls), fall back to iframe embeds.
-// Most AllAnime sources are embed pages (streamwish, filemoon, mp4upload, etc.)
-// that are designed to be loaded in <iframe> tags by browsers. We try to scrape
-// direct URLs from them, but if that fails we fall back to iframe embedding.
+// Strategy: filter dead sources, return working iframe/direct URLs.
+// Ported from XAN's processAllAnimeSources — filters out:
+//   - /apivtwo/clock paths (clock.json endpoint is dead)
+//   - ss-hls, sl-mp4 providers (domains are parked/dead)
+//   - streamsb.net, streamlare.com domains (dead)
+// Remaining sources (ok.ru, mp4upload, etc.) are returned as iframe embeds.
 export async function extractSource(
   rawUrl: string,
   sourceName: string,
@@ -427,43 +487,55 @@ export async function extractSource(
   const url = decodeUrl(rawUrl);
   const name = (sourceName || "").toLowerCase();
 
-  // Yt-mp4 → direct MP4 (tools.fast4speed.rsvp)
+  // ✅ Yt-mp4 → direct MP4 (tools.fast4speed.rsvp)
   if (name.includes("yt-mp4")) {
     if (!url.startsWith("http")) return [];
     return [{ url, type: "mp4", quality: null, sourceName }];
   }
 
-  // clock.json sources: ONLY sources that return a /apivtwo/clock path.
-  // These are API endpoints, not embed pages — can't be iframed.
-  // Check by URL pattern, not by source name (more reliable).
-  if (url.startsWith("/apivtwo/clock")) {
-    const clockResults = await fetchClockJson(url);
-    if (clockResults.length > 0) {
-      return clockResults.map((r) => ({ ...r, sourceName }));
-    }
-    return []; // clock.json failed — can't iframe an API endpoint
+  // ❌ Skip dead clock.json sources (Default, Uv-mp4, Luf-Mp4, Ak, etc.)
+  // These decode to /apivtwo/clock?id=... which is a dead endpoint.
+  if (url.startsWith("/apivtwo/") || url.startsWith("/apivtwo/clock")) {
+    console.log(`[AllAnime] skipping dead clock.json source: ${sourceName}`);
+    return [];
   }
 
-  // Direct video file URLs (.mp4 or .m3u8) — play directly
-  if (url.startsWith("http") && (url.includes(".mp4") || url.includes(".m3u8"))) {
+  // ❌ Skip non-HTTP URLs (can't be played)
+  if (!url.startsWith("http")) {
+    return [];
+  }
+
+  // ❌ Skip known-dead providers (domains are parked/taken over)
+  const DEAD_PROVIDERS = ["ss-hls", "sl-mp4"];
+  const DEAD_DOMAINS = ["streamsb.net", "streamlare.com"];
+  const isDeadProvider = DEAD_PROVIDERS.some((p) => name.includes(p));
+  const isDeadDomain = DEAD_DOMAINS.some((d) => url.includes(d));
+  if (isDeadProvider || isDeadDomain) {
+    console.log(`[AllAnime] skipping dead provider: ${sourceName} (${url})`);
+    return [];
+  }
+
+  // ✅ Direct video file URLs (.mp4 or .m3u8) — play directly
+  if (url.includes(".mp4") || url.includes(".m3u8")) {
     const isHls = url.includes(".m3u8");
     return [{ url, type: isHls ? "hls" : "mp4", quality: null, sourceName }];
   }
 
-  // All other HTTP URLs are embed pages — try scraping, fall back to iframe.
-  // This covers: mp4upload, streamlare, streamsb, streamwish, filemoon,
-  // vizcloud, mycloud, ninjastream, ok.ru, etc.
-  if (url.startsWith("http")) {
-    // Try scraping for direct URLs first
+  // ✅ Mp4 (mp4upload) → try scraping for direct .mp4 URL, fall back to iframe
+  if (name === "mp4" || url.includes("mp4upload.com")) {
     const scraped = await scrapeEmbedPage(url, sourceName);
     if (scraped.length > 0) {
       return scraped;
     }
-    // Fallback: return as iframe — the embed page's own JS player will work
+    // Fallback: return as iframe — mp4upload's embed page works in iframes
     return [{ url, type: "iframe", quality: null, sourceName }];
   }
 
-  return [];
+  // ✅ All other HTTP URLs → return as iframe embed
+  // This covers: ok.ru, filemoon, vizcloud, mycloud, streamwish, etc.
+  // These are JS-rendered embed pages designed to be loaded in <iframe> tags.
+  // Client-side scraping mostly fails (CORS), so we skip it and go straight to iframe.
+  return [{ url, type: "iframe", quality: null, sourceName }];
 }
 
 // ─── Full pipeline: AniList ID → stream URL ────────────────────
@@ -480,25 +552,36 @@ export async function extractStreamUrl(
     return { sources, failures };
   }
 
-  // Try ALL sources in parallel for speed (not just first 6)
+  // Sort by priority (highest first) — XAN uses this order:
+  // yt-mp4=1000, default/sak/wixmp/luf-mp4/s-mp4=500, mp4=300, fm-hls/vn-hls=200, viz/mycloud=150
+  const sortedUrls = [...sourceUrls].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
+  // Process all sources in parallel (extractSource filters dead ones)
   const results = await Promise.allSettled(
-    sourceUrls.map((entry) => extractSource(entry.sourceUrl, entry.sourceName)),
+    sortedUrls.map((entry) => extractSource(entry.sourceUrl, entry.sourceName)),
   );
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
-    const entry = sourceUrls[i];
+    const entry = sortedUrls[i];
     if (result.status === "fulfilled" && result.value.length > 0) {
       sources.push(...result.value);
-    } else {
+    } else if (result.status === "rejected") {
       failures.push({
         source: entry.sourceName,
-        reason: result.status === "rejected"
-          ? (result.reason instanceof Error ? result.reason.message : "error")
-          : "no sources extracted",
+        reason: result.reason instanceof Error ? result.reason.message : "error",
       });
     }
+    // If extractSource returned [], it filtered a dead source — don't add to failures
   }
+
+  // Sort final sources: direct mp4/hls first, then iframe by priority
+  sources.sort((a, b) => {
+    const aDirect = a.type === "mp4" || a.type === "hls" ? 1 : 0;
+    const bDirect = b.type === "mp4" || b.type === "hls" ? 1 : 0;
+    if (aDirect !== bDirect) return bDirect - aDirect;
+    return 0;
+  });
 
   return { sources, failures };
 }

@@ -1,21 +1,19 @@
-import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
-import { Play, ChevronLeft, ChevronRight, Loader2, AlertCircle, Star } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Flame, TrendingUp, Sparkles, AlertCircle } from "lucide-react";
 import {
   fetchTrending,
   fetchPopular,
-  fetchByGenre,
-  getTitle,
-  GENRES,
   type AnimeCard as AnimeCardType,
 } from "../lib/anilist";
 import { AnimeCard } from "../components/AnimeCard";
+import { AnimeCardSkeleton } from "../components/AnimeCardSkeleton";
+import { HeroCarousel } from "../components/HeroCarousel";
+import { ContinueWatching } from "../components/ContinueWatching";
+import { SectionRow } from "../components/SectionRow";
 
 export function Home() {
   const [trending, setTrending] = useState<AnimeCardType[]>([]);
   const [popular, setPopular] = useState<AnimeCardType[]>([]);
-  const [genreAnime, setGenreAnime] = useState<Record<string, AnimeCardType[]>>({});
-  const [activeGenre, setActiveGenre] = useState(GENRES[0]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,8 +25,6 @@ export function Home() {
         const [t, p] = await Promise.all([fetchTrending(10), fetchPopular(18)]);
         setTrending(t);
         setPopular(p);
-        const g = await fetchByGenre(activeGenre, 15);
-        setGenreAnime((prev) => ({ ...prev, [activeGenre]: g }));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load");
       } finally {
@@ -37,23 +33,39 @@ export function Home() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (genreAnime[activeGenre]) return;
-    (async () => {
-      const g = await fetchByGenre(activeGenre, 15);
-      setGenreAnime((prev) => ({ ...prev, [activeGenre]: g }));
-    })();
-  }, [activeGenre, genreAnime]);
-
-  if (loading) {
+  // Hero skeleton
+  if (loading && trending.length === 0) {
     return (
-      <div className="flex items-center justify-center py-32">
-        <Loader2 className="h-8 w-8 animate-spin text-xan-crimson" />
+      <div className="relative">
+        <section className="relative w-full h-[58vh] min-h-[420px] max-h-[560px] md:h-[78vh] md:min-h-[520px] md:max-h-[760px] overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-xan-card via-xan-dark to-xan-dark animate-shimmer" />
+          <div className="relative h-full max-w-7xl mx-auto px-4 md:px-6 flex items-center pb-16 md:pb-20">
+            <div className="space-y-4 w-full max-w-2xl">
+              <div className="h-4 w-32 bg-white/10 rounded animate-shimmer" />
+              <div className="h-16 w-3/4 bg-white/10 rounded animate-shimmer" />
+              <div className="h-4 w-1/2 bg-white/5 rounded animate-shimmer" />
+              <div className="flex gap-3 pt-2">
+                <div className="h-12 w-36 bg-white/10 rounded-full animate-shimmer" />
+                <div className="h-12 w-32 bg-white/5 rounded-full animate-shimmer" />
+              </div>
+            </div>
+          </div>
+        </section>
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-10 space-y-10">
+          <section className="space-y-4">
+            <div className="h-8 w-40 bg-xan-card rounded animate-shimmer" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {Array.from({ length: 12 }, (_, i) => (
+                <AnimeCardSkeleton key={i} />
+              ))}
+            </div>
+          </section>
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && trending.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-center">
         <AlertCircle className="h-10 w-10 text-xan-crimson mb-3" />
@@ -64,159 +76,84 @@ export function Home() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 space-y-12">
-      {/* Trending Now — hero carousel */}
-      {trending.length > 0 && (
-        <TrendingCarousel anime={trending} />
-      )}
+    <div className="relative -mt-16">
+      {/* Hero */}
+      {trending.length > 0 && <HeroCarousel anime={trending} />}
 
-      {/* Popular Anime — grid */}
-      {popular.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl md:text-2xl font-bold font-display text-foreground">
-              Popular Anime
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {popular.map((a) => (
-              <AnimeCard key={a.id} anime={a} />
-            ))}
-          </div>
-        </section>
-      )}
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-10 md:py-14 space-y-10 md:space-y-14">
+        {/* Continue Watching (auto-hides if empty) */}
+        <ContinueWatching />
 
-      {/* Browse by Category */}
-      <section className="space-y-4">
-        <h2 className="text-xl md:text-2xl font-bold font-display text-foreground">
-          Browse by Category
-        </h2>
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
-          {GENRES.map((g) => (
-            <button
-              key={g}
-              onClick={() => setActiveGenre(g)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-                activeGenre === g
-                  ? "bg-xan-crimson text-white"
-                  : "bg-xan-card text-muted-foreground hover:text-foreground hover:bg-xan-card-hover"
-              }`}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-        {genreAnime[activeGenre] ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {genreAnime[activeGenre].map((a) => (
-              <AnimeCard key={a.id} anime={a} />
+        {/* Top 10 Today — Netflix-style ranked row */}
+        {trending.length > 0 && (
+          <SectionRow
+            title="Top 10 Today"
+            subtitle="Ranked by trending score"
+            badge="Ranked"
+            icon={<Flame className="h-4 w-4 text-xan-crimson" />}
+          >
+            {trending.slice(0, 10).map((a, idx) => (
+              <div
+                key={a.id}
+                className="flex-shrink-0 w-[260px] sm:w-[280px] snap-start card-enter"
+                style={{ "--card-index": idx } as React.CSSProperties}
+              >
+                <div className="relative flex items-end">
+                  {/* Big ranking number */}
+                  <span
+                    className="text-stroke font-display font-extrabold text-[140px] leading-[0.7] mr-[-30px] select-none"
+                    aria-hidden
+                  >
+                    {idx + 1}
+                  </span>
+                  <div className="relative w-[180px] sm:w-[200px]">
+                    <AnimeCard anime={a} index={idx} />
+                  </div>
+                </div>
+              </div>
             ))}
-          </div>
-        ) : (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
+          </SectionRow>
         )}
-      </section>
-    </div>
-  );
-}
 
-function TrendingCarousel({ anime }: { anime: AnimeCardType[] }) {
-  const [index, setIndex] = useState(0);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const scroll = (dir: "left" | "right") => {
-    if (!scrollRef.current) return;
-    const amount = 320;
-    scrollRef.current.scrollBy({
-      left: dir === "left" ? -amount : amount,
-      behavior: "smooth",
-    });
-  };
-
-  return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl md:text-2xl font-bold font-display text-foreground">
-            Trending Now
-          </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">The hottest anime right now</p>
-        </div>
-        <div className="hidden md:flex items-center gap-2">
-          <button
-            onClick={() => scroll("left")}
-            className="p-2 rounded-lg bg-xan-card border border-xan-border hover:bg-xan-card-hover transition-colors"
+        {/* Trending row */}
+        {trending.length > 0 && (
+          <SectionRow
+            title="Trending Now"
+            subtitle="The hottest anime right now"
+            icon={<TrendingUp className="h-4 w-4 text-xan-crimson" />}
           >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          <button
-            onClick={() => scroll("right")}
-            className="p-2 rounded-lg bg-xan-card border border-xan-border hover:bg-xan-card-hover transition-colors"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
+            {trending.map((a, idx) => (
+              <div
+                key={a.id}
+                className="flex-shrink-0 w-[160px] sm:w-[180px] snap-start"
+              >
+                <AnimeCard anime={a} index={idx} />
+              </div>
+            ))}
+          </SectionRow>
+        )}
 
-      {/* Hero featured (first trending) */}
-      {anime[0] && <HeroFeature anime={anime[0]} />}
-
-      {/* Horizontal scroll carousel */}
-      <div
-        ref={scrollRef}
-        className="flex gap-4 overflow-x-auto pb-4 scroll-smooth"
-        style={{ scrollbarWidth: "thin" }}
-      >
-        {anime.slice(1).map((a) => (
-          <div key={a.id} className="w-40 sm:w-44 shrink-0">
-            <AnimeCard anime={a} />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function HeroFeature({ anime }: { anime: AnimeCardType }) {
-  const title = getTitle(anime.title);
-  return (
-    <div className="relative h-[40vh] min-h-[300px] max-h-[420px] rounded-2xl overflow-hidden border border-xan-border glow-soft">
-      <img
-        src={anime.coverImage.extraLarge || anime.coverImage.large}
-        alt={title}
-        className="absolute inset-0 w-full h-full object-cover"
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-r from-background/90 via-background/40 to-transparent" />
-      <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10">
-        <div className="max-w-2xl space-y-3 animate-fade-in-up">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-xan-crimson/20 backdrop-blur border border-xan-crimson/30 text-xs font-medium text-xan-crimson">
-            <Star className="h-3 w-3 fill-current" /> #1 Trending
-          </div>
-          <h1 className="text-2xl md:text-4xl font-bold font-display text-foreground line-clamp-2 drop-shadow-lg">
-            {title}
-          </h1>
-          <div className="flex items-center gap-3 text-sm text-white/90">
-            {anime.averageScore && (
-              <span className="flex items-center gap-1">
-                <Star className="h-3.5 w-3.5 text-yellow-500 fill-current" />
-                {Math.round(anime.averageScore)}%
-              </span>
-            )}
-            {anime.format && <span>{anime.format}</span>}
-            {anime.episodes && <span>{anime.episodes} eps</span>}
-            {anime.seasonYear && <span>{anime.seasonYear}</span>}
-          </div>
-          <Link
-            to={`/watch/${anime.id}`}
-            className="btn-premium inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-xan-crimson to-xan-crimson-dark hover:from-xan-crimson-dark hover:to-xan-crimson font-semibold text-white transition-all shadow-lg shadow-xan-crimson/30"
-          >
-            <Play className="h-4 w-4 fill-white" />
-            Watch Now
-          </Link>
-        </div>
+        {/* Popular grid */}
+        {popular.length > 0 && (
+          <section className="space-y-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-xan-card border border-xan-border flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-xan-crimson" />
+              </div>
+              <div>
+                <h2 className="text-lg md:text-xl font-bold font-display text-foreground">
+                  Popular Anime
+                </h2>
+                <p className="text-[11px] text-muted-foreground">All-time most watched</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {popular.map((a, idx) => (
+                <AnimeCard key={a.id} anime={a} index={idx} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

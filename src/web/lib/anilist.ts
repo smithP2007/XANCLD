@@ -10,12 +10,16 @@ const ANILIST_GRAPHQL = "https://graphql.anilist.co";
 export interface AnimeCard {
   id: number;
   title: { romaji: string | null; english: string | null; native: string | null };
-  coverImage: { large: string; extraLarge: string };
+  coverImage: { large: string; extraLarge: string; color?: string };
   averageScore: number | null;
   format: string | null;
   episodes: number | null;
   status: string | null;
   seasonYear: number | null;
+  season?: string | null;
+  bannerImage?: string | null;
+  genres?: string[];
+  description?: string | null;
 }
 
 export interface AnimeDetail extends AnimeCard {
@@ -24,7 +28,7 @@ export interface AnimeDetail extends AnimeCard {
   genres: string[];
   duration: number | null;
   studios: { nodes: { name: string; isAnimationStudio: boolean }[] };
-  nextAiringEpisode: { episode: number; airingAt: number } | null;
+  nextAiringEpisode: { episode: number; airingAt: number; timeUntilAiring?: number } | null;
   characters: { nodes: { id: number; name: { full: string }; image: { large: string } }[] };
   relations: { nodes: AnimeCard[] };
   recommendations: { nodes: { mediaRecommendation: AnimeCard }[] };
@@ -61,8 +65,9 @@ export async function fetchTrending(perPage = 12): Promise<AnimeCard[]> {
       Page(page: 1, perPage: $perPage) {
         media(sort: TRENDING_DESC, type: ANIME) {
           id title { romaji english native }
-          coverImage { large extraLarge }
-          averageScore format episodes status seasonYear
+          coverImage { large extraLarge color }
+          averageScore format episodes status seasonYear season
+          bannerImage genres
         }
       }
     }`,
@@ -77,8 +82,9 @@ export async function fetchPopular(perPage = 18): Promise<AnimeCard[]> {
       Page(page: 1, perPage: $perPage) {
         media(sort: POPULARITY_DESC, type: ANIME) {
           id title { romaji english native }
-          coverImage { large extraLarge }
-          averageScore format episodes status seasonYear
+          coverImage { large extraLarge color }
+          averageScore format episodes status seasonYear season
+          bannerImage genres
         }
       }
     }`,
@@ -93,8 +99,9 @@ export async function fetchByGenre(genre: string, perPage = 15): Promise<AnimeCa
       Page(page: 1, perPage: $perPage) {
         media(genre: $genre, sort: POPULARITY_DESC, type: ANIME) {
           id title { romaji english native }
-          coverImage { large extraLarge }
-          averageScore format episodes status seasonYear
+          coverImage { large extraLarge color }
+          averageScore format episodes status seasonYear season
+          bannerImage genres
         }
       }
     }`,
@@ -114,8 +121,9 @@ export async function searchAnime(
         pageInfo { hasNextPage }
         media(search: $search, sort: SEARCH_MATCH, type: ANIME) {
           id title { romaji english native }
-          coverImage { large extraLarge }
-          averageScore format episodes status seasonYear
+          coverImage { large extraLarge color }
+          averageScore format episodes status seasonYear season
+          bannerImage genres
         }
       }
     }`,
@@ -127,24 +135,115 @@ export async function searchAnime(
   };
 }
 
+export interface SearchFilters {
+  sort?: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "TRENDING_DESC" | "START_DATE_DESC" | "FAVOURITES_DESC";
+  genres?: string[];
+  format?: string | null;
+  year?: number | null;
+}
+
+export const SORT_OPTIONS: { value: SearchFilters["sort"]; label: string }[] = [
+  { value: "SEARCH_MATCH", label: "Relevance" },
+  { value: "POPULARITY_DESC", label: "Popularity" },
+  { value: "SCORE_DESC", label: "Score" },
+  { value: "TRENDING_DESC", label: "Trending" },
+  { value: "START_DATE_DESC", label: "Newest" },
+  { value: "FAVOURITES_DESC", label: "Favorites" },
+];
+
+export const FORMAT_OPTIONS = [
+  { value: "TV", label: "TV" },
+  { value: "MOVIE", label: "Movie" },
+  { value: "OVA", label: "OVA" },
+  { value: "ONA", label: "ONA" },
+  { value: "SPECIAL", label: "Special" },
+  { value: "MUSIC", label: "Music" },
+];
+
+export async function searchAnimeAdvanced(
+  query: string,
+  page: number,
+  perPage: number,
+  filters: SearchFilters,
+): Promise<{ media: AnimeCard[]; hasNextPage: boolean; total: number; currentPage: number }> {
+  // Build the query DYNAMICALLY — AniList's GraphQL API returns 0 results when
+  // filter variables (genre_in, format, seasonYear) are passed as null.
+  // We only include filter arguments when they have actual values.
+  const hasGenres = filters.genres && filters.genres.length > 0;
+  const hasFormat = !!filters.format;
+  const hasYear = !!filters.year;
+  const hasSearch = !!query;
+
+  const args: string[] = ["$page: Int", "$perPage: Int", "$sort: [MediaSort]"];
+  if (hasSearch) args.push("$search: String");
+  if (hasGenres) args.push("$genres: [String]");
+  if (hasFormat) args.push("$format: MediaFormat");
+  if (hasYear) args.push("$year: Int");
+
+  const mediaArgs: string[] = ["sort: $sort", "type: ANIME"];
+  if (hasSearch) mediaArgs.push("search: $search");
+  if (hasGenres) mediaArgs.push("genre_in: $genres");
+  if (hasFormat) mediaArgs.push("format: $format");
+  if (hasYear) mediaArgs.push("seasonYear: $year");
+
+  const gqlQuery = `query(${args.join(", ")}) {
+    Page(page: $page, perPage: $perPage) {
+      pageInfo { hasNextPage total currentPage }
+      media(${mediaArgs.join(", ")}) {
+        id title { romaji english native }
+        coverImage { large extraLarge color }
+        averageScore format episodes status seasonYear season
+        bannerImage genres
+      }
+    }
+  }`;
+
+  const variables: Record<string, unknown> = {
+    page,
+    perPage,
+    sort: filters.sort ? [filters.sort] : ["SEARCH_MATCH"],
+  };
+  if (hasSearch) variables.search = query;
+  if (hasGenres) variables.genres = filters.genres;
+  if (hasFormat) variables.format = filters.format;
+  if (hasYear) variables.year = filters.year;
+
+  const data = await gql<{
+    Page: {
+      media: AnimeCard[];
+      pageInfo: { hasNextPage: boolean; total: number; currentPage: number };
+    };
+  }>(gqlQuery, variables);
+  return {
+    media: data?.Page?.media ?? [],
+    hasNextPage: data?.Page?.pageInfo?.hasNextPage ?? false,
+    total: data?.Page?.pageInfo?.total ?? 0,
+    currentPage: data?.Page?.pageInfo?.currentPage ?? page,
+  };
+}
+
 export async function fetchAnimeDetail(id: number): Promise<AnimeDetail | null> {
   const data = await gql<{ Media: AnimeDetail }>(
     `query($id: Int) {
       Media(id: $id, type: ANIME) {
         id title { romaji english native }
-        coverImage { large extraLarge }
+        coverImage { large extraLarge color }
         bannerImage
         description
-        averageScore format episodes status seasonYear duration
+        averageScore format episodes status seasonYear season duration
         genres
         studios { nodes { name isAnimationStudio } }
-        nextAiringEpisode { episode airingAt }
+        nextAiringEpisode { episode airingAt timeUntilAiring }
         characters(sort: ROLE, perPage: 8) {
-          nodes { id name { full } image { large } }
+          nodes {
+            id
+            name { full }
+            image { large }
+          }
         }
-        relations { nodes { id title { romaji english native } coverImage { large extraLarge } averageScore format episodes status seasonYear } }
+        relations { nodes { id title { romaji english native } coverImage { large extraLarge color } averageScore format episodes status seasonYear } }
         recommendations(sort: RATING_DESC, perPage: 6) {
-          nodes { mediaRecommendation { id title { romaji english native } coverImage { large extraLarge } averageScore format episodes status seasonYear } }
+          nodes { mediaRecommendation { id title { romaji english native } coverImage { large extraLarge color } averageScore format episodes status seasonYear } }
         }
       }
     }`,
@@ -175,8 +274,9 @@ export async function fetchTrendingPage(
         pageInfo { hasNextPage total }
         media(sort: TRENDING_DESC, type: ANIME) {
           id title { romaji english native }
-          coverImage { large extraLarge }
-          averageScore format episodes status seasonYear
+          coverImage { large extraLarge color }
+          averageScore format episodes status seasonYear season
+          bannerImage genres
         }
       }
     }`,
@@ -201,8 +301,8 @@ export async function fetchSchedule(perPage = 30): Promise<AiringAnime[]> {
       Page(page: 1, perPage: $perPage) {
         media(type: ANIME, status: RELEASING, sort: TRENDING_DESC) {
           id title { romaji english native }
-          coverImage { large extraLarge }
-          averageScore format episodes status seasonYear
+          coverImage { large extraLarge color }
+          averageScore format episodes status seasonYear season
           nextAiringEpisode { episode airingAt timeUntilAiring }
         }
       }

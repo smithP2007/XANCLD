@@ -16,10 +16,12 @@ import {
   type StreamResult,
 } from "../lib/allanime";
 import { extractGogoStream, type GogoSource } from "../lib/gogoanime";
+import { getKotoSource } from "../lib/providers/koto";
+import { fetchZenSources } from "../lib/providers/zen";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
 import { VideoPlayer } from "../components/VideoPlayer";
 
-type Provider = "allanime" | "gogoanime";
+type Provider = "allanime" | "koto" | "zen" | "gogoanime";
 
 interface UnifiedSource {
   url: string;
@@ -44,9 +46,12 @@ export function Watch() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"sub" | "dub">(settings.defaultMode);
   const [resumeTime, setResumeTime] = useState<number | undefined>(undefined);
-  const [provider, setProvider] = useState<Provider>("allanime");
+  const [provider, setProvider] = useState<Provider>(settings.preferredProvider);
+  const [autoPlayNext, setAutoPlayNext] = useState(false);
   const [providerStatus, setProviderStatus] = useState<Record<Provider, "idle" | "loading" | "done" | "error">>({
     allanime: "idle",
+    koto: "idle",
+    zen: "idle",
     gogoanime: "idle",
   });
 
@@ -70,6 +75,19 @@ export function Watch() {
           sourceName: s.sourceName,
           provider: "allanime" as const,
         }));
+      } else if (prov === "koto") {
+        // Koto is a trivial iframe URL builder — always succeeds (no API call)
+        const koto = getKotoSource(animeId, episode, mode);
+        sources = [koto];
+      } else if (prov === "zen") {
+        const zenSources = await fetchZenSources(animeId, episode, mode);
+        sources = zenSources.map((s) => ({
+          url: s.url,
+          type: s.type,
+          quality: s.quality,
+          sourceName: s.sourceName,
+          provider: "zen" as const,
+        }));
       } else if (prov === "gogoanime") {
         const result = await extractGogoStream(title, episode);
         sources = result.sources.map((s: GogoSource) => ({
@@ -92,12 +110,13 @@ export function Watch() {
 
   useEffect(() => {
     if (!animeId) return;
+    setAutoPlayNext(false);
     (async () => {
       setLoading(true);
       setError(null);
       setStream(null);
       setAllSources([]);
-      setProviderStatus({ allanime: "idle", gogoanime: "idle" });
+      setProviderStatus({ allanime: "idle", koto: "idle", zen: "idle", gogoanime: "idle" });
 
       try {
         const detail = await fetchAnimeDetail(animeId);
@@ -125,29 +144,44 @@ export function Watch() {
           setResumeTime(undefined);
         }
 
-        // Try the selected provider first, then fall back to the other
-        const primaryProvider = provider;
-        const fallbackProvider = provider === "allanime" ? "gogoanime" : "allanime";
+        // Try providers in priority order: user's preferred first, then others.
+        // When dub is selected, prefer AllAnime first (it returns actual dub sources).
+        // Zen/Koto have dual-audio players that default to sub (user must switch inside player).
+        const allProviders: Provider[] = mode === "dub"
+          ? ["allanime", "zen", "koto", "gogoanime"]
+          : ["allanime", "koto", "zen", "gogoanime"];
+        const orderedProviders: Provider[] = [
+          provider,
+          ...allProviders.filter((p) => p !== provider),
+        ];
 
-        let sources = await loadFromProvider(primaryProvider, title);
-        if (sources.length === 0) {
-          console.log(`[${primaryProvider}] no sources, trying [${fallbackProvider}]...`);
-          sources = await loadFromProvider(fallbackProvider, title);
+        let sources: UnifiedSource[] = [];
+        for (const prov of orderedProviders) {
+          const provSources = await loadFromProvider(prov, title);
+          if (provSources.length > 0) {
+            sources = provSources;
+            console.log(`[Watch] using ${prov} (${sources.length} sources)`);
+            break;
+          }
         }
 
-        // Also try the fallback in the background for the source picker
-        loadFromProvider(fallbackProvider, title).then((extraSources) => {
-          if (extraSources.length > 0) {
-            setAllSources((prev) => {
-              const existing = new Set(prev.map((s) => s.url));
-              const newOnes = extraSources.filter((s) => !existing.has(s.url));
-              return [...prev, ...newOnes];
+        // In the background, try remaining providers to populate the source picker
+        for (const prov of orderedProviders) {
+          if (providerStatus[prov] === "idle") {
+            loadFromProvider(prov, title).then((extraSources) => {
+              if (extraSources.length > 0) {
+                setAllSources((prev) => {
+                  const existingUrls = new Set(prev.map((s) => s.url));
+                  const newOnes = extraSources.filter((s) => !existingUrls.has(s.url));
+                  return [...prev, ...newOnes];
+                });
+              }
             });
           }
-        });
+        }
 
         if (sources.length === 0) {
-          // Last resort: add a demo HLS stream so the player at least works
+          // Last resort: demo HLS stream so the player at least shows something
           console.log("[Watch] All providers failed — adding demo stream fallback");
           sources = [{
             url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
@@ -178,7 +212,7 @@ export function Watch() {
 
   // Convert UnifiedSource to StreamResult for VideoPlayer
   const streamForPlayer = stream
-    ? { url: stream.url, type: stream.type, quality: stream.quality, sourceName: stream.sourceName }
+    ? { url: stream.url, type: stream.type, quality: stream.quality, sourceName: stream.sourceName, provider: stream.provider }
     : null;
 
   return (
@@ -229,14 +263,27 @@ export function Watch() {
             </div>
           ) : streamForPlayer ? (
             streamForPlayer.type === "iframe" ? (
-              <div className="aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
-                <iframe
-                  src={streamForPlayer.url}
-                  className="w-full h-full"
-                  allowFullScreen
-                  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-                  referrerPolicy="no-referrer"
-                />
+              <div className="space-y-2">
+                {/* Dub hint for dual-audio iframe providers (Zen/Koto) */}
+                {mode === "dub" && (streamForPlayer.provider === "zen" || streamForPlayer.provider === "koto") && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-xan-crimson/10 border border-xan-crimson/30 text-sm text-foreground">
+                    <Volume2 className="h-4 w-4 text-xan-crimson flex-shrink-0" />
+                    <span>
+                      <strong className="text-xan-crimson">Dub selected:</strong>{" "}
+                      This player has dual audio (sub + dub). Click the{" "}
+                      <strong>speaker/language icon</strong> inside the player to switch to English dub.
+                    </span>
+                  </div>
+                )}
+                <div className="aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
+                  <iframe
+                    src={streamForPlayer.url}
+                    className="w-full h-full"
+                    allowFullScreen
+                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
               </div>
             ) : (
               <VideoPlayer
@@ -259,7 +306,7 @@ export function Watch() {
                 }}
                 onEnded={() => {
                   if (settings.autoplay && anime?.episodes && episode < anime.episodes) {
-                    navigate(`/watch/${animeId}?ep=${episode + 1}`);
+                    setAutoPlayNext(true);
                   }
                 }}
                 onNext={
@@ -270,6 +317,13 @@ export function Watch() {
                 onPrev={
                   episode > 1
                     ? () => navigate(`/watch/${animeId}?ep=${episode - 1}`)
+                    : undefined
+                }
+                autoPlayNext={autoPlayNext}
+                onAutoPlayCancel={() => setAutoPlayNext(false)}
+                nextEpisodeLabel={
+                  anime && episode < (anime.episodes ?? 0)
+                    ? `${getTitle(anime.title)} — Episode ${episode + 1}`
                     : undefined
                 }
               />
@@ -351,13 +405,13 @@ export function Watch() {
               Provider
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              {(["allanime", "gogoanime"] as const).map((p) => (
+              {(["allanime", "koto", "zen", "gogoanime"] as const).map((p) => (
                 <button
                   key={p}
                   onClick={() => setProvider(p)}
                   className={`px-3 py-2.5 rounded-xl text-xs font-semibold uppercase transition-all flex flex-col items-center gap-1 ${
                     provider === p
-                      ? "bg-gradient-to-br from-xan-crimson to-xan-crimson-dark text-white shadow-md shadow-xan-crimson/30"
+                      ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
                       : "bg-xan-card-hover text-muted-foreground hover:text-foreground"
                   }`}
                 >

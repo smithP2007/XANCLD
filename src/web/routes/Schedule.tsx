@@ -1,26 +1,31 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Calendar, Clock, Loader2, AlertCircle, Play } from "lucide-react";
+import { Calendar, Clock, AlertCircle, ChevronLeft, ChevronRight, CalendarOff } from "lucide-react";
 import { fetchSchedule, getTitle, type AiringAnime } from "../lib/anilist";
+import { useCountdownTick, formatCountdown } from "../hooks/useCountdownTick";
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+interface GroupedEntry {
+  anime: AiringAnime;
+  episodes: { episode: number; airingAt: number }[];
+  latest: { episode: number; airingAt: number };
+}
 
 export function Schedule() {
   const [anime, setAnime] = useState<AiringAnime[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
-
-  // Tick every second for countdown
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+  const [activeDay, setActiveDay] = useState<number>(new Date().getDay());
+  const now = useCountdownTick();
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchSchedule(30);
+        const data = await fetchSchedule(50);
         setAnime(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load");
@@ -30,23 +35,41 @@ export function Schedule() {
     })();
   }, []);
 
+  // Group by day-of-week, then by anime within each day
+  const byDay = useMemo(() => {
+    const map: Record<number, Map<number, GroupedEntry>> = {};
+    for (let i = 0; i < 7; i++) map[i] = new Map();
+    for (const a of anime) {
+      if (!a.nextAiringEpisode) continue;
+      const airingAt = a.nextAiringEpisode.airingAt * 1000;
+      const day = new Date(airingAt).getDay();
+      const existing = map[day].get(a.id);
+      const ep = { episode: a.nextAiringEpisode.episode, airingAt };
+      if (existing) {
+        existing.episodes.push(ep);
+        if (ep.airingAt > existing.latest.airingAt) existing.latest = ep;
+      } else {
+        map[day].set(a.id, { anime: a, episodes: [ep], latest: ep });
+      }
+    }
+    return map;
+  }, [anime]);
+
+  const todayDay = new Date(now).getDay();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
+
+  // Sort within active day by latest airing time
+  const activeEntries = Array.from(byDay[activeDay].values()).sort(
+    (a, b) => a.latest.airingAt - b.latest.airingAt,
+  );
+
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
 
-  // Group by day
-  const today = new Date(now);
-  const days: Record<string, AiringAnime[]> = {};
-  for (const a of anime) {
-    const airingAt = a.nextAiringEpisode!.airingAt * 1000;
-    const date = new Date(airingAt);
-    const dayKey = date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-    if (!days[dayKey]) days[dayKey] = [];
-    days[dayKey].push(a);
-  }
-
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
-      <div className="flex items-center gap-3 mb-6">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-xan-crimson to-xan-violet flex items-center justify-center glow-crimson">
           <Calendar className="h-5 w-5 text-white" />
         </div>
@@ -55,72 +78,127 @@ export function Schedule() {
           <p className="text-sm text-muted-foreground">Currently airing anime — next episodes</p>
         </div>
       </div>
+      <p className="text-xs text-muted-foreground mb-6 ml-13">
+        Airing times in {timezone}
+      </p>
 
-      <div className="space-y-8">
-        {Object.entries(days).map(([dayKey, items]) => (
-          <div key={dayKey} className="animate-fade-in-up">
-            <h2 className="text-lg font-bold font-display text-foreground mb-3 flex items-center gap-2">
-              <span className="w-1 h-5 rounded-full bg-gradient-to-b from-xan-crimson to-xan-violet" />
-              {dayKey}
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {items.map((a) => {
-                const airingAt = a.nextAiringEpisode!.airingAt * 1000;
-                const msLeft = airingAt - now;
-                const isAired = msLeft <= 0;
-                return (
-                  <Link
-                    key={a.id}
-                    to={`/anime/${a.id}`}
-                    className="glass card-glow group flex items-center gap-3 p-3 rounded-xl hover:border-xan-crimson/30 transition-all"
+      {/* Day-of-week tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 mb-6">
+        {DAY_NAMES.map((day, idx) => {
+          const count = byDay[idx].size;
+          const isToday = idx === todayDay;
+          const isActive = idx === activeDay;
+          return (
+            <button
+              key={day}
+              onClick={() => setActiveDay(idx)}
+              className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex flex-col items-center gap-0.5 min-w-[80px] ${
+                isActive
+                  ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-lg shadow-xan-crimson/20"
+                  : "bg-xan-card text-muted-foreground hover:text-foreground hover:bg-xan-card-hover border border-xan-border"
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                {DAY_SHORT[idx]}
+                {isToday && (
+                  <span
+                    className={`px-1 py-0.5 rounded text-[8px] font-bold uppercase ${
+                      isActive ? "bg-white/20 text-white" : "bg-xan-crimson/20 text-xan-crimson"
+                    }`}
                   >
-                    <img
-                      src={a.coverImage.large}
-                      alt={getTitle(a.title)}
-                      className="w-12 h-16 rounded-lg object-cover shrink-0"
-                      onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.3")}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-sm text-foreground line-clamp-1 group-hover:text-xan-crimson transition-colors">
-                        {getTitle(a.title)}
-                      </h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Episode {a.nextAiringEpisode!.episode}
-                      </p>
-                      <div className="flex items-center gap-1.5 mt-1.5">
-                        <Clock className="h-3 w-3 text-xan-crimson" />
-                        <span
-                          className={`text-xs font-mono font-medium ${
-                            isAired ? "text-muted-foreground" : "text-xan-crimson"
-                          }`}
-                        >
-                          {isAired ? "Aired" : formatCountdown(msLeft)}
-                        </span>
-                      </div>
-                    </div>
-                    <Play className="h-4 w-4 text-muted-foreground group-hover:text-xan-crimson transition-colors shrink-0" />
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+                    Today
+                  </span>
+                )}
+              </span>
+              <span
+                className={`text-[10px] ${isActive ? "text-white/80" : "text-muted-foreground/70"}`}
+              >
+                {count} {count === 1 ? "show" : "shows"}
+              </span>
+            </button>
+          );
+        })}
       </div>
+
+      {/* Active day entries */}
+      {activeEntries.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center border border-xan-border rounded-xl bg-xan-card/30">
+          <CalendarOff className="h-12 w-12 text-muted-foreground mb-3" />
+          <p className="text-lg font-medium text-foreground">Nothing airing this day</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Try another day — there are {anime.length} scheduled episodes this week.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-fade-in-up">
+          {activeEntries.map((entry) => (
+            <ScheduleCard key={entry.anime.id} entry={entry} now={now} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function formatCountdown(ms: number): string {
-  if (ms <= 0) return "Now";
-  const s = Math.floor(ms / 1000);
-  const days = Math.floor(s / 86400);
-  const hours = Math.floor((s % 86400) / 3600);
-  const mins = Math.floor((s % 3600) / 60);
-  const secs = s % 60;
-  if (days > 0) return `${days}d ${hours}h ${mins}m`;
-  if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
-  if (mins > 0) return `${mins}m ${secs}s`;
-  return `${secs}s`;
+function ScheduleCard({ entry, now }: { entry: GroupedEntry; now: number }) {
+  const { anime, latest, episodes } = entry;
+  const airingAtMs = latest.airingAt;
+  const msLeft = airingAtMs - now;
+  const isAired = msLeft <= 0;
+  const isImminent = msLeft > 0 && msLeft < 3600000; // <1h
+
+  const dateLabel = new Date(airingAtMs).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  return (
+    <Link
+      to={`/anime/${anime.id}`}
+      className="glass card-glow group flex items-center gap-3 p-3 rounded-xl hover:border-xan-crimson/30 transition-all"
+    >
+      <div className="relative shrink-0">
+        <img
+          src={anime.coverImage.large}
+          alt={getTitle(anime.title)}
+          loading="lazy"
+          className="w-14 h-20 rounded-lg object-cover"
+          onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.3")}
+        />
+        {episodes.length > 1 && (
+          <span className="absolute -top-1 -right-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-xan-crimson text-white shadow">
+            {episodes.length} eps
+          </span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <h3 className="font-medium text-sm text-foreground line-clamp-1 group-hover:text-xan-crimson transition-colors">
+          {getTitle(anime.title)}
+        </h3>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Episode {latest.episode} • {dateLabel}
+        </p>
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <Clock
+            className={`h-3 w-3 ${
+              isImminent ? "text-xan-crimson animate-pulse" : isAired ? "text-green-500" : "text-xan-crimson"
+            }`}
+          />
+          {isAired ? (
+            <span className="text-xs font-bold uppercase text-green-500">Aired</span>
+          ) : isImminent ? (
+            <span className="text-xs font-mono font-bold text-xan-crimson animate-pulse">
+              {formatCountdown(Math.floor(msLeft / 1000))}
+            </span>
+          ) : (
+            <span className="text-xs font-mono font-medium text-muted-foreground">
+              {formatCountdown(Math.floor(msLeft / 1000))}
+            </span>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
 }
 
 function LoadingState() {
@@ -133,8 +211,22 @@ function LoadingState() {
           <div className="h-3 w-48 rounded skeleton" />
         </div>
       </div>
-      <div className="flex justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-xan-crimson" />
+      <div className="flex gap-2 mb-6">
+        {Array.from({ length: 7 }, (_, i) => (
+          <div key={i} className="w-20 h-14 rounded-xl skeleton" />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {Array.from({ length: 9 }, (_, i) => (
+          <div key={i} className="glass rounded-xl p-3 flex items-center gap-3">
+            <div className="w-14 h-20 rounded-lg skeleton" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-3/4 rounded skeleton" />
+              <div className="h-2 w-1/2 rounded skeleton" />
+              <div className="h-2 w-1/3 rounded skeleton" />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -146,6 +238,12 @@ function ErrorState({ message }: { message: string }) {
       <AlertCircle className="h-10 w-10 text-xan-crimson mb-3" />
       <p className="text-lg font-medium">Failed to load schedule</p>
       <p className="text-sm text-muted-foreground mt-1">{message}</p>
+      <button
+        onClick={() => window.location.reload()}
+        className="mt-4 px-4 py-2 rounded-lg bg-xan-card border border-xan-border hover:bg-xan-card-hover text-sm"
+      >
+        Retry
+      </button>
     </div>
   );
 }

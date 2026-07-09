@@ -12,7 +12,13 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3002,
+    port: 3000,
+    host: "0.0.0.0",
+    // Allow the platform preview proxy (and any other host) to access Vite.
+    // Vite 6+ blocks unknown Host headers by default for DNS-rebinding protection;
+    // the platform's Caddy proxy uses internal hostnames like
+    // ws-bf-cf-<id>.cn-hongkong-vpc.fcapp.run which we need to explicitly allow.
+    allowedHosts: true,
     // During dev, proxy /api/* to the wrangler dev server (port 3003)
     proxy: {
       "/api": {
