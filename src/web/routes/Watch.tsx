@@ -35,6 +35,15 @@ interface UnifiedSource {
   provider: Provider;
 }
 
+// Check if ALL source names from a provider are disabled — if so, skip loading that provider entirely
+function isProviderFullyDisabled(prov: Provider, disabledSources: string[]): boolean {
+  if (prov === "koto") return disabledSources.includes("Koto");
+  if (prov === "zen") return disabledSources.includes("Zen") && disabledSources.includes("Zen (Dual→Dub)");
+  if (prov === "gogoanime") return disabledSources.includes("gogoanime");
+  // allanime: source names are dynamic (Mp4, Ok, etc.) — can't know in advance, so still load it
+  return false;
+}
+
 export function Watch() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
@@ -156,10 +165,20 @@ export function Watch() {
         const allProviders: Provider[] = mode === "dub"
           ? ["allanime", "zen", "koto", "gogoanime"]
           : ["allanime", "koto", "zen", "gogoanime"];
+
+        // Filter out providers whose sources are ALL disabled — don't even load them
+        const activeProviders = allProviders.filter((prov) => !isProviderFullyDisabled(prov, settings.disabledSources));
         const orderedProviders: Provider[] = [
           provider,
-          ...allProviders.filter((p) => p !== provider),
+          ...activeProviders.filter((p) => p !== provider),
         ];
+        // If the user's preferred provider is disabled, remove it from the front
+        const finalOrderedProviders = orderedProviders.filter((p) => activeProviders.includes(p));
+        if (finalOrderedProviders.length === 0 && !settings.pinnedSource) {
+          setError("All sources are disabled. Enable at least one source in Settings > Bandwidth.");
+          setLoading(false);
+          return;
+        }
 
         // When a source is pinned, we need to try ALL providers to find it —
         // the pinned source might come from a different provider than the one
@@ -169,7 +188,7 @@ export function Watch() {
         if (settings.pinnedSource) {
           console.log(`[Watch] Pinned source "${settings.pinnedSource}" — loading all providers to find it`);
           let allCollectedSources: UnifiedSource[] = [];
-          for (const prov of orderedProviders) {
+          for (const prov of allProviders) {
             const provSources = await loadFromProvider(prov, title);
             allCollectedSources = [...allCollectedSources, ...provSources];
           }
@@ -199,25 +218,29 @@ export function Watch() {
           return;
         }
 
-        // Normal flow (no pinned source)
+        // Normal flow (no pinned source) — only load active (non-disabled) providers
         let sources: UnifiedSource[] = [];
-        for (const prov of orderedProviders) {
+        for (const prov of finalOrderedProviders) {
           const provSources = await loadFromProvider(prov, title);
-          if (provSources.length > 0) {
-            sources = provSources;
+          // Filter out disabled sources from this provider's results
+          const enabledProvSources = provSources.filter((s) => !settings.disabledSources.includes(s.sourceName));
+          if (enabledProvSources.length > 0) {
+            sources = enabledProvSources;
             console.log(`[Watch] using ${prov} (${sources.length} sources)`);
             break;
           }
         }
 
-        // In the background, try remaining providers to populate the source picker
-        for (const prov of orderedProviders) {
+        // In the background, try remaining active providers to populate the source picker
+        for (const prov of finalOrderedProviders) {
           if (providerStatus[prov] === "idle") {
             loadFromProvider(prov, title).then((extraSources) => {
-              if (extraSources.length > 0) {
+              // Only add non-disabled sources
+              const enabledExtras = extraSources.filter((s) => !settings.disabledSources.includes(s.sourceName));
+              if (enabledExtras.length > 0) {
                 setAllSources((prev) => {
                   const existingUrls = new Set(prev.map((s) => s.url));
-                  const newOnes = extraSources.filter((s) => !existingUrls.has(s.url));
+                  const newOnes = enabledExtras.filter((s) => !existingUrls.has(s.url));
                   return [...prev, ...newOnes];
                 });
               }
@@ -239,12 +262,8 @@ export function Watch() {
 
         setAllSources(sources);
 
-        // Filter sources by disabledSources (pinned source already handled above)
-        let selectableSources = sources.filter((s) => !settings.disabledSources.includes(s.sourceName));
-        if (selectableSources.length === 0) {
-          // All sources disabled — fallback to showing all
-          selectableSources = sources;
-        }
+        // Sources are already filtered by disabledSources during loading — no fallback to disabled sources
+        const selectableSources = sources;
 
         // Prefer direct mp4/hls sources over iframe embeds
         const directSources = selectableSources.filter((s) => s.type === "mp4" || s.type === "hls");
