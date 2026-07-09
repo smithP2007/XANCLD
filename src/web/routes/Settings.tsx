@@ -9,7 +9,6 @@ import {
   Sun,
   Moon,
   Monitor,
-  Trash2,
   Github,
   Cloud,
   Check,
@@ -28,12 +27,18 @@ import {
   SkipForward,
   SkipBack,
   X,
+  Save,
+  Trash2,
+  Bookmark,
+  ChevronDown,
 } from "lucide-react";
 import { useSettings, clearHistory, getHistory } from "../hooks/useSettings";
 import {
   useVideoEnhancer,
   ENHANCER_PRESETS as ENHANCER_PRESET_LIST,
+  MAX_CUSTOM_PRESETS,
   type EnhancerState,
+  type CustomPreset,
 } from "../hooks/useVideoEnhancer";
 
 interface Section {
@@ -323,139 +328,119 @@ export function Settings() {
           id="enhancer"
           icon={Sliders}
           title="Video Enhancer"
-          desc="Color grading for the video player — 9 controls + 20 built-in presets. Applies to both video and iframe players. Press E while watching to toggle."
+          desc="Color grading with 9 GPU-accelerated filters + 20 presets + custom presets. Press E while watching to toggle."
         >
+          {/* Master toggle + status badge */}
           <Row
             label="Enable Video Enhancer"
-            desc="When on, color grading is applied to the video. When off, all filters are bypassed. Press E in the player to toggle."
+            desc="When on, color grading applies to both video and iframe players"
           >
-            <Toggle
-              checked={enhancer.state.enabled}
-              onChange={() => enhancer.toggleEnabled()}
-            />
+            <div className="flex items-center gap-2">
+              {enhancer.active && (
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30">
+                  ACTIVE
+                </span>
+              )}
+              <Toggle
+                checked={enhancer.state.enabled}
+                onChange={() => enhancer.toggleEnabled()}
+              />
+            </div>
           </Row>
-          <Row
-            label="Built-in presets"
-            desc="Quick one-tap color grading. Click to apply — enhancer turns on automatically."
-          >
-            <div className="flex flex-wrap gap-1.5 justify-end max-w-md">
+
+          {/* Built-in presets — polished grid */}
+          <div className="py-4">
+            <p className="text-xs font-medium text-foreground mb-2 flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-xan-crimson" />
+              Built-in Presets
+            </p>
+            <div className="flex flex-wrap gap-1.5">
               {Object.entries(ENHANCER_PRESET_LIST).map(([id, preset]) => (
                 <button
                   key={id}
                   onClick={() => enhancer.applyPreset(id as keyof typeof ENHANCER_PRESET_LIST)}
-                  className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-xan-card border border-xan-border hover:border-xan-crimson/40 hover:text-foreground text-muted-foreground transition-colors"
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border ${
+                    enhancer.state.enabled
+                      ? "bg-xan-card border-xan-border hover:border-xan-crimson/50 hover:bg-xan-crimson/10 hover:text-foreground text-muted-foreground"
+                      : "bg-xan-card/50 border-xan-border/50 text-muted-foreground/40 cursor-not-allowed"
+                  }`}
+                  disabled={!enhancer.state.enabled}
                 >
                   {preset.label}
                 </button>
               ))}
             </div>
-          </Row>
-          <EnhancerRow
-            label="Brightness"
-            value={enhancer.state.brightness}
-            min={0}
-            max={200}
-            step={1}
-            neutral={100}
-            unit="%"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("brightness", v)}
+          </div>
+
+          {/* Custom presets — save + list */}
+          <div className="py-4 border-t border-xan-border">
+            <p className="text-xs font-medium text-foreground mb-2 flex items-center gap-1.5">
+              <Bookmark className="h-3.5 w-3.5 text-xan-crimson" />
+              My Presets
+              <span className="text-[10px] text-muted-foreground font-normal">
+                ({enhancer.customPresets.length}/{MAX_CUSTOM_PRESETS})
+              </span>
+            </p>
+            {/* Save form */}
+            {enhancer.canSaveMoreCustom ? (
+              <EnhancerPresetSaver
+                disabled={!enhancer.state.enabled}
+                onSave={(name) => enhancer.saveCustomPreset(name)}
+              />
+            ) : (
+              <p className="text-[11px] text-muted-foreground/60 italic">
+                Max {MAX_CUSTOM_PRESETS} presets reached — delete one to save more
+              </p>
+            )}
+            {/* Saved presets list */}
+            {enhancer.customPresets.length > 0 ? (
+              <div className="mt-2 space-y-1">
+                {enhancer.customPresets.map((cp) => (
+                  <div
+                    key={cp.id}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-xan-card/60 border border-xan-border group hover:border-xan-crimson/30 transition-colors"
+                  >
+                    <button
+                      onClick={() => enhancer.applyCustomPreset(cp.id)}
+                      disabled={!enhancer.state.enabled}
+                      className="flex-1 text-left text-xs text-foreground font-medium hover:text-xan-crimson transition-colors disabled:opacity-40"
+                    >
+                      {cp.name}
+                    </button>
+                    <span className="text-[9px] text-muted-foreground/50">
+                      B{cp.values.brightness} C{cp.values.contrast} S{cp.values.saturation}
+                    </span>
+                    <button
+                      onClick={() => enhancer.deleteCustomPreset(cp.id)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all p-0.5"
+                      aria-label="Delete preset"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground/40 italic mt-1">
+                No saved presets yet — adjust the sliders and save your favorite combination
+              </p>
+            )}
+          </div>
+
+          {/* Manual controls — collapsible */}
+          <EnhancerManualControls
+            enhancer={enhancer}
           />
-          <EnhancerRow
-            label="Contrast"
-            value={enhancer.state.contrast}
-            min={0}
-            max={200}
-            step={1}
-            neutral={100}
-            unit="%"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("contrast", v)}
-          />
-          <EnhancerRow
-            label="Saturation"
-            value={enhancer.state.saturation}
-            min={0}
-            max={200}
-            step={1}
-            neutral={100}
-            unit="%"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("saturation", v)}
-          />
-          <EnhancerRow
-            label="Hue"
-            value={enhancer.state.hue}
-            min={-180}
-            max={180}
-            step={5}
-            neutral={0}
-            unit="°"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("hue", v)}
-          />
-          <EnhancerRow
-            label="Gamma"
-            value={enhancer.state.gamma}
-            min={0.2}
-            max={3.0}
-            step={0.05}
-            neutral={1.0}
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("gamma", v)}
-          />
-          <EnhancerRow
-            label="Sharpen"
-            value={enhancer.state.sharpen}
-            min={0}
-            max={100}
-            step={5}
-            neutral={0}
-            unit="%"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("sharpen", v)}
-          />
-          <EnhancerRow
-            label="Blur"
-            value={enhancer.state.blur}
-            min={0}
-            max={10}
-            step={0.5}
-            neutral={0}
-            unit="px"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("blur", v)}
-          />
-          <EnhancerRow
-            label="Sepia"
-            value={enhancer.state.sepia}
-            min={0}
-            max={100}
-            step={5}
-            neutral={0}
-            unit="%"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("sepia", v)}
-          />
-          <EnhancerRow
-            label="Grayscale"
-            value={enhancer.state.grayscale}
-            min={0}
-            max={100}
-            step={5}
-            neutral={0}
-            unit="%"
-            disabled={!enhancer.state.enabled}
-            onChange={(v) => enhancer.update("grayscale", v)}
-          />
-          <Row label="Reset enhancer" desc="Restore all enhancer values to defaults">
+
+          {/* Reset */}
+          <div className="pt-4 border-t border-xan-border">
             <button
               onClick={enhancer.reset}
-              className="px-3 py-1.5 rounded-lg bg-xan-card border border-xan-border hover:border-xan-crimson/40 text-sm text-muted-foreground hover:text-xan-crimson transition-all flex items-center gap-1.5"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-xan-card border border-xan-border hover:border-xan-crimson/40 text-xs text-muted-foreground hover:text-xan-crimson transition-all"
             >
-              <RotateCcw className="h-3.5 w-3.5" /> Reset
+              <RotateCcw className="h-3 w-3" /> Reset all to defaults
             </button>
-          </Row>
+          </div>
         </Section>
 
         {/* Bandwidth */}
@@ -879,6 +864,136 @@ function EnhancerRow({
           {display}{unit}
         </span>
       </div>
+    </div>
+  );
+}
+
+// ─── Enhancer preset saver (inline form) ──────────────────────
+function EnhancerPresetSaver({
+  disabled,
+  onSave,
+}: {
+  disabled: boolean;
+  onSave: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+
+  return (
+    <div className="flex gap-1.5">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && name.trim()) {
+            onSave(name);
+            setName("");
+          }
+        }}
+        placeholder="Name your preset..."
+        maxLength={24}
+        disabled={disabled}
+        className="flex-1 h-8 px-2.5 rounded-lg bg-xan-card border border-xan-border text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-xan-crimson/40 disabled:opacity-40"
+      />
+      <button
+        onClick={() => {
+          if (name.trim()) {
+            onSave(name);
+            setName("");
+          }
+        }}
+        disabled={disabled || !name.trim()}
+        className="flex items-center gap-1 px-2.5 h-8 rounded-lg bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30 text-xs font-medium hover:bg-xan-crimson/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <Save className="h-3 w-3" />
+        Save
+      </button>
+    </div>
+  );
+}
+
+// ─── Collapsible manual controls ──────────────────────────────
+function EnhancerManualControls({
+  enhancer,
+}: {
+  enhancer: ReturnType<typeof useVideoEnhancer>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const SLIDERS: {
+    key: keyof EnhancerState;
+    label: string;
+    min: number;
+    max: number;
+    step: number;
+    neutral: number;
+    unit?: string;
+  }[] = [
+    { key: "brightness", label: "Brightness", min: 0, max: 200, step: 1, neutral: 100, unit: "%" },
+    { key: "contrast", label: "Contrast", min: 0, max: 200, step: 1, neutral: 100, unit: "%" },
+    { key: "saturation", label: "Saturation", min: 0, max: 200, step: 1, neutral: 100, unit: "%" },
+    { key: "hue", label: "Hue", min: -180, max: 180, step: 5, neutral: 0, unit: "°" },
+    { key: "blur", label: "Blur", min: 0, max: 10, step: 0.5, neutral: 0, unit: "px" },
+    { key: "sepia", label: "Sepia", min: 0, max: 100, step: 5, neutral: 0, unit: "%" },
+    { key: "grayscale", label: "Grayscale", min: 0, max: 100, step: 5, neutral: 0, unit: "%" },
+    { key: "gamma", label: "Gamma", min: 0.2, max: 3.0, step: 0.05, neutral: 1.0 },
+    { key: "sharpen", label: "Sharpen", min: 0, max: 100, step: 5, neutral: 0, unit: "%" },
+  ];
+
+  return (
+    <div className="py-4 border-t border-xan-border">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-xs font-medium text-foreground"
+      >
+        <span>Manual Controls (9 sliders)</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          {SLIDERS.map((slider) => {
+            const value = enhancer.state[slider.key] as number;
+            const isDefault = Math.abs(value - slider.neutral) < 0.001;
+            const pct = ((value - slider.min) / (slider.max - slider.min)) * 100;
+            const display = slider.unit === "°" || slider.unit === "%"
+              ? Math.round(value)
+              : value.toFixed(2);
+            return (
+              <div
+                key={slider.key}
+                className={`transition-opacity ${enhancer.state.enabled ? "" : "opacity-40 pointer-events-none"}`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-foreground">{slider.label}</span>
+                  <span className={`text-[10px] font-mono ${isDefault ? "text-muted-foreground" : "text-xan-crimson"}`}>
+                    {isDefault ? "Default" : `${display}${slider.unit}`}
+                  </span>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-1/2 -translate-y-1/2 left-0 right-0 h-1 rounded-full bg-xan-card" />
+                  <div
+                    className="absolute inset-y-1/2 -translate-y-1/2 left-0 h-1 rounded-full bg-gradient-to-r from-xan-crimson to-xan-violet"
+                    style={{ width: `${pct}%` }}
+                  />
+                  <input
+                    type="range"
+                    min={slider.min}
+                    max={slider.max}
+                    step={slider.step}
+                    value={value}
+                    onChange={(e) => enhancer.update(slider.key, parseFloat(e.target.value) as never)}
+                    className="relative w-full appearance-none bg-transparent h-3 cursor-pointer
+                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
+                      [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-md
+                      [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full
+                      [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
