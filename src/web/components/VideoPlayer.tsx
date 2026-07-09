@@ -732,19 +732,17 @@ export function VideoPlayer({
           </button>
           {/* Right side */}
           <div className="ml-auto flex items-center gap-3">
-            {/* Eye toggle — turns enhancer on/off (only shows when enhancer is enabled) */}
-            {enhancer.state.enabled && (
-              <button
-                onClick={enhancer.toggleEnabled}
-                className={`transition-colors ${
-                  enhancer.state.enabled ? "text-xan-crimson" : "text-white/60 hover:text-white"
-                }`}
-                title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
-                aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
-              >
-                {enhancer.state.enabled ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
-              </button>
-            )}
+            {/* Eye toggle — always visible, turns enhancer on/off */}
+            <button
+              onClick={enhancer.toggleEnabled}
+              className={`transition-colors ${
+                enhancer.state.enabled ? "text-xan-crimson" : "text-white/60 hover:text-white"
+              }`}
+              title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
+              aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
+            >
+              {enhancer.state.enabled ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+            </button>
             {/* Enhancer settings button */}
             <button
               onClick={() => setShowEnhancer(true)}

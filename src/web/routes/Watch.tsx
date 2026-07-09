@@ -326,21 +326,19 @@ export function Watch() {
                     Enhancer
                     {enhancer.active && <span className="w-1.5 h-1.5 rounded-full bg-xan-crimson animate-pulse" />}
                   </button>
-                  {/* Eye toggle — turns enhancer on/off without opening the panel */}
-                  {enhancer.state.enabled && (
-                    <button
-                      onClick={enhancer.toggleEnabled}
-                      className={`p-1.5 rounded-lg text-xs font-medium transition-all border ${
-                        enhancer.state.enabled
-                          ? "bg-xan-crimson/20 text-xan-crimson border-xan-crimson/30"
-                          : "glass text-muted-foreground hover:text-foreground border-xan-border"
-                      }`}
-                      title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
-                      aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
-                    >
-                      {enhancer.state.enabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                    </button>
-                  )}
+                  {/* Eye toggle — always visible, turns enhancer on/off */}
+                  <button
+                    onClick={enhancer.toggleEnabled}
+                    className={`p-1.5 rounded-lg text-xs font-medium transition-all border ${
+                      enhancer.state.enabled
+                        ? "bg-xan-crimson/20 text-xan-crimson border-xan-crimson/30"
+                        : "glass text-muted-foreground hover:text-foreground border-xan-border"
+                    }`}
+                    title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
+                    aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
+                  >
+                    {enhancer.state.enabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
                 <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
                   <iframe

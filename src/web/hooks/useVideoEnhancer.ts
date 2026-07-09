@@ -153,21 +153,60 @@ export function buildEnhancerFilterCss(s: EnhancerState): string {
   return parts.length > 0 ? parts.join(" ") : "none";
 }
 
+// ─── Custom presets (user-saved, max 10) ──────────────────────
+export interface CustomPreset {
+  id: string;
+  name: string;
+  values: Omit<EnhancerState, "enabled">;
+  createdAt: number;
+}
+
+export const MAX_CUSTOM_PRESETS = 10;
+const CUSTOM_PRESETS_KEY = "xan-video-enhancer-presets";
+
+function readCustomPresets(): CustomPreset[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRESETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(0, MAX_CUSTOM_PRESETS);
+  } catch {
+    return [];
+  }
+}
+
+function writeCustomPresets(presets: CustomPreset[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(presets.slice(0, MAX_CUSTOM_PRESETS)));
+    queueMicrotask(() => window.dispatchEvent(new CustomEvent(SYNC_EVENT)));
+  } catch {
+    // ignore
+  }
+}
+
 // ─── Hook ─────────────────────────────────────────────────────
 export function useVideoEnhancer() {
   const [state, setState] = useState<EnhancerState>(DEFAULT_ENHANCER);
   const [peeking, setPeeking] = useState(false);
+  const [customPresets, setCustomPresets] = useState<CustomPreset[]>([]);
 
   // Hydrate from localStorage on mount
   useEffect(() => {
     setState(readState());
+    setCustomPresets(readCustomPresets());
   }, []);
 
   // Cross-instance sync (within same tab — the settings page and the player
   // both use this hook and need to stay in sync)
   useEffect(() => {
     const handler = () => {
-      queueMicrotask(() => setState(readState()));
+      queueMicrotask(() => {
+        setState(readState());
+        setCustomPresets(readCustomPresets());
+      });
     };
     window.addEventListener(SYNC_EVENT, handler);
     window.addEventListener("storage", handler);
@@ -231,6 +270,59 @@ export function useVideoEnhancer() {
   const effectiveFilterCss = peeking && active ? "none" : filterCss;
   const effectiveActive = active && !peeking;
 
+  // ─── Custom preset functions ───
+  const saveCustomPreset = useCallback((name: string): string | null => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const newPreset: CustomPreset = {
+      id: `cp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      name: trimmed.slice(0, 24),
+      values: {
+        brightness: state.brightness,
+        contrast: state.contrast,
+        saturation: state.saturation,
+        hue: state.hue,
+        blur: state.blur,
+        sepia: state.sepia,
+        grayscale: state.grayscale,
+        gamma: state.gamma,
+        sharpen: state.sharpen,
+      },
+      createdAt: Date.now(),
+    };
+    let savedId: string | null = null;
+    setCustomPresets((prev) => {
+      if (prev.length >= MAX_CUSTOM_PRESETS) return prev;
+      const next = [...prev, newPreset];
+      writeCustomPresets(next);
+      savedId = newPreset.id;
+      return next;
+    });
+    return savedId;
+  }, [state]);
+
+  const applyCustomPreset = useCallback((id: string) => {
+    setCustomPresets((prevList) => {
+      const found = prevList.find((p) => p.id === id);
+      if (found) {
+        setState((prev) => {
+          const next: EnhancerState = { ...found.values, enabled: true };
+          writeState(next);
+          return next;
+        });
+      }
+      return prevList;
+    });
+  }, []);
+
+  const deleteCustomPreset = useCallback((id: string) => {
+    setCustomPresets((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      writeCustomPresets(next);
+      return next;
+    });
+  }, []);
+
   return {
     state,
     update,
@@ -240,11 +332,16 @@ export function useVideoEnhancer() {
     toggleEnabled,
     filterCss: effectiveFilterCss,
     active: effectiveActive,
-    // Raw (non-peeked) state for the SVG defs — keeps the SVG mounted while peeking
     rawState: state,
     rawActive: active,
     peeking,
     peekStart,
     peekEnd,
+    // Custom presets
+    customPresets,
+    saveCustomPreset,
+    applyCustomPreset,
+    deleteCustomPreset,
+    canSaveMoreCustom: customPresets.length < MAX_CUSTOM_PRESETS,
   };
 }
