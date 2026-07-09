@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Play, ArrowRight, Sparkles } from "lucide-react";
+import { Play, ArrowRight } from "lucide-react";
 import { useEffect } from "react";
 
 export function Landing() {
@@ -41,11 +41,6 @@ export function Landing() {
           </div>
           <span className="font-display font-extrabold text-5xl tracking-tight">XAN</span>
         </Link>
-
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass mb-6 text-xs text-muted-foreground">
-          <Sparkles className="h-3 w-3 text-xan-crimson" />
-          Powered by Cloudflare Workers
-        </div>
 
         <h1 className="text-4xl md:text-7xl font-bold font-display mb-6 leading-tight">
           Stream anime

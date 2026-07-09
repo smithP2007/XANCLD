@@ -61,11 +61,11 @@ export function VideoEnhancerPanel({ open, onClose }: Props) {
 
   return (
     <div
-      className="absolute inset-0 z-40 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
+      className="absolute inset-0 z-40 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in"
       onClick={onClose}
     >
       <div
-        className="max-w-2xl w-full max-h-[90vh] overflow-y-auto glass-strong rounded-2xl p-5 border border-white/10"
+        className="max-w-sm sm:max-w-2xl w-full max-h-[85vh] sm:max-h-[90vh] overflow-y-auto glass-strong rounded-xl sm:rounded-2xl p-3 sm:p-5 border border-white/10"
         onClick={handleClick}
       >
         {/* Header */}
@@ -135,13 +135,13 @@ export function VideoEnhancerPanel({ open, onClose }: Props) {
         {/* Presets grid */}
         {showPresets && (
           <div className="mb-4 pb-4 border-b border-white/10">
-            <p className="text-xs uppercase tracking-wider text-white/50 font-semibold mb-2">Presets</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1.5">
+            <p className="text-[10px] sm:text-xs uppercase tracking-wider text-white/50 font-semibold mb-2">Presets</p>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1 sm:gap-1.5">
               {Object.entries(ENHANCER_PRESETS).map(([id, preset]) => (
                 <button
                   key={id}
                   onClick={() => enhancer.applyPreset(id as keyof typeof ENHANCER_PRESETS)}
-                  className="px-2 py-2 rounded-lg text-[11px] font-medium bg-white/5 border border-white/10 hover:border-xan-crimson/40 hover:bg-white/10 text-white/80 hover:text-white transition-all"
+                  className="px-1.5 sm:px-2 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-[11px] font-medium bg-white/5 border border-white/10 hover:border-xan-crimson/40 hover:bg-white/10 text-white/80 hover:text-white transition-all"
                 >
                   {preset.label}
                 </button>
@@ -151,8 +151,8 @@ export function VideoEnhancerPanel({ open, onClose }: Props) {
         )}
 
         {/* Manual sliders */}
-        <div className="space-y-3">
-          <p className="text-xs uppercase tracking-wider text-white/50 font-semibold">Manual Controls</p>
+        <div className="space-y-2 sm:space-y-3">
+          <p className="text-[10px] sm:text-xs uppercase tracking-wider text-white/50 font-semibold">Manual Controls</p>
           {SLIDERS.map((slider) => {
             const value = enhancer.state[slider.key] as number;
             const isDefault = Math.abs(value - slider.neutral) < 0.001;
