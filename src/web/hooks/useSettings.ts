@@ -16,6 +16,10 @@ export interface XanSettings {
   // Bandwidth / source
   bandwidthMode: "auto" | "direct-only" | "proxy-only";
   preferredProvider: "allanime" | "koto" | "zen" | "gogoanime";
+  /** Source names that are disabled (hidden from Sources panel, never auto-selected) */
+  disabledSources: string[];
+  /** When set, ONLY this source loads — no fallback to other sources */
+  pinnedSource: string | null;
   // Enhancer
   enhancerEnabled: boolean;
 }
@@ -35,6 +39,8 @@ const DEFAULTS: XanSettings = {
   tvMode: false,
   bandwidthMode: "auto",
   preferredProvider: "allanime",
+  disabledSources: [],
+  pinnedSource: null,
   enhancerEnabled: true,
 };
 

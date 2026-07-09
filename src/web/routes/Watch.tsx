@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -7,7 +7,6 @@ import {
   Star,
   Tv,
   Volume2,
-  Server,
   Sun,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
@@ -198,10 +197,31 @@ export function Watch() {
         }
 
         setAllSources(sources);
+
+        // Filter sources by user's disabledSources + pinnedSource settings
+        let selectableSources = sources;
+        if (settings.pinnedSource) {
+          // Pinned: only use the pinned source (no fallback)
+          selectableSources = sources.filter((s) => s.sourceName === settings.pinnedSource);
+          if (selectableSources.length === 0) {
+            // Pinned source not available in this episode — show nothing
+            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available`);
+            setError(`Pinned source "${settings.pinnedSource}" is not available for this episode. Unpin it in Settings to use other sources.`);
+            setLoading(false);
+            return;
+          }
+        } else {
+          selectableSources = sources.filter((s) => !settings.disabledSources.includes(s.sourceName));
+          if (selectableSources.length === 0) {
+            // All sources disabled — fallback to showing all
+            selectableSources = sources;
+          }
+        }
+
         // Prefer direct mp4/hls sources over iframe embeds
-        const directSources = sources.filter((s) => s.type === "mp4" || s.type === "hls");
-        const iframeSources = sources.filter((s) => s.type === "iframe");
-        const best = directSources[0] ?? iframeSources[0] ?? sources[0];
+        const directSources = selectableSources.filter((s) => s.type === "mp4" || s.type === "hls");
+        const iframeSources = selectableSources.filter((s) => s.type === "iframe");
+        const best = directSources[0] ?? iframeSources[0] ?? selectableSources[0];
         if (best) {
           setStream(best);
         } else {
@@ -214,6 +234,16 @@ export function Watch() {
       }
     })();
   }, [animeId, episode, mode, provider]);
+
+  // Filter sources based on user's disabledSources + pinnedSource settings
+  const filteredSources = useMemo(() => {
+    if (settings.pinnedSource) {
+      // Pinned: only show the pinned source
+      return allSources.filter((s) => s.sourceName === settings.pinnedSource);
+    }
+    // Otherwise: filter out disabled sources
+    return allSources.filter((s) => !settings.disabledSources.includes(s.sourceName));
+  }, [allSources, settings.disabledSources, settings.pinnedSource]);
 
   // Convert UnifiedSource to StreamResult for VideoPlayer
   const streamForPlayer = stream
@@ -441,36 +471,6 @@ export function Watch() {
 
         {/* ─── Sidebar ─── */}
         <div className="space-y-4">
-          {/* Provider selector */}
-          <div className="glass rounded-2xl p-4">
-            <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-              <Server className="h-4 w-4 text-xan-crimson" />
-              Provider
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {(["allanime", "koto", "zen", "gogoanime"] as const).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setProvider(p)}
-                  className={`px-3 py-2.5 rounded-xl text-xs font-semibold uppercase transition-all flex flex-col items-center gap-1 ${
-                    provider === p
-                      ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
-                      : "bg-xan-card-hover text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {p}
-                  {providerStatus[p] !== "idle" && (
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      providerStatus[p] === "done" ? "bg-green-400" :
-                      providerStatus[p] === "error" ? "bg-red-400" :
-                      "bg-yellow-400 animate-pulse"
-                    }`} />
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Episodes panel */}
           <div className="glass rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
@@ -493,7 +493,7 @@ export function Watch() {
                     to={`/watch/${animeId}?ep=${ep}`}
                     className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all ${
                       ep === episode
-                        ? "bg-gradient-to-br from-xan-crimson to-xan-crimson-dark text-white shadow-md shadow-xan-crimson/30"
+                        ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
                         : "bg-xan-card-hover text-muted-foreground hover:text-foreground hover:bg-xan-card"
                     }`}
                   >
@@ -516,7 +516,7 @@ export function Watch() {
                   onClick={() => setMode(m)}
                   className={`px-4 py-2.5 rounded-xl text-sm font-semibold uppercase transition-all ${
                     mode === m
-                      ? "bg-gradient-to-br from-xan-crimson to-xan-crimson-dark text-white shadow-md shadow-xan-crimson/30"
+                      ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
                       : "bg-xan-card-hover text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -526,43 +526,70 @@ export function Watch() {
             </div>
           </div>
 
-          {/* Sources panel */}
-          {allSources.length > 0 && (
+          {/* Sources panel — XAN-style, grouped by provider */}
+          {filteredSources.length > 0 && (
             <div className="glass rounded-2xl p-4">
               <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
                 <Play className="h-4 w-4 text-xan-crimson" />
-                Sources
-                <span className="text-xs text-muted-foreground font-normal">({allSources.length})</span>
+                Servers
+                <span className="text-xs text-muted-foreground font-normal">({filteredSources.length})</span>
               </h3>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {allSources.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setStream(s)}
-                    className={`block w-full text-left px-3 py-2 rounded-lg text-xs transition-all ${
-                      stream?.url === s.url
-                        ? "bg-xan-crimson/15 text-foreground border border-xan-crimson/40"
-                        : "hover:bg-xan-card-hover text-muted-foreground border border-transparent"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono font-medium">{s.sourceName}</span>
-                      <div className="flex items-center gap-1">
-                        <span className="px-1 py-0.5 rounded text-[8px] uppercase bg-xan-card text-muted-foreground">
-                          {s.provider}
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1 no-scrollbar">
+                {/* Group by provider */}
+                {(() => {
+                  const providerOrder = ["allanime", "zen", "koto", "gogoanime"];
+                  const groups = providerOrder.map((p) => ({
+                    providerId: p,
+                    label: p === "allanime" ? "AllAnime"
+                      : p === "zen" ? "Zen"
+                      : p === "koto" ? "Koto"
+                      : p.charAt(0).toUpperCase() + p.slice(1),
+                    items: filteredSources
+                      .map((s, idx) => ({ s, idx }))
+                      .filter(({ s }) => s.provider === p),
+                  })).filter((g) => g.items.length > 0);
+
+                  return groups.map((group) => (
+                    <div key={group.providerId}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                          {group.label}
                         </span>
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase ${
-                          s.type === "iframe" ? "bg-purple-500/20 text-purple-400" :
-                          s.type === "hls" ? "bg-blue-500/20 text-blue-400" :
-                          "bg-green-500/20 text-green-400"
-                        }`}>
-                          {s.type}
-                        </span>
+                        <span className="text-[10px] text-muted-foreground/50">{group.items.length}</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+                        {group.items.map(({ s: source, idx }) => {
+                          const isActive = stream?.url === source.url;
+                          return (
+                            <button
+                              key={`${idx}-${source.url.slice(0, 40)}`}
+                              onClick={() => setStream(source)}
+                              title={source.sourceName}
+                              className={`relative px-2 py-1.5 rounded-md text-[10px] font-medium transition-all flex flex-col items-center gap-0.5 ${
+                                isActive
+                                  ? "bg-xan-crimson/20 text-foreground border border-xan-crimson/50"
+                                  : "bg-xan-card/60 text-muted-foreground border border-transparent hover:bg-xan-card-hover hover:text-foreground"
+                              }`}
+                            >
+                              <span className="font-mono truncate max-w-[80px]">{source.sourceName}</span>
+                              <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded ${
+                                source.type === "iframe" ? "bg-purple-500/20 text-purple-400"
+                                : source.type === "hls" ? "bg-blue-500/20 text-blue-400"
+                                : "bg-green-500/20 text-green-400"
+                              }`}>
+                                {source.type}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
-                  </button>
-                ))}
+                  ));
+                })()}
               </div>
+              <p className="mt-3 pt-2 border-t border-xan-border/40 text-center text-[10px] text-muted-foreground/60">
+                If current server doesn't work, try other servers below.
+              </p>
             </div>
           )}
         </div>

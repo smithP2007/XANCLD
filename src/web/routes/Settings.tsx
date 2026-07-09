@@ -52,6 +52,15 @@ const SECTIONS: Section[] = [
   { id: "about", label: "About", icon: Info },
 ];
 
+// Known stream sources — shown in Settings > Bandwidth > Source filters
+const KNOWN_SOURCES: { name: string; type: "mp4" | "hls" | "iframe"; desc: string }[] = [
+  { name: "Mp4", type: "mp4", desc: "AllAnime — mp4upload.com direct MP4. Plays in custom player with seeking." },
+  { name: "Ok", type: "iframe", desc: "AllAnime — Ok.ru video embed." },
+  { name: "Zen", type: "iframe", desc: "FlixCloud embed. Dual audio (sub + dub)." },
+  { name: "Zen (Dual→Dub)", type: "iframe", desc: "FlixCloud embed labeled for dub mode." },
+  { name: "Koto", type: "iframe", desc: "MegaPlay embed. Direct iframe, always available." },
+];
+
 export function Settings() {
   const [settings, update] = useSettings();
   const [activeSection, setActiveSection] = useState<string>("appearance");
@@ -477,6 +486,108 @@ export function Settings() {
               ))}
             </div>
           </Row>
+
+          {/* Source filters — toggle individual sources on/off + pin */}
+          <div className="py-4">
+            <div className="mb-3">
+              <p className="font-medium text-sm text-foreground">Source filters</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Toggle sources on/off.{" "}
+                <span className="text-xan-crimson font-medium">Click the dot (●)</span> to pin — only that source loads, no fallback.
+              </p>
+            </div>
+
+            {/* Pinned source indicator */}
+            {settings.pinnedSource && (
+              <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-xan-crimson/10 border border-xan-crimson/30 text-xs">
+                <span className="w-2 h-2 rounded-full bg-xan-crimson animate-pulse flex-shrink-0" />
+                <span className="text-xan-crimson font-medium">
+                  Pinned: <span className="font-mono">{settings.pinnedSource}</span>
+                </span>
+                <span className="text-muted-foreground">— only this source will load</span>
+                <button
+                  onClick={() => update({ pinnedSource: null })}
+                  className="ml-auto text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Unpin
+                </button>
+              </div>
+            )}
+
+            {/* Known sources list */}
+            <div className="space-y-1.5">
+              {KNOWN_SOURCES.map((source) => {
+                const isEnabled = !settings.disabledSources.includes(source.name);
+                const isPinned = settings.pinnedSource === source.name;
+                return (
+                  <div
+                    key={source.name}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
+                      isPinned
+                        ? "bg-xan-crimson/10 border-xan-crimson/40"
+                        : isEnabled
+                          ? "bg-xan-card/60 border-xan-border"
+                          : "bg-red-500/5 border-red-500/20"
+                    }`}
+                  >
+                    {/* Pin dot button */}
+                    <button
+                      onClick={() => {
+                        update({ pinnedSource: isPinned ? null : source.name });
+                      }}
+                      className={`flex-shrink-0 w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${
+                        isPinned
+                          ? "bg-xan-crimson border-xan-crimson shadow-[0_0_6px_rgba(233,69,96,0.6)]"
+                          : "bg-transparent border-muted-foreground/40 hover:border-foreground"
+                      }`}
+                      aria-label={isPinned ? `Unpin ${source.name}` : `Pin ${source.name}`}
+                      title={isPinned ? "Pinned — click to unpin" : "Pin: only this source will load (no fallback)"}
+                    >
+                      {isPinned && <span className="w-2 h-2 rounded-full bg-white" />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground font-mono">{source.name}</span>
+                        <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded ${
+                          source.type === "iframe" ? "bg-purple-500/20 text-purple-400"
+                          : source.type === "hls" ? "bg-blue-500/20 text-blue-400"
+                          : "bg-green-500/20 text-green-400"
+                        }`}>
+                          {source.type}
+                        </span>
+                        {isPinned && (
+                          <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-xan-crimson/25 text-xan-crimson border border-xan-crimson/30">
+                            PINNED
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{source.desc}</p>
+                    </div>
+                    <Toggle
+                      checked={isEnabled}
+                      onChange={(checked) => {
+                        if (checked) {
+                          update({ disabledSources: settings.disabledSources.filter((n) => n !== source.name) });
+                        } else {
+                          update({ disabledSources: [...settings.disabledSources, source.name] });
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Enable all button */}
+            {settings.disabledSources.length > 0 && (
+              <button
+                onClick={() => update({ disabledSources: [] })}
+                className="mt-2 text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Enable all sources
+              </button>
+            )}
+          </div>
         </Section>
 
         {/* Content & Discovery */}
