@@ -92,7 +92,7 @@ export function ContinueWatching() {
         className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2 mask-fade-r"
       >
         {grouped.map((entry, idx) => {
-          const progress = formatProgress(entry.latest.timestamp, entry.latest.duration);
+          const progress = 0; // iframe players don't report progress
           const epCount = entry.episodes.length;
           return (
             <Link
@@ -132,12 +132,6 @@ export function ContinueWatching() {
                   <p className="text-[9px] text-white/60 mt-0.5">
                     EP {entry.latest.episode} • {formatTimeAgo(entry.latest.updatedAt)}
                   </p>
-                  <div className="mt-1.5 h-0.5 rounded-full bg-white/20 overflow-hidden">
-                    <div
-                      className="h-full bg-xan-crimson"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
                 </div>
               </div>
             </Link>

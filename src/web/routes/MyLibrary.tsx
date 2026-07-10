@@ -26,7 +26,7 @@ import {
 type Tab = "all" | AnimeStatus | "bookmarks";
 
 export function MyLibrary() {
-  const [tab, setTab] = useState<Tab>("all");
+  const [tab, setTab] = useState<Tab>("bookmarks");
   const [view, setView] = useState<"grid" | "list">("grid");
   const { bookmarks, removeBookmark, clearBookmarks } = useBookmarks();
   const { list, remove, clearAll } = useAnimeList();

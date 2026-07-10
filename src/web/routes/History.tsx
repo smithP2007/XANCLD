@@ -43,14 +43,6 @@ function groupByAnime(history: HistoryEntry[]): GroupedHistory[] {
     .sort((a, b) => b.latest.updatedAt - a.latest.updatedAt);
 }
 
-function fmtTime(s: number): string {
-  if (!isFinite(s) || s < 0) return "0:00";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-  return `${m}:${sec.toString().padStart(2, "0")}`;
-}
 
 export function History() {
   const history = useWatchHistory();
@@ -145,10 +137,6 @@ export function History() {
       ) : (
         <div className="space-y-3">
           {grouped.map((entry, i) => {
-            const progress =
-              entry.latest.duration > 0
-                ? (entry.latest.timestamp / entry.latest.duration) * 100
-                : 0;
             const epCount = entry.episodes.length;
             return (
               <div
@@ -196,8 +184,7 @@ export function History() {
                           {entry.title}
                         </Link>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          Last watched {formatTimeAgo(entry.latest.updatedAt)} • EP {entry.latest.episode} •{" "}
-                          {fmtTime(entry.latest.timestamp)} / {fmtTime(entry.latest.duration)}
+                          Last watched {formatTimeAgo(entry.latest.updatedAt)} • EP {entry.latest.episode}
                         </p>
                       </div>
                       <button
@@ -208,14 +195,6 @@ export function History() {
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
-                    </div>
-
-                    {/* Progress bar */}
-                    <div className="mt-2 h-1 rounded-full bg-white/10 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-xan-crimson to-xan-violet"
-                        style={{ width: `${Math.min(progress, 100)}%` }}
-                      />
                     </div>
 
                     {/* Episode chips (latest highlighted) */}
