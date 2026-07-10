@@ -51,7 +51,10 @@ export function AnimeDetail() {
 
   // NOTE: useMemo MUST come before any early return — React's rules of hooks
   // require hooks to be called unconditionally and in the same order every render.
-  const totalEpisodes = anime?.episodes ?? 0;
+  // When episodes is null (common for long-running shows like One Piece with 1168+ eps),
+  // derive from nextAiringEpisode (episode - 1 = latest aired) or use 0
+  const totalEpisodes = anime?.episodes ?? (anime?.nextAiringEpisode ? anime.nextAiringEpisode.episode - 1 : 0);
+  const nextAirEp = anime?.nextAiringEpisode?.episode ?? null; // first unaired episode number
   const filteredEpisodes = useMemo(() => {
     if (!epSearch.trim()) return Array.from({ length: totalEpisodes }, (_, i) => i + 1);
     const n = parseInt(epSearch, 10);
@@ -375,26 +378,39 @@ export function AnimeDetail() {
 
                   <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-2">
                     {pagedEpisodes.map((ep) => {
-                      const isNextAiring =
-                        anime.nextAiringEpisode && ep === anime.nextAiringEpisode.episode;
+                      const isUnaired = nextAirEp !== null && ep >= nextAirEp;
+                      const isNextAiring = nextAirEp !== null && ep === nextAirEp;
+                      if (isUnaired) {
+                        // Unaired episode — disabled, no link, shows SOON
+                        return (
+                          <div
+                            key={ep}
+                            id={`ep-${ep}`}
+                            className={`aspect-square flex flex-col items-center justify-center rounded-xl border text-sm font-medium relative overflow-hidden cursor-not-allowed ${
+                              isNextAiring
+                                ? "border-xan-crimson/30 bg-xan-crimson/5 text-xan-crimson/40"
+                                : "border-xan-border/30 bg-xan-card/20 text-muted-foreground/20"
+                            }`}
+                            title={isNextAiring ? "Next episode — airing soon" : "Not yet aired"}
+                          >
+                            <span className="relative">{ep}</span>
+                            {isNextAiring && (
+                              <span className="absolute top-0.5 right-0.5 text-[7px] font-bold text-xan-crimson/60 uppercase tracking-wide">
+                                Soon
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
                       return (
                         <Link
                           key={ep}
                           id={`ep-${ep}`}
                           to={`/watch/${anime.id}?ep=${ep}`}
-                          className={`group aspect-square flex flex-col items-center justify-center rounded-xl glass border text-sm font-medium transition-all hover-lift relative overflow-hidden ${
-                            isNextAiring
-                              ? "border-xan-crimson/50 bg-xan-crimson/10"
-                              : "border-xan-border hover:border-xan-crimson/50"
-                          }`}
+                          className="group aspect-square flex flex-col items-center justify-center rounded-xl glass border text-sm font-medium transition-all hover-lift relative overflow-hidden border-xan-border hover:border-xan-crimson/50"
                         >
                           <div className="absolute inset-0 bg-gradient-to-br from-xan-crimson/10 to-xan-violet/10 opacity-0 group-hover:opacity-100 transition-opacity" />
                           <span className="relative">{ep}</span>
-                          {isNextAiring && (
-                            <span className="absolute top-1 right-1 text-[8px] font-bold text-xan-crimson">
-                              SOON
-                            </span>
-                          )}
                         </Link>
                       );
                     })}

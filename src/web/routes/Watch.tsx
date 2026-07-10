@@ -531,39 +531,70 @@ export function Watch() {
 
         {/* ─── Sidebar ─── */}
         <div className="space-y-4">
-          {/* Episodes panel */}
+          {/* Episodes panel — polished */}
           <div className="glass rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-foreground flex items-center gap-2">
                 <Tv className="h-4 w-4 text-xan-crimson" />
                 Episodes
               </h3>
-              {anime?.episodes && (
-                <span className="text-xs text-muted-foreground">{anime.episodes} total</span>
-              )}
+              {(() => {
+                const epCount = anime?.episodes ?? (anime?.nextAiringEpisode ? anime.nextAiringEpisode.episode - 1 : 0);
+                return epCount > 0 ? (
+                  <span className="text-xs text-muted-foreground">{epCount} total</span>
+                ) : null;
+              })()}
             </div>
-            <div className="grid grid-cols-5 gap-1.5 max-h-64 overflow-y-auto pr-1">
-              {(anime?.episodes ? Math.min(anime.episodes, 50) : 12) > 0 &&
-                Array.from(
-                  { length: anime?.episodes ? Math.min(anime.episodes, 50) : 12 },
-                  (_, i) => i + 1,
-                ).map((ep) => (
-                  <Link
-                    key={ep}
-                    to={`/watch/${animeId}?ep=${ep}`}
-                    className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all ${
-                      ep === episode
-                        ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
-                        : "bg-xan-card-hover text-muted-foreground hover:text-foreground hover:bg-xan-card"
-                    }`}
-                  >
-                    {ep}
-                  </Link>
-                ))}
-            </div>
+            {(() => {
+              const epCount = anime?.episodes ?? (anime?.nextAiringEpisode ? anime.nextAiringEpisode.episode - 1 : 0);
+              const nextAir = anime?.nextAiringEpisode?.episode ?? null;
+              const showCount = Math.min(epCount, 50);
+              if (showCount === 0) {
+                return <p className="text-xs text-muted-foreground text-center py-4">Episode count unknown</p>;
+              }
+              return (
+                <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5 max-h-64 overflow-y-auto pr-1 no-scrollbar">
+                  {Array.from({ length: showCount }, (_, i) => i + 1).map((ep) => {
+                    const isUnaired = nextAir !== null && ep >= nextAir;
+                    const isNextAiring = nextAir !== null && ep === nextAir;
+                    if (isUnaired) {
+                      return (
+                        <div
+                          key={ep}
+                          className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs font-medium cursor-not-allowed relative ${
+                            isNextAiring
+                              ? "bg-xan-crimson/5 border border-xan-crimson/20 text-xan-crimson/30"
+                              : "bg-xan-card/20 border border-xan-border/20 text-muted-foreground/20"
+                          }`}
+                          title={isNextAiring ? "Airing soon" : "Not yet aired"}
+                        >
+                          {ep}
+                          {isNextAiring && (
+                            <span className="text-[7px] font-bold text-xan-crimson/50 uppercase">Soon</span>
+                          )}
+                        </div>
+                      );
+                    }
+                    return (
+                      <Link
+                        key={ep}
+                        to={`/watch/${animeId}?ep=${ep}`}
+                        className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all ${
+                          ep === episode
+                            ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
+                            : "bg-xan-card-hover text-muted-foreground hover:text-foreground hover:bg-xan-card border border-transparent hover:border-xan-crimson/30"
+                        }`}
+                      >
+                        {ep}
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
-          {/* Audio mode selector */}
+          {/* Audio mode selector — polished */}
           <div className="glass rounded-2xl p-4">
             <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
               <Volume2 className="h-4 w-4 text-xan-crimson" />
@@ -574,10 +605,10 @@ export function Watch() {
                 <button
                   key={m}
                   onClick={() => setMode(m)}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold uppercase transition-all ${
+                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold uppercase transition-all border ${
                     mode === m
-                      ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
-                      : "bg-xan-card-hover text-muted-foreground hover:text-foreground"
+                      ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30 border-transparent"
+                      : "bg-xan-card-hover text-muted-foreground hover:text-foreground border-xan-border hover:border-xan-crimson/30"
                   }`}
                 >
                   {m}
