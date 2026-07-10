@@ -127,21 +127,27 @@ export function MyLibrary() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
                 isActive
                   ? "bg-gradient-to-r from-xan-crimson to-xan-violet text-white shadow-lg shadow-xan-crimson/20"
                   : "bg-xan-card text-muted-foreground hover:text-foreground hover:bg-xan-card-hover border border-xan-border"
               }`}
             >
-              <t.icon className="h-3.5 w-3.5" />
-              {t.label}
-              <span
-                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                  isActive ? "bg-white/20" : "bg-xan-card-hover"
-                }`}
-              >
-                {count}
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                isActive ? "bg-white/20" : "bg-xan-card-hover"
+              }`}>
+                <t.icon className="h-3 w-3" />
               </span>
+              {t.label}
+              {count > 0 && (
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    isActive ? "bg-white/20" : "bg-xan-card-hover"
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
             </button>
           );
         })}

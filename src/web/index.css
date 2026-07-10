@@ -329,12 +329,12 @@ body {
 
 /* ─── Right-edge mask fade (horizontal scrollers) ─── */
 .mask-fade-r {
-  -webkit-mask-image: linear-gradient(to right, black 0%, black 85%, transparent 100%);
-  mask-image: linear-gradient(to right, black 0%, black 85%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 0%, black 80%, rgba(0,0,0,0.3) 95%, transparent 100%);
+  mask-image: linear-gradient(to right, black 0%, black 80%, rgba(0,0,0,0.3) 95%, transparent 100%);
 }
 .mask-fade-edges {
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 4%, black 96%, transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0%, black 4%, black 96%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.3) 5%, black 12%, black 88%, rgba(0,0,0,0.3) 95%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.3) 5%, black 12%, black 88%, rgba(0,0,0,0.3) 95%, transparent 100%);
 }
 
 /* ─── Outlined text (Netflix-style ranking numbers) ─── */
@@ -376,12 +376,12 @@ body {
 
 /* ─── AnimeCard entrance (CSS-only staggered) ─── */
 @keyframes card-enter {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0.3; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .card-enter {
-  animation: card-enter 0.4s cubic-bezier(0.25, 0.4, 0.25, 1) both;
-  animation-delay: calc(min(var(--card-index, 0), 10) * 30ms);
+  animation: card-enter 0.3s cubic-bezier(0.25, 0.4, 0.25, 1) both;
+  animation-delay: calc(min(var(--card-index, 0), 10) * 25ms);
 }
 
 /* ─── Reduced motion ─── */
@@ -489,22 +489,22 @@ body {
 
 /* ─── Legacy animation aliases (keep existing JSX working) ─── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0.3; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-fade-in { animation: fadeIn 0.2s ease-out; }
 
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0.3; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-in-up { animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.animate-fade-in-up { animation: fadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.95); }
+  from { opacity: 0.3; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
 }
-.animate-scale-in { animation: scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.animate-scale-in { animation: scaleIn 0.2s cubic-bezier(0.4, 0, 0.2, 1) both; }
 
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(20px); }
