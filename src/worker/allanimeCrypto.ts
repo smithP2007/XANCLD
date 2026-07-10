@@ -26,11 +26,11 @@
 // ⚠️ The MASK changes when mkissa.to deploys a new build. If AA_CRYPTO_STALE
 // persists even after refreshing __aaCrypto, check if the MASK has changed:
 //   1. Fetch https://mkissa.to/ and find the main JS chunk URL
-//   2. Search the chunks for: const Dn=mt(362)!=="string"?"<64-char hex>":""
+//   2. Search the chunks for: const $n=_t(460)!=="string"?"<64-char hex>":""
 //   3. Update MASK_HEX and BUILD_ID below and redeploy
-// Last verified: 2026-07-09 — MASK=78ebe405..., BUILD_ID=12
-const MASK_HEX = "78ebe40583e4f360cd9f56926b775a780054367c826123dcd0577a231eee4e73";
-const BUILD_ID = "12";
+// Last verified: 2026-07-10 — MASK=f5dc46e6..., BUILD_ID=13
+const MASK_HEX = "f5dc46e6f42968c5ed0eab602d6ae8f2107991006f02876947e64fcb75d53da6";
+const BUILD_ID = "13";
 const OLD_KEY_STR = "Xot36i3lK3:v1";
 const ALLANIME_API = "https://api.allanime.day/api";
 const MKISSA_EPISODE_URL = (showId: string, ep: string, mode: string) =>
