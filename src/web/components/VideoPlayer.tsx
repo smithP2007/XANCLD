@@ -8,14 +8,18 @@ import {
   Volume1,
   Maximize,
   Minimize,
-  SkipForward,
-  SkipBack,
   Settings,
-  Loader2,
   AlertCircle,
   Sun,
   Eye,
   EyeOff,
+  Check,
+  ChevronRight,
+  ChevronLeft,
+  RotateCw,
+  RotateCcw,
+  Keyboard,
+  X,
 } from "lucide-react";
 import type { StreamResult } from "../lib/allanime";
 import type { XanSettings } from "../hooks/useSettings";
@@ -90,6 +94,9 @@ export function VideoPlayer({
   const [showSkipIntro, setShowSkipIntro] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(settings.playbackRate);
   const [showSettings, setShowSettings] = useState(false);
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"main" | "speed" | "quality">("main");
+  const [cursorVisible, setCursorVisible] = useState(true);
   const [qualityLevels, setQualityLevels] = useState<{ height: number; index: number }[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
   const [timeMode, setTimeMode] = useState<"duration" | "remaining">("duration");
@@ -248,9 +255,13 @@ export function VideoPlayer({
   // ─── Controls auto-hide ───
   const showControlsTemporarily = useCallback(() => {
     setShowControls(true);
+    setCursorVisible(true);
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     if (playing) {
-      controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+        setCursorVisible(false);
+      }, 3000);
     }
   }, [playing]);
 
@@ -486,21 +497,23 @@ export function VideoPlayer({
   const remainingTime = duration > 0 ? duration - current : 0;
   const enhancerActive = enhancer.active;
 
+  const controlsHidden = !showControls && !showSettings && !showShortcuts;
+  const controlsClass = `xan-controls ${controlsHidden ? "xan-controls--hidden" : ""}`;
+
   return (
     <div
       ref={containerRef}
-      className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border group select-none"
+      className={`relative aspect-video bg-black rounded-lg overflow-hidden border border-xan-border group select-none ${cursorVisible ? "" : "cursor-none"}`}
       onMouseMove={showControlsTemporarily}
       onMouseLeave={() => playing && setShowControls(false)}
     >
       {/* Video element */}
       <video
         ref={videoRef}
-        className="w-full h-full"
+        className="w-full h-full object-contain"
         style={enhancer.active ? {
           filter: enhancer.filterCss,
           willChange: "filter",
-          // Force GPU compositing layer so the filter runs on the GPU, not CPU
           transform: "translateZ(0)",
           backfaceVisibility: "hidden",
         } : undefined}
@@ -509,16 +522,28 @@ export function VideoPlayer({
         crossOrigin="anonymous"
       />
 
-      {/* Seek ripples (J/L/arrows/0-9 feedback) */}
+      {/* Loading spinner — YouTube-style border spinner */}
+      {loading && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+          <div className="w-12 h-12 rounded-full border-4 border-white/20 border-t-xan-crimson animate-xan-spinner" />
+        </div>
+      )}
+
+      {/* Error overlay */}
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-30 p-6 text-center">
+          <AlertCircle className="h-12 w-12 text-xan-crimson mb-3" />
+          <p className="font-semibold text-white text-lg">Playback Error</p>
+          <p className="text-sm text-white/60 mt-1 max-w-md">{error}</p>
+        </div>
+      )}
+
+      {/* Seek feedback overlay (J/L/arrows) */}
       {seekRipples.map((r) => (
         <div
           key={r.id}
           className={`absolute top-1/2 -translate-y-1/2 pointer-events-none z-20 ${
-            r.side === "left"
-              ? "left-1/4"
-              : r.side === "right"
-                ? "right-1/4"
-                : "left-1/2 -translate-x-1/2"
+            r.side === "left" ? "left-1/4" : r.side === "right" ? "right-1/4" : "left-1/2 -translate-x-1/2"
           }`}
         >
           <div className="animate-seek-ripple text-4xl font-bold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)]">
@@ -533,15 +558,11 @@ export function VideoPlayer({
           key={r.id}
           className="absolute pointer-events-none z-20"
           style={{
-            left: r.x - 40,
-            top: r.y - 40,
-            width: 80,
-            height: 80,
+            left: r.x - 40, top: r.y - 40, width: 80, height: 80,
             borderRadius: r.side === "left" ? "80px 0 0 80px" : "0 80px 80px 0",
-            background:
-              r.side === "left"
-                ? "radial-gradient(circle at 100% 50%, rgba(233,69,96,0.6), transparent 70%)"
-                : "radial-gradient(circle at 0% 50%, rgba(233,69,96,0.6), transparent 70%)",
+            background: r.side === "left"
+              ? "radial-gradient(circle at 100% 50%, rgba(233,69,96,0.6), transparent 70%)"
+              : "radial-gradient(circle at 0% 50%, rgba(233,69,96,0.6), transparent 70%)",
           }}
         >
           <div className="animate-tap-ripple w-full h-full flex items-center justify-center">
@@ -552,288 +573,243 @@ export function VideoPlayer({
         </div>
       ))}
 
-      {/* Loading overlay */}
-      {loading && !error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 z-20">
-          <div className="relative">
-            <div className="absolute inset-0 bg-xan-crimson/40 blur-xl rounded-full animate-pulse" />
-            <Loader2 className="relative h-12 w-12 animate-spin text-xan-crimson" />
-          </div>
-          <p className="text-sm text-white/80 mt-4 font-medium">Loading…</p>
-        </div>
-      )}
-
-      {/* Error overlay */}
-      {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-30 p-6 text-center">
-          <AlertCircle className="h-12 w-12 text-xan-crimson mb-3" />
-          <p className="font-semibold text-white text-lg">Playback Error</p>
-          <p className="text-sm text-white/60 mt-1 max-w-md">{error}</p>
-        </div>
-      )}
-
       {/* Skip Intro button */}
       {showSkipIntro && !loading && !error && (
         <button
           onClick={skipIntro}
-          className="btn-premium absolute bottom-24 right-4 z-20 px-4 py-2 rounded-lg bg-xan-crimson/90 backdrop-blur text-white text-sm font-medium shadow-lg flex items-center gap-1.5 animate-fade-in"
+          className="absolute bottom-24 right-4 z-20 px-4 py-2 rounded-lg bg-xan-crimson/90 backdrop-blur text-white text-sm font-medium shadow-lg flex items-center gap-1.5 animate-fade-in"
         >
-          <SkipForward className="h-4 w-4" /> Skip Intro
+          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4 -ml-3" />
+          Skip Intro
         </button>
       )}
 
-      {/* Center play button (when paused) */}
-      {!playing && !loading && !error && !autoPlayNext && (
-        <button
-          onClick={togglePlay}
-          className="absolute inset-0 flex items-center justify-center z-10"
-          aria-label="Play"
-        >
-          <div className="w-20 h-20 rounded-full bg-xan-crimson/90 backdrop-blur flex items-center justify-center pulse-glow hover:scale-110 transition-transform animate-play-pop">
-            <Play className="h-10 w-10 text-white fill-white ml-1" />
-          </div>
-        </button>
-      )}
-
-      {/* Title overlay (top) */}
+      {/* ── Top gradient with title + badges ── */}
       <div
-        className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 z-10 xan-controls ${
-          showControls ? "" : "xan-controls--hidden"
-        }`}
+        className={`absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 pt-3 pb-8 ${controlsClass}`}
       >
-        <p className="text-sm text-white font-medium line-clamp-1">
-          {title} — Episode {episode}
-        </p>
-        <div className="flex items-center gap-2 mt-0.5">
-          <p className="text-xs text-white/50">{stream.sourceName}</p>
-          {enhancerActive && (
-            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30">
-              ENHANCED
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom controls */}
-      <div
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 z-10 xan-controls ${
-          showControls ? "" : "xan-controls--hidden"
-        }`}
-      >
-        {/* Progress bar */}
-        <div className="px-4 pt-8 pb-1">
-          <div
-            className="relative group/progress h-1.5 rounded-full bg-white/20 cursor-pointer"
-            onMouseMove={handleSeekHover}
-            onMouseLeave={() => setHoverPct(null)}
-            onClick={handleSeekClick}
-          >
-            {/* Buffered */}
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-white/30"
-              style={{ width: `${bufferedPct}%` }}
-            />
-            {/* Played */}
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-xan-crimson to-xan-violet"
-              style={{ width: `${pct}%` }}
-            />
-            {/* Skip-intro marker notch */}
-            {settings.skipIntro && duration > 90 && (
-              <div
-                className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/40 rounded-full"
-                style={{ left: `${(85 / duration) * 100}%` }}
-                title="Skip intro marker"
-              />
-            )}
-            {/* Hover thumb */}
-            <div
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white shadow-lg opacity-0 group-hover/progress:opacity-100 transition-opacity"
-              style={{ left: `${pct}%` }}
-            />
-            {/* Hover tooltip with timestamp */}
-            {hoverPct != null && (
-              <div
-                className="absolute -top-9 -translate-x-1/2 px-2 py-1 rounded glass-strong text-[10px] font-mono font-bold text-white whitespace-nowrap pointer-events-none"
-                style={{ left: `${hoverPct}%` }}
-              >
-                {fmt(hoverTime)}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Control buttons */}
-        <div className="flex items-center gap-3 px-4 pb-3 pt-1">
-          {/* Prev */}
-          {onPrev && (
-            <button
-              onClick={onPrev}
-              className="text-white/80 hover:text-xan-crimson transition-colors"
-              title="Previous (P)"
-              aria-label="Previous episode"
-            >
-              <SkipBack className="h-5 w-5" />
-            </button>
-          )}
-          {/* Play/Pause */}
-          <button
-            onClick={togglePlay}
-            className="text-white hover:text-xan-crimson transition-colors"
-            aria-label={playing ? "Pause" : "Play"}
-          >
-            {playing ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
-          </button>
-          {/* Next */}
-          {onNext && (
-            <button
-              onClick={onNext}
-              className="text-white/80 hover:text-xan-crimson transition-colors"
-              title="Next (N)"
-              aria-label="Next episode"
-            >
-              <SkipForward className="h-5 w-5" />
-            </button>
-          )}
-          {/* Volume */}
-          <div className="flex items-center gap-2 group/vol">
-            <button
-              onClick={toggleMute}
-              className="text-white hover:text-xan-crimson transition-colors"
-              aria-label="Mute"
-            >
-              {muted || volume === 0 ? (
-                <VolumeX className="h-5 w-5" />
-              ) : volume < 0.5 ? (
-                <Volume1 className="h-5 w-5" />
-              ) : (
-                <Volume2 className="h-5 w-5" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-white font-semibold text-sm md:text-base truncate drop-shadow">
+              {title} — Episode {episode}
+            </p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white font-medium">
+                {stream.sourceName}
+              </span>
+              {enhancerActive && (
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30">
+                  ENHANCED
+                </span>
               )}
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={muted ? 0 : volume}
-              onChange={(e) => changeVolume(parseFloat(e.target.value))}
-              className="xan-vol w-0 group-hover/vol:w-20 transition-all duration-300"
-            />
+            </div>
           </div>
-          {/* Time (click to toggle) */}
-          <button
-            onClick={() => setTimeMode((m) => (m === "duration" ? "remaining" : "duration"))}
-            className="text-xs text-white/80 font-mono hover:text-white transition-colors"
-            title="Click to toggle current/remaining"
-          >
-            {timeMode === "duration"
-              ? `${fmt(current)} / ${fmt(duration)}`
-              : `${fmt(current)} / -${fmt(remainingTime)}`}
-          </button>
-          {/* Right side */}
-          <div className="ml-auto flex items-center gap-3">
-            {/* Eye toggle — always visible, turns enhancer on/off */}
+          <div className="flex items-center gap-1.5">
+            {/* Eye toggle */}
             <button
               onClick={enhancer.toggleEnabled}
-              className={`transition-colors ${
-                enhancer.state.enabled ? "text-xan-crimson" : "text-white/60 hover:text-white"
-              }`}
-              title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
+              className="relative p-1.5 rounded-md hover:bg-white/15 transition-colors flex items-center justify-center"
               aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
+              title={enhancer.state.enabled ? "Enhancer ON — click to turn off (E)" : "Enhancer OFF — click to turn on (E)"}
             >
-              {enhancer.state.enabled ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+              <div className="relative w-4 h-4">
+                <Eye className={`absolute inset-0 h-4 w-4 transition-all duration-300 ${enhancer.state.enabled ? "opacity-100 scale-100 text-xan-crimson" : "opacity-0 scale-50 text-white/40"}`} />
+                <EyeOff className={`absolute inset-0 h-4 w-4 transition-all duration-300 ${enhancer.state.enabled ? "opacity-0 scale-50 text-white/40" : "opacity-100 scale-100 text-white/60"}`} />
+              </div>
             </button>
-            {/* Enhancer settings button */}
+            {/* Enhancer settings */}
             <button
               onClick={() => setShowEnhancer(true)}
-              className={`transition-colors ${
-                enhancerActive ? "text-xan-crimson" : "text-white hover:text-xan-crimson"
-              }`}
+              className={`p-1.5 rounded-md hover:bg-white/15 transition-colors ${enhancerActive ? "text-xan-crimson" : "text-white"}`}
               title="Video enhancer settings (E)"
               aria-label="Video enhancer settings"
             >
-              <Sun className="h-5 w-5" />
+              <Sun className="h-4 w-4" />
             </button>
-            {/* Settings (quality + speed) */}
-            <div className="relative">
+            {/* Keyboard shortcuts */}
+            <button
+              onClick={() => setShowShortcuts(true)}
+              className="p-1.5 rounded-md text-white hover:bg-white/15 transition-colors"
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (?)"
+            >
+              <Keyboard className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Big center play button (when paused + controls visible) ── */}
+      {!playing && !loading && !error && !autoPlayNext && showControls && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <button
+            onClick={togglePlay}
+            className="pointer-events-auto"
+            aria-label="Play"
+          >
+            <div className="w-11 h-11 sm:w-20 sm:h-20 rounded-full bg-xan-crimson/90 hover:bg-xan-crimson flex items-center justify-center shadow-xl transition-transform hover:scale-105 animate-play-pop">
+              <Play className="h-5 w-5 sm:h-9 sm:w-9 text-white fill-white ml-0.5 sm:ml-1" />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* ── Bottom controls bar ── */}
+      <div
+        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 sm:px-3 pb-1.5 sm:pb-2 pt-10 ${controlsClass}`}
+      >
+        {/* Seekbar */}
+        <div
+          className="relative h-3 flex items-center cursor-pointer group/seek mb-1"
+          onMouseMove={handleSeekHover}
+          onMouseLeave={() => setHoverPct(null)}
+          onClick={handleSeekClick}
+        >
+          {/* Track background */}
+          <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25 group-hover/seek:h-1.5 transition-all" />
+          {/* Buffered range */}
+          <div
+            className="absolute left-0 h-1 rounded-full bg-white/40 group-hover/seek:h-1.5 transition-all"
+            style={{ width: `${bufferedPct}%` }}
+          />
+          {/* Played (crimson) */}
+          <div
+            className="absolute left-0 h-1 rounded-full bg-xan-crimson group-hover/seek:h-1.5 transition-all"
+            style={{ width: `${pct}%` }}
+          />
+          {/* Skip intro marker */}
+          {settings.skipIntro && duration > 90 && (
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/70 rounded-full pointer-events-none"
+              style={{ left: `${(85 / duration) * 100}%` }}
+              title="Intro"
+            />
+          )}
+          {/* Thumb */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-xan-crimson shadow-md opacity-0 group-hover/seek:opacity-100 transition-opacity pointer-events-none"
+            style={{ left: `${pct}%` }}
+          />
+          {/* Hover tooltip */}
+          {hoverPct != null && (
+            <div
+              className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded bg-black/90 text-white text-[11px] font-mono pointer-events-none whitespace-nowrap shadow-lg"
+              style={{ left: `${hoverPct}%` }}
+            >
+              {fmt(hoverTime)}
+            </div>
+          )}
+        </div>
+
+        {/* Buttons row */}
+        <div className="flex items-center justify-between text-white gap-1 flex-wrap min-h-[28px]">
+          {/* Left cluster */}
+          <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+            {/* Play/Pause */}
+            <button
+              onClick={togglePlay}
+              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              aria-label={playing ? "Pause" : "Play"}
+              title={playing ? "Pause (k)" : "Play (k)"}
+            >
+              {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-white" />}
+            </button>
+
+            {/* Prev/Next (if available) */}
+            {onPrev && (
               <button
-                onClick={() => setShowSettings(!showSettings)}
-                className={`text-white transition-colors ${
-                  showSettings ? "text-xan-crimson" : "hover:text-xan-crimson"
-                }`}
+                onClick={onPrev}
+                className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block"
+                aria-label="Previous episode"
+                title="Previous (P)"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            )}
+            {onNext && (
+              <button
+                onClick={onNext}
+                className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block"
+                aria-label="Next episode"
+                title="Next (N)"
+              >
+                <RotateCw className="h-4 w-4" />
+              </button>
+            )}
+
+            {/* Volume — tap to expand slider (YouTube-style) */}
+            <div className="flex items-center flex-shrink-0">
+              <button
+                onClick={() => setShowVolumeSlider((v) => !v)}
+                className="p-1.5 rounded hover:bg-white/15 transition-colors"
+                aria-label={muted ? "Unmute" : "Mute"}
+                title={muted ? "Unmute (M)" : "Mute (M)"}
+              >
+                {muted || volume === 0 ? (
+                  <VolumeX className="h-5 w-5" />
+                ) : volume < 0.5 ? (
+                  <Volume1 className="h-5 w-5" />
+                ) : (
+                  <Volume2 className="h-5 w-5" />
+                )}
+              </button>
+              <div
+                className={`overflow-hidden transition-all duration-200 ease-out ${showVolumeSlider ? "w-14 opacity-100" : "w-0 opacity-0"}`}
+              >
+                <div className="relative h-3 flex items-center px-1">
+                  <div className="absolute left-1 right-1 h-1 rounded-full bg-white/25" />
+                  <div
+                    className="absolute left-1 h-1 rounded-full bg-white transition-all"
+                    style={{ width: `calc(${(muted ? 0 : volume) * 100}% * 0.85)` }}
+                  />
+                  <input
+                    type="range" min={0} max={1} step={0.02}
+                    value={muted ? 0 : volume}
+                    onChange={(e) => changeVolume(Number(e.target.value))}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                    aria-label="Volume"
+                    style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Time display */}
+            <button
+              onClick={() => setTimeMode((m) => (m === "duration" ? "remaining" : "duration"))}
+              className="text-xs font-mono px-1 py-0.5 rounded hover:bg-white/15 transition-colors whitespace-nowrap flex-shrink-0 hidden sm:block"
+              title="Click to toggle remaining time"
+            >
+              {timeMode === "duration"
+                ? `${fmt(current)} / ${fmt(duration)}`
+                : `${fmt(current)} / -${fmt(remainingTime)}`}
+            </button>
+          </div>
+
+          {/* Right cluster */}
+          <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+            {/* Settings (gear) — multi-level menu */}
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={() => { setShowSettings((v) => !v); setSettingsTab("main"); }}
+                className={`p-1.5 rounded hover:bg-white/15 transition-colors ${showSettings ? "bg-white/15" : ""}`}
                 aria-label="Settings"
+                title="Settings"
               >
                 <Settings className="h-5 w-5" />
               </button>
-              {showSettings && (
-                <div className="absolute bottom-10 right-0 w-48 glass-strong rounded-xl p-2 space-y-2 animate-panel-up">
-                  <div>
-                    <p className="text-[10px] text-white/50 uppercase tracking-wide px-2 mb-1">Speed</p>
-                    <div className="grid grid-cols-3 gap-1">
-                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => (
-                        <button
-                          key={r}
-                          onClick={() => changePlaybackRate(r)}
-                          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                            playbackRate === r
-                              ? "bg-xan-crimson text-white"
-                              : "text-white/70 hover:bg-white/10"
-                          }`}
-                        >
-                          {r}x
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {qualityLevels.length > 0 && (
-                    <div className="pt-2 border-t border-white/10">
-                      <p className="text-[10px] text-white/50 uppercase tracking-wide px-2 mb-1">Quality</p>
-                      <div className="space-y-0.5">
-                        <button
-                          onClick={() => changeQuality(-1)}
-                          className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                            currentQuality === -1
-                              ? "bg-xan-crimson text-white"
-                              : "text-white/70 hover:bg-white/10"
-                          }`}
-                        >
-                          Auto
-                        </button>
-                        {qualityLevels.map((q) => (
-                          <button
-                            key={q.index}
-                            onClick={() => changeQuality(q.index)}
-                            className={`block w-full text-left px-2 py-1 rounded text-xs transition-colors ${
-                              currentQuality === q.index
-                                ? "bg-xan-crimson text-white"
-                                : "text-white/70 hover:bg-white/10"
-                            }`}
-                          >
-                            {q.height}p
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="pt-2 border-t border-white/10">
-                    <button
-                      onClick={() => {
-                        setShowSettings(false);
-                        setShowShortcuts(true);
-                      }}
-                      className="block w-full text-left px-2 py-1 rounded text-xs text-white/70 hover:bg-white/10 transition-colors"
-                    >
-                      Keyboard shortcuts (?)
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
+
             {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
-              className="text-white hover:text-xan-crimson transition-colors"
-              aria-label="Fullscreen"
+              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
             >
               {fullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
             </button>
@@ -841,19 +817,156 @@ export function VideoPlayer({
         </div>
       </div>
 
+      {/* ── Settings panel (responsive multi-level) ── */}
+      {showSettings && (
+        <div
+          className="absolute bottom-0 left-0 right-0 max-h-[36vh] text-[12px] sm:bottom-14 sm:left-auto sm:right-3 sm:w-64 sm:max-h-[60vh] sm:text-sm z-50 rounded-t-lg sm:rounded-lg bg-[#0f0f0f]/95 backdrop-blur border-t sm:border border-white/10 shadow-2xl text-white overflow-y-auto overflow-x-hidden animate-panel-up pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Mobile drag handle */}
+          <div className="sm:hidden flex justify-center pt-1 pb-0.5 flex-shrink-0">
+            <div className="w-7 h-0.5 rounded-full bg-white/30" />
+          </div>
+
+          {settingsTab === "main" && (
+            <>
+              <div className="sm:hidden flex items-center justify-between px-3 py-1 border-b border-white/5 flex-shrink-0">
+                <span className="font-medium">Settings</span>
+                <button onClick={() => setShowSettings(false)} className="p-1 rounded hover:bg-white/10">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <button
+                onClick={() => setSettingsTab("speed")}
+                className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors"
+              >
+                <span>Playback speed</span>
+                <span className="flex items-center gap-1.5 text-white/70">
+                  {Number.isInteger(playbackRate) ? playbackRate : playbackRate.toFixed(2)}x
+                  <ChevronRight className="h-4 w-4" />
+                </span>
+              </button>
+              {qualityLevels.length > 0 && (
+                <button
+                  onClick={() => setSettingsTab("quality")}
+                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors border-t border-white/5"
+                >
+                  <span>Quality</span>
+                  <span className="flex items-center gap-1.5 text-white/70">
+                    {currentQuality === -1 ? "Auto" : `${qualityLevels.find(q => q.index === currentQuality)?.height}p`}
+                    <ChevronRight className="h-4 w-4" />
+                  </span>
+                </button>
+              )}
+              <button
+                onClick={() => { setShowSettings(false); setShowShortcuts(true); }}
+                className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors border-t border-white/5"
+              >
+                <span>Keyboard shortcuts</span>
+                <ChevronRight className="h-4 w-4 text-white/70" />
+              </button>
+            </>
+          )}
+
+          {settingsTab === "speed" && (
+            <div>
+              <div className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-white/5">
+                <button onClick={() => setSettingsTab("main")} className="p-1 rounded hover:bg-white/10">
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="font-medium flex-1">Playback speed</span>
+                <button onClick={() => setShowSettings(false)} className="sm:hidden p-1 rounded hover:bg-white/10">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {/* Speed slider */}
+              <div className="px-3 sm:px-4 py-1.5 sm:py-3 border-b border-white/5">
+                <div className="flex items-center justify-between mb-1 sm:mb-2">
+                  <span className="text-xs text-white/60">Speed</span>
+                  <span className="text-xs font-mono font-bold text-xan-crimson">
+                    {Number.isInteger(playbackRate) ? `${playbackRate}.00` : playbackRate.toFixed(2)}x
+                  </span>
+                </div>
+                <div className="relative h-4 flex items-center">
+                  <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
+                  <div
+                    className="absolute left-0 h-1 rounded-full bg-xan-crimson transition-all"
+                    style={{ width: `${((playbackRate - 0.25) / (4 - 0.25)) * 100}%` }}
+                  />
+                  <div
+                    className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-sm pointer-events-none"
+                    style={{ left: `calc(${((playbackRate - 0.25) / (4 - 0.25)) * 100}% - 5px)` }}
+                  />
+                  <input
+                    type="range" min={0.25} max={4} step={0.05}
+                    value={playbackRate}
+                    onChange={(e) => changePlaybackRate(Number(e.target.value))}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                    style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
+                  />
+                </div>
+                <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5">
+                  <span>0.25x</span><span>1x</span><span>2x</span><span>4x</span>
+                </div>
+              </div>
+              {/* Preset speeds */}
+              <div className="max-h-[130px] overflow-y-auto">
+                {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                  <button
+                    key={rate}
+                    onClick={() => changePlaybackRate(rate)}
+                    className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
+                  >
+                    <span>{rate}x{rate === 1 ? " (Normal)" : ""}</span>
+                    {rate === playbackRate && <Check className="h-4 w-4 text-xan-crimson" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {settingsTab === "quality" && (
+            <div>
+              <div className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-white/5">
+                <button onClick={() => setSettingsTab("main")} className="p-1 rounded hover:bg-white/10">
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="font-medium flex-1">Quality</span>
+                <button onClick={() => setShowSettings(false)} className="sm:hidden p-1 rounded hover:bg-white/10">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <button
+                onClick={() => { changeQuality(-1); setSettingsTab("main"); }}
+                className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
+              >
+                <span>Auto{currentQuality === -1 ? " (current)" : ""}</span>
+                {currentQuality === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
+              </button>
+              {qualityLevels.map((lvl) => (
+                <button
+                  key={lvl.index}
+                  onClick={() => { changeQuality(lvl.index); setSettingsTab("main"); }}
+                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
+                >
+                  <span>{lvl.height}p</span>
+                  {currentQuality === lvl.index && <Check className="h-4 w-4 text-xan-crimson" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Overlays */}
       <KeyboardShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
-      <VideoEnhancerPanel
-        open={showEnhancer}
-        onClose={() => setShowEnhancer(false)}
-      />
+      <VideoEnhancerPanel open={showEnhancer} onClose={() => setShowEnhancer(false)} />
       <AutoPlayOverlay
         open={autoPlayNext}
         onCancel={() => onAutoPlayCancel?.()}
-        onPlayNow={() => {
-          onAutoPlayCancel?.();
-          onNext?.();
-        }}
+        onPlayNow={() => { onAutoPlayCancel?.(); onNext?.(); }}
         nextEpisodeLabel={nextEpisodeLabel}
       />
     </div>
