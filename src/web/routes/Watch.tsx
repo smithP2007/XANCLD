@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   Sun,
   Eye,
   EyeOff,
+  Maximize,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
 import {
@@ -70,6 +71,9 @@ export function Watch() {
     gogoanime: "idle",
   });
 
+  // Cache AllAnime show ID to avoid re-searching on every episode change
+  const allAnimeShowIdRef = useRef<string | null>(null);
+
   // Load stream from a specific provider
   const loadFromProvider = async (prov: Provider, title: string) => {
     setProviderStatus((prev) => ({ ...prev, [prov]: "loading" }));
@@ -77,12 +81,18 @@ export function Watch() {
       let sources: UnifiedSource[] = [];
 
       if (prov === "allanime") {
-        const show = await findShowByAniListId(animeId, title);
-        if (!show) {
-          setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
-          return [];
+        // Use cached show ID if available (avoids re-searching on every episode)
+        let showId = allAnimeShowIdRef.current;
+        if (!showId) {
+          const show = await findShowByAniListId(animeId, title);
+          if (!show) {
+            setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
+            return [];
+          }
+          allAnimeShowIdRef.current = show._id;
+          showId = show._id;
         }
-        const result = await extractStreamUrl(show._id, String(episode), mode);
+        const result = await extractStreamUrl(showId, String(episode), mode);
         sources = result.sources.map((s) => ({
           url: s.url,
           type: s.type,
@@ -159,12 +169,12 @@ export function Watch() {
           setResumeTime(undefined);
         }
 
-        // Try providers in priority order: user's preferred first, then others.
-        // When dub is selected, prefer AllAnime first (it returns actual dub sources).
-        // Zen/Koto have dual-audio players that default to sub (user must switch inside player).
+        // Try providers in priority order — Koto first (instant, no API call) so
+        // the user sees something immediately, then AllAnime (fastest real sources)
+        // in the background. When dub is selected, prefer AllAnime first.
         const allProviders: Provider[] = mode === "dub"
           ? ["allanime", "zen", "koto", "gogoanime"]
-          : ["allanime", "koto", "zen", "gogoanime"];
+          : ["koto", "allanime", "zen", "gogoanime"];
 
         // Filter out providers whose sources are ALL disabled — don't even load them
         const activeProviders = allProviders.filter((prov) => !isProviderFullyDisabled(prov, settings.disabledSources));
@@ -357,8 +367,26 @@ export function Watch() {
                     </span>
                   </div>
                 )}
-                {/* Enhancer toggle + eye toggle for iframe */}
+                {/* Enhancer toggle + eye toggle + fullscreen for iframe */}
                 <div className="flex items-center justify-end gap-2">
+                  {/* Fullscreen button for iframe */}
+                  <button
+                    onClick={() => {
+                      const container = document.getElementById("iframe-player-container");
+                      if (container) {
+                        if (document.fullscreenElement) {
+                          document.exitFullscreen();
+                        } else {
+                          container.requestFullscreen();
+                        }
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium glass border border-xan-border hover:border-xan-crimson/30 text-muted-foreground hover:text-foreground transition-all"
+                    title="Fullscreen"
+                    aria-label="Fullscreen"
+                  >
+                    <Maximize className="h-3.5 w-3.5" />
+                  </button>
                   <button
                     onClick={() => setShowEnhancer(true)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
@@ -385,7 +413,7 @@ export function Watch() {
                     {enhancer.state.enabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                   </button>
                 </div>
-                <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border">
+                <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border" id="iframe-player-container">
                   <iframe
                     src={streamForPlayer.url}
                     className="w-full h-full"
@@ -396,7 +424,7 @@ export function Watch() {
                       backfaceVisibility: "hidden",
                     } : undefined}
                     allowFullScreen
-                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media; accelerometer; gyroscope; web-share"
                     referrerPolicy="no-referrer-when-downgrade"
                     onLoad={() => {
                       // Save to history when iframe loads (iframe players don't
