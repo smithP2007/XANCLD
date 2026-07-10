@@ -487,10 +487,12 @@ export async function extractSource(
   const url = decodeUrl(rawUrl);
   const name = (sourceName || "").toLowerCase();
 
-  // ✅ Yt-mp4 → direct MP4 (tools.fast4speed.rsvp)
+  // ✅ Yt-mp4 → iframe embed (tools.fast4speed.rsvp)
+  // These URLs need specific Referer headers that our worker proxy doesn't send.
+  // Return as iframe so the embed page's own JS player handles playback.
   if (name.includes("yt-mp4")) {
     if (!url.startsWith("http")) return [];
-    return [{ url, type: "mp4", quality: null, sourceName }];
+    return [{ url, type: "iframe", quality: null, sourceName }];
   }
 
   // ❌ Skip dead clock.json sources (Default, Uv-mp4, Luf-Mp4, Ak, etc.)
@@ -516,18 +518,21 @@ export async function extractSource(
   }
 
   // ✅ Direct video file URLs (.mp4 or .m3u8) — play directly
-  if (url.includes(".mp4") || url.includes(".m3u8")) {
+  // Only treat as direct if the URL is NOT from a known embed host
+  // (embed hosts serve HTML pages even with .mp4 in the URL)
+  const EMBED_HOSTS = ["mp4upload.com", "streamsb.net", "streamlare.com", "filemoon", "vizcloud", "mycloud", "streamwish", "streamta.pe", "doodstream", "mixdrop", "ok.ru"];
+  const isEmbedHost = EMBED_HOSTS.some((h) => url.includes(h));
+  if (!isEmbedHost && (url.includes(".mp4") || url.includes(".m3u8"))) {
     const isHls = url.includes(".m3u8");
     return [{ url, type: isHls ? "hls" : "mp4", quality: null, sourceName }];
   }
 
-  // ✅ Mp4 (mp4upload) → try scraping for direct .mp4 URL, fall back to iframe
+  // ✅ Mp4 (mp4upload) → return as iframe embed
+  // Don't try to scrape for direct .mp4 URLs — the scraped URLs require
+  // specific Referer headers (https://www.mp4upload.com/) that our worker
+  // proxy doesn't send (it sends mkissa.to Referer). The embed page works
+  // fine in an iframe — mp4upload's own JS player handles everything.
   if (name === "mp4" || url.includes("mp4upload.com")) {
-    const scraped = await scrapeEmbedPage(url, sourceName);
-    if (scraped.length > 0) {
-      return scraped;
-    }
-    // Fallback: return as iframe — mp4upload's embed page works in iframes
     return [{ url, type: "iframe", quality: null, sourceName }];
   }
 
