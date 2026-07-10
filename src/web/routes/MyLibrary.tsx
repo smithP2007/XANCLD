@@ -44,14 +44,14 @@ export function MyLibrary() {
     return list.filter((e) => e.status === tab);
   }, [tab, list]);
 
-  const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }>; iconOnly?: boolean }[] = [
+    { id: "bookmarks", label: "Bookmarks", icon: Bookmark, iconOnly: true },
     { id: "all", label: "All", icon: Library },
     { id: "WATCHING", label: "Watching", icon: Eye },
     { id: "COMPLETED", label: "Completed", icon: Check },
     { id: "PLANNING", label: "Plan to Watch", icon: Clock },
     { id: "ON_HOLD", label: "On Hold", icon: Pause },
     { id: "DROPPED", label: "Dropped", icon: X },
-    { id: "bookmarks", label: "Bookmarks", icon: Bookmark },
   ];
 
   const handleClearAll = () => {
@@ -133,13 +133,18 @@ export function MyLibrary() {
                   : "bg-xan-card text-muted-foreground hover:text-foreground hover:bg-xan-card-hover border border-xan-border"
               }`}
             >
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 relative ${
                 isActive ? "bg-white/20" : "bg-xan-card-hover"
               }`}>
                 <t.icon className="h-3 w-3" />
+                {t.iconOnly && count > 0 && (
+                  <span className="absolute -top-1 -right-1 px-1 rounded-full text-[8px] font-bold bg-xan-crimson text-white leading-tight">
+                    {count}
+                  </span>
+                )}
               </span>
-              {t.label}
-              {count > 0 && (
+              {!t.iconOnly && t.label}
+              {count > 0 && !t.iconOnly && (
                 <span
                   className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
                     isActive ? "bg-white/20" : "bg-xan-card-hover"
