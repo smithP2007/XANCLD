@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Flame, TrendingUp, Sparkles, Heart, Calendar } from "lucide-react";
+import { Flame, TrendingUp, Sparkles, Heart, Calendar, History as HistoryIcon } from "lucide-react";
 import {
   fetchTrending,
   fetchPopular,
@@ -16,7 +16,7 @@ import { SectionRow } from "../components/SectionRow";
 import { ErrorState } from "../components/ErrorState";
 import { useBookmarks } from "../hooks/useBookmarks";
 import { useAnimeList } from "../hooks/useAnimeList";
-import { useSettings } from "../hooks/useSettings";
+import { useSettings, useWatchHistory } from "../hooks/useSettings";
 import { recommendFromSeed, type ScoredRecommendation, type Mood, type DurationPref } from "../lib/recommend";
 
 export function Home() {
@@ -26,9 +26,15 @@ export function Home() {
   const [error, setError] = useState<string | null>(null);
   const { bookmarks } = useBookmarks();
   const { list: animeList } = useAnimeList();
+  const history = useWatchHistory();
   const [settings] = useSettings();
   const [recs, setRecs] = useState<ScoredRecommendation[]>([]);
   const [recsSeed, setRecsSeed] = useState<string | null>(null);
+  // Watch-history-based recommendations (separate from the bookmark-based
+  // "Because you saved" row — this one seeds from the most-recently-watched
+  // anime and surfaces shows similar to what you're currently watching).
+  const [historyRecs, setHistoryRecs] = useState<ScoredRecommendation[]>([]);
+  const [historyRecsSeed, setHistoryRecsSeed] = useState<string | null>(null);
   // "Airing Today" row (redesign plan §4) — reuses fetchSchedule.
   const [airingToday, setAiringToday] = useState<AiringAnime[]>([]);
 
@@ -79,6 +85,14 @@ export function Home() {
     () => animeList.map((e) => `${e.animeId}:${e.status}`).join(","),
     [animeList],
   );
+  // Stable signature for watch history — most-recent first (useWatchHistory
+  // returns entries sorted by updatedAt desc). We include the animeId + ep
+  // so the effect re-runs when the user watches a new episode of the same
+  // show (and thus may want fresh recs).
+  const historySig = useMemo(
+    () => history.slice(0, 5).map((h) => `${h.animeId}:${h.episode}`).join(","),
+    [history],
+  );
 
   useEffect(() => {
     if (bookmarks.length === 0) {
@@ -121,6 +135,55 @@ export function Home() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmarkSig, listSig, settings.moodPreference, settings.durationPreference]);
+
+  // ─── Watch-history-based recommendations ───
+  // Seeds from the most-recently-watched anime (not bookmarks). Surfaces
+  // shows similar to what you're currently watching — distinct from the
+  // bookmark-based "Because you saved" row above.
+  useEffect(() => {
+    if (history.length === 0) {
+      setHistoryRecs([]);
+      setHistoryRecsSeed(null);
+      return;
+    }
+    // Pick the most-recently-watched anime as the seed. useWatchHistory
+    // returns entries with the most-recent updatedAt first (via the
+    // addToHistory prepend + sort by updatedAt in the hook).
+    const seed = history[0];
+    let cancelled = false;
+    (async () => {
+      try {
+        const detail = await fetchAnimeDetail(seed.animeId);
+        if (cancelled || !detail) return;
+        const candidates = detail.recommendations?.nodes
+          ?.map((n) => n.mediaRecommendation)
+          .filter((c): c is AnimeCardType => !!c) ?? [];
+        const scored = recommendFromSeed(candidates, {
+          bookmarks,
+          animeList,
+          recentlyViewed: [],
+          hidden: [],
+          signalGenres: detail.genres,
+          moodPreference:
+            settings.moodPreference && settings.moodPreference !== "surprise"
+              ? (settings.moodPreference as Mood)
+              : undefined,
+          durationPreference:
+            settings.durationPreference && settings.durationPreference !== "any"
+              ? (settings.durationPreference as DurationPref)
+              : undefined,
+        });
+        if (!cancelled) {
+          setHistoryRecs(scored);
+          setHistoryRecsSeed(seed.title);
+        }
+      } catch {
+        // Best-effort — never block the Home page.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historySig, listSig, settings.moodPreference, settings.durationPreference]);
 
   // Hero skeleton
   if (loading && trending.length === 0) {
@@ -224,6 +287,28 @@ export function Home() {
                 className="flex-shrink-0 w-[150px] sm:w-[170px] md:w-[180px] snap-start"
               >
                 <AnimeCard anime={a} index={idx} />
+              </div>
+            ))}
+          </SectionRow>
+        )}
+
+        {/* Because you watched — recommendations seeded from your most-recently-
+            watched anime. Distinct from the bookmark-based "Because you saved"
+            row above — this one reflects what you're currently watching, not
+            what you've saved. Hidden when there's no watch history or no
+            scored recommendations. */}
+        {historyRecs.length > 0 && historyRecsSeed && (
+          <SectionRow
+            title="Because you watched"
+            subtitle={`Based on "${historyRecsSeed}" — similar to what you're watching`}
+            icon={<HistoryIcon className="h-4 w-4 text-xan-crimson" />}
+          >
+            {historyRecs.map((r, idx) => (
+              <div
+                key={r.anime.id}
+                className="flex-shrink-0 w-[150px] sm:w-[170px] md:w-[180px] snap-start"
+              >
+                <AnimeCard anime={r.anime} index={idx} />
               </div>
             ))}
           </SectionRow>
