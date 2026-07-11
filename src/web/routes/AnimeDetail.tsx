@@ -216,9 +216,11 @@ export function AnimeDetail() {
                 className="relative w-40 h-56 sm:w-44 sm:h-64 md:w-48 md:h-72 lg:w-52 lg:h-80 rounded-2xl object-cover border-2 border-white/10 shadow-[0_25px_70px_rgba(0,0,0,0.7)]"
                 onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.3")}
               />
-              {/* Score badge floating on cover corner */}
+              {/* Score badge floating on cover corner — solid background for
+                  contrast against busy cover artwork (was glass-strong which
+                  was semi-transparent and hard to read). */}
               {anime.averageScore != null && (
-                <div className="absolute -top-3 -right-3 flex items-center gap-1 px-3 py-1.5 rounded-full glass-strong text-white shadow-lg">
+                <div className="absolute -top-3 -right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/85 backdrop-blur-sm border border-white/15 text-white shadow-[0_4px_16px_rgba(0,0,0,0.5)]">
                   <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
                   <span className="font-bold text-sm">{Math.round(anime.averageScore)}%</span>
                 </div>
