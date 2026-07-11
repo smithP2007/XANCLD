@@ -44,22 +44,29 @@ export function Home() {
       setError(null);
       try {
         // Fetch trending + popular + schedule in parallel. Schedule powers
-        // both the "Airing Today" row here and is the same data the Schedule
-        // page uses (no duplicate fetch logic — single shared fetchSchedule).
+        // both the "Airing Today" row here and the Schedule page (single
+        // shared fetchSchedule, no duplicate fetch logic).
+        //
+        // We fetch 50 (not 30) for the schedule because the previous 30-item
+        // cap + TRENDING_DESC sort meant many currently-airing shows were
+        // cut off before reaching the "Airing Today" filter. 50 is AniList's
+        // practical per-page limit for a single request without pagination.
         const [t, p, sched] = await Promise.all([
           fetchTrending(10),
           fetchPopular(18),
-          fetchSchedule(30),
+          fetchSchedule(50),
         ]);
         setTrending(t);
         setPopular(p);
-        // Filter schedule to episodes airing today (by local day-of-week)
+        // Filter schedule to episodes airing today (by local day-of-week).
+        // No artificial slice cap — show ALL shows airing today, sorted by
+        // airing time. The SectionRow handles horizontal scrolling so a long
+        // list is fine.
         const today = new Date().getDay();
         setAiringToday(
           sched
             .filter((a) => a.nextAiringEpisode && new Date(a.nextAiringEpisode.airingAt * 1000).getDay() === today)
-            .sort((a, b) => (a.nextAiringEpisode!.airingAt - b.nextAiringEpisode!.airingAt))
-            .slice(0, 12),
+            .sort((a, b) => (a.nextAiringEpisode!.airingAt - b.nextAiringEpisode!.airingAt)),
         );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load");
