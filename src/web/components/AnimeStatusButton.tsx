@@ -76,7 +76,7 @@ export function AnimeStatusButton({ animeId, title, coverImage, size = "md" }: P
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-56 glass-strong rounded-xl p-1.5 z-30 animate-panel-up shadow-2xl">
+        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl p-1.5 z-30 animate-panel-up shadow-[0_12px_40px_rgba(0,0,0,0.6)] border border-xan-border bg-popover/95 backdrop-blur-xl">
           {STATUS_ORDER.map((status) => {
             const Icon = STATUS_ICONS[status];
             const isActive = currentStatus === status;
