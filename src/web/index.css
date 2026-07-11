@@ -47,7 +47,8 @@
 :root {
   --radius: 0.625rem;
   color-scheme: dark;
-  /* Dark mode — primary XAN theme (default) */
+  /* Dark mode — primary XAN theme (default).
+     Theme presets override these via [data-theme-preset="..."] below. */
   --background: #0a0a0a;
   --foreground: #fafafa;
   --card: rgba(255, 255, 255, 0.04);
@@ -67,6 +68,136 @@
   --input: rgba(255, 255, 255, 0.1);
   --ring: #e94560;
 }
+
+/* ─── Theme Presets ──────────────────────────────────────────────
+   Each preset redefines the brand colors AND the surface tokens so
+   every utility class (bg-xan-crimson, text-xan-violet, from-xan-crimson,
+   border-xan-border, bg-card, etc.) automatically reflects the active
+   theme — no component-level changes needed.
+
+   Presets only apply to DARK mode (the default). Light mode keeps the
+   XAN Classic palette since the video player UI hardcodes white-on-glass.
+   ───────────────────────────────────────────────────────────────── */
+
+/* XAN Classic — the existing palette. Explicit so it can be re-selected. */
+[data-theme-preset="classic"] {
+  --color-xan-crimson: #e94560;
+  --color-xan-crimson-dark: #c81e3a;
+  --color-xan-violet: #7b2ff7;
+  --color-xan-dark: #0a0a0a;
+  --color-xan-surface: hsl(240 10% 10%);
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: rgba(255, 255, 255, 0.04);
+  --popover: #14141a;
+  --primary: #e94560;
+  --ring: #e94560;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.1);
+  --muted-foreground: #a1a1aa;
+}
+
+/* Sakura Bloom — vibrant magenta-pink + electric lavender on deep plum-navy.
+   More saturated + glowy than the previous Sakura Night — feels like
+   cherry blossoms under a neon streetlight. */
+[data-theme-preset="sakura"] {
+  --color-xan-crimson: #ff4d8d;      /* vibrant hot pink */
+  --color-xan-crimson-dark: #e63b73;
+  --color-xan-violet: #c084fc;       /* electric lavender */
+  --color-xan-dark: #1a0a1f;
+  --color-xan-surface: hsl(300 40% 12%);
+  --background: #1a0a1f;
+  --foreground: #fdf2f8;
+  --card: rgba(255, 77, 141, 0.05);
+  --popover: #2a1530;
+  --primary: #ff4d8d;
+  --ring: #ff4d8d;
+  --border: rgba(255, 77, 141, 0.15);
+  --input: rgba(255, 77, 141, 0.12);
+  --muted-foreground: #d4a5c0;
+}
+
+/* Neon Shonen — cyan + electric violet on near-black blue (UNCHANGED per request) */
+[data-theme-preset="neon"] {
+  --color-xan-crimson: #4de8ff;
+  --color-xan-crimson-dark: #21c8e8;
+  --color-xan-violet: #8b5cf6;
+  --color-xan-dark: #05070f;
+  --color-xan-surface: hsl(225 30% 9%);
+  --background: #05070f;
+  --foreground: #e6f9ff;
+  --card: rgba(77, 232, 255, 0.04);
+  --popover: #10131f;
+  --primary: #4de8ff;
+  --ring: #4de8ff;
+  --border: rgba(77, 232, 255, 0.12);
+  --input: rgba(77, 232, 255, 0.1);
+  --muted-foreground: #7a8aa8;
+}
+
+/* Sunset Bloom — warm coral + golden amber on deep wine.
+   Inspired by golden-hour anime key art — warm, romantic, cinematic. */
+[data-theme-preset="sunset"] {
+  --color-xan-crimson: #ff7849;      /* coral-orange */
+  --color-xan-crimson-dark: #e85d2e;
+  --color-xan-violet: #fbbf24;       /* golden amber replaces violet */
+  --color-xan-dark: #1f0a0e;
+  --color-xan-surface: hsl(350 40% 10%);
+  --background: #1f0a0e;
+  --foreground: #fff5ed;
+  --card: rgba(255, 120, 73, 0.05);
+  --popover: #2e1418;
+  --primary: #ff7849;
+  --ring: #ff7849;
+  --border: rgba(255, 120, 73, 0.14);
+  --input: rgba(255, 120, 73, 0.1);
+  --muted-foreground: #d4a89a;
+}
+
+/* Ocean Abyss — teal + aqua glow on deep oceanic black.
+   Inspired by deep-sea bioluminescence — cool, mysterious, immersive. */
+[data-theme-preset="ocean"] {
+  --color-xan-crimson: #2dd4bf;      /* teal */
+  --color-xan-crimson-dark: #14b8a6;
+  --color-xan-violet: #06b6d4;       /* cyan-aqua */
+  --color-xan-dark: #02111a;
+  --color-xan-surface: hsl(190 45% 8%);
+  --background: #02111a;
+  --foreground: #ecfeff;
+  --card: rgba(45, 212, 191, 0.05);
+  --popover: #052030;
+  --primary: #2dd4bf;
+  --ring: #2dd4bf;
+  --border: rgba(45, 212, 191, 0.14);
+  --input: rgba(45, 212, 191, 0.1);
+  --muted-foreground: #7dc4c0;
+}
+
+/* Royal Indigo — indigo + gold on deep royal purple-black.
+   Inspired by royal/regal aesthetics — luxurious, premium, dramatic. */
+[data-theme-preset="royal"] {
+  --color-xan-crimson: #818cf8;      /* indigo */
+  --color-xan-crimson-dark: #6366f1;
+  --color-xan-violet: #fbbf24;       /* royal gold */
+  --color-xan-dark: #0f0a1f;
+  --color-xan-surface: hsl(255 40% 10%);
+  --background: #0f0a1f;
+  --foreground: #f0ecff;
+  --card: rgba(129, 140, 248, 0.05);
+  --popover: #1a1230;
+  --primary: #818cf8;
+  --ring: #818cf8;
+  --border: rgba(129, 140, 248, 0.14);
+  --input: rgba(129, 140, 248, 0.1);
+  --muted-foreground: #a5a0d4;
+}
+
+/* Per-preset selection tint */
+[data-theme-preset="sakura"]  ::selection { background: rgba(255, 77, 141, 0.3); color: #fff; }
+[data-theme-preset="neon"]    ::selection { background: rgba(77, 232, 255, 0.3); color: #fff; }
+[data-theme-preset="sunset"]  ::selection { background: rgba(255, 120, 73, 0.3); color: #fff; }
+[data-theme-preset="ocean"]   ::selection { background: rgba(45, 212, 191, 0.3); color: #fff; }
+[data-theme-preset="royal"]   ::selection { background: rgba(129, 140, 248, 0.3); color: #fff; }
 
 /* Light theme overrides — when .dark is NOT on <html> */
 :root:not(.dark) {
@@ -400,6 +531,23 @@ body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ─── Xani mascot gentle float ─── */
+@keyframes xani-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+.xani-mascot svg {
+  animation: xani-float 3.5s ease-in-out infinite;
+}
+/* Reduced-motion + TV-mode users get a static mascot */
+.xan-reduce-motion .xani-mascot svg,
+.xan-tv-mode .xani-mascot svg {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .xani-mascot svg { animation: none !important; }
 }
 
 /* ─── TV Mode ─── */

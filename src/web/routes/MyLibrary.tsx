@@ -22,6 +22,7 @@ import {
   STATUS_LABELS,
   STATUS_ORDER,
 } from "../hooks/useAnimeList";
+import { XaniMascot } from "../components/XaniMascot";
 
 type Tab = "all" | AnimeStatus | "bookmarks";
 
@@ -32,7 +33,10 @@ export function MyLibrary() {
   const { list, remove, clearAll } = useAnimeList();
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: list.length, bookmarks: bookmarks.length };
+    const c: Record<string, number> = {
+      all: list.length,
+      bookmarks: bookmarks.length,
+    };
     for (const s of STATUS_ORDER) c[s] = list.filter((e) => e.status === s).length;
     return c;
   }, [list, bookmarks]);
@@ -112,7 +116,9 @@ export function MyLibrary() {
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-xan-card border border-xan-border hover:border-xan-crimson/40 text-sm text-muted-foreground hover:text-xan-crimson transition-all"
             >
               <Trash2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Clear {tab === "bookmarks" ? "Bookmarks" : "List"}</span>
+              <span className="hidden sm:inline">
+                Clear {tab === "bookmarks" ? "Bookmarks" : "List"}
+              </span>
             </button>
           )}
         </div>
@@ -161,11 +167,11 @@ export function MyLibrary() {
       {/* Empty state */}
       {isEmpty ? (
         <div className="flex flex-col items-center justify-center py-32 text-center border border-xan-border rounded-2xl bg-xan-card/30">
-          {tab === "bookmarks" ? (
-            <Bookmark className="h-12 w-12 text-muted-foreground mb-3" />
-          ) : (
-            <Library className="h-12 w-12 text-muted-foreground mb-3" />
-          )}
+          <XaniMascot
+            mood="happy"
+            size={96}
+            className="mb-4"
+          />
           <p className="text-lg font-medium text-foreground">
             {tab === "all"
               ? "Your library is empty"

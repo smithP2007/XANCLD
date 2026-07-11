@@ -18,10 +18,11 @@ function sanitizeDescription(d: string | null | undefined): string {
 
 export function HeroCarousel({ anime, onActiveChange }: Props) {
   const [active, setActive] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [hoverPaused, setHoverPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const slides = anime.slice(0, 5);
+  const paused = hoverPaused;
 
   const go = useCallback(
     (dir: 1 | -1) => setActive((i) => (i + dir + slides.length) % slides.length),
@@ -37,7 +38,7 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
     onActiveChange?.(slides[active]?.coverImage?.color ?? null);
   }, [active, slides, onActiveChange]);
 
-  // Auto-rotate
+  // Auto-rotate (paused on hover OR when user has explicitly paused)
   useEffect(() => {
     if (paused || slides.length <= 1) return;
     timerRef.current = setTimeout(() => go(1), SLIDE_MS);
@@ -61,8 +62,8 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
   return (
     <section
       className="relative w-full h-[58vh] min-h-[420px] max-h-[560px] md:h-[78vh] md:min-h-[520px] md:max-h-[760px] overflow-hidden"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
+      onMouseEnter={() => setHoverPaused(true)}
+      onMouseLeave={() => setHoverPaused(false)}
       aria-roledescription="carousel"
       aria-label="Featured anime"
     >
@@ -80,18 +81,47 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
         />
       </div>
 
-      {/* Color tint over blurred bg */}
+      {/* Color tint over blurred bg — uses the active slide's cover color */}
       <div
-        className="absolute inset-0 opacity-25 mix-blend-soft-light"
+        className="absolute inset-0 opacity-30 mix-blend-soft-light"
         style={{
-          background: `radial-gradient(circle at 30% 50%, ${current.coverImage?.color ?? "#e94560"} 0%, transparent 60%)`,
+          background: `radial-gradient(circle at 30% 50%, ${current.coverImage?.color ?? "var(--color-xan-crimson)"} 0%, transparent 60%)`,
         }}
       />
 
-      {/* Strong gradient overlays for legibility */}
-      <div className="absolute inset-0 bg-gradient-to-t from-xan-dark via-xan-dark/70 to-xan-dark/40" />
-      <div className="absolute inset-0 bg-gradient-to-r from-xan-dark/95 via-xan-dark/55 to-xan-dark/70" />
-      <div className="absolute inset-0 bg-gradient-to-b from-xan-dark/50 via-transparent to-transparent" />
+      {/* Theme-aware gradient overlays for legibility — fade to the active
+          theme's background color so the hero blends seamlessly into the
+          page regardless of which preset is active (Sakura plum, Ocean
+          teal-black, Royal indigo, etc.). */}
+      <div
+        className="absolute inset-0"
+        style={{ background: `linear-gradient(to top, var(--background) 0%, color-mix(in srgb, var(--background) 70%, transparent) 50%, color-mix(in srgb, var(--background) 40%, transparent) 100%)` }}
+      />
+      <div
+        className="absolute inset-0"
+        style={{ background: `linear-gradient(to right, color-mix(in srgb, var(--background) 95%, transparent) 0%, color-mix(in srgb, var(--background) 55%, transparent) 50%, color-mix(in srgb, var(--background) 70%, transparent) 100%)` }}
+      />
+      <div
+        className="absolute inset-0"
+        style={{ background: `linear-gradient(to bottom, color-mix(in srgb, var(--background) 50%, transparent) 0%, transparent 50%, transparent 100%)` }}
+      />
+
+      {/* Accent glow in the active theme's primary color — gives each preset
+          a distinctive ambient mood (Sakura pink glow, Ocean teal glow, etc.) */}
+      <div
+        className="absolute inset-0 opacity-20 pointer-events-none"
+        style={{
+          background: `radial-gradient(ellipse at 80% 30%, var(--color-xan-crimson) 0%, transparent 50%)`,
+          mixBlendMode: "soft-light",
+        }}
+      />
+      <div
+        className="absolute inset-0 opacity-15 pointer-events-none"
+        style={{
+          background: `radial-gradient(ellipse at 20% 70%, var(--color-xan-violet) 0%, transparent 50%)`,
+          mixBlendMode: "soft-light",
+        }}
+      />
 
       {/* ─── MOBILE LAYOUT ─── */}
       <div className="md:hidden relative h-full flex items-center justify-center px-14 pt-14 pb-12">
@@ -238,7 +268,10 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
             )}
 
             {synopsis && (
-              <p className="text-sm md:text-base text-white/65 line-clamp-2 max-w-xl leading-relaxed border-l-2 border-xan-crimson/50 pl-4">
+              <p
+                className="text-sm md:text-base text-white/65 line-clamp-2 max-w-xl leading-relaxed pl-4"
+                style={{ borderLeft: `2px solid color-mix(in srgb, var(--color-xan-crimson) 50%, transparent)` }}
+              >
                 {synopsis}
               </p>
             )}
@@ -265,13 +298,14 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
             className="flex-shrink-0 relative animate-hero-info"
           >
             <div
-              className="absolute -inset-6 rounded-3xl blur-2xl opacity-25 transition-colors duration-700"
-              style={{ background: current.coverImage?.color ?? "#e94560" }}
+              className="absolute -inset-6 rounded-3xl blur-2xl opacity-30 transition-colors duration-700"
+              style={{ background: current.coverImage?.color ?? "var(--color-xan-crimson)" }}
               aria-hidden
             />
             <Link
               to={`/anime/${current.id}`}
-              className="relative block w-[300px] lg:w-[340px] xl:w-[360px] aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_25px_70px_rgba(0,0,0,0.7)] hover:shadow-[0_30px_80px_rgba(233,69,96,0.3)] transition-all duration-500 group ring-1 ring-white/10"
+              className="relative block w-[300px] lg:w-[340px] xl:w-[360px] aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_25px_70px_rgba(0,0,0,0.7)] transition-all duration-500 group ring-1 ring-white/10 hover:ring-2"
+              style={{ ["--hover-ring-color" as string]: "var(--color-xan-crimson)" }}
             >
               <img
                 src={poster}

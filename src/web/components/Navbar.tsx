@@ -50,6 +50,9 @@ export function Navbar() {
       setSearchOpen(false);
       setMobileOpen(false);
       setQuery("");
+    } else {
+      // Empty submit — just close the mobile search panel
+      setSearchOpen(false);
     }
   };
 

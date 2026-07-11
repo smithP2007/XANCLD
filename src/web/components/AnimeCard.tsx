@@ -1,9 +1,8 @@
 import { Link } from "react-router-dom";
-import { Star, Play, Clock } from "lucide-react";
+import { Star, Play, Clock, Bookmark } from "lucide-react";
 import type { AnimeCard as AnimeCardT } from "../lib/anilist";
 import { getTitle } from "../lib/anilist";
 import { useBookmarks } from "../hooks/useBookmarks";
-import { Bookmark } from "lucide-react";
 
 interface Props {
   anime: AnimeCardT;

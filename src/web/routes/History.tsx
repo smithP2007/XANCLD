@@ -8,6 +8,7 @@ import {
   type HistoryEntry,
 } from "../hooks/useSettings";
 import { formatTimeAgo } from "../hooks/useCountdownTick";
+import { XaniMascot } from "../components/XaniMascot";
 
 interface GroupedHistory {
   animeId: number;
@@ -120,9 +121,7 @@ export function History() {
       {/* Empty state */}
       {grouped.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-32 text-center border border-xan-border rounded-2xl bg-xan-card/30">
-          <div className="w-20 h-20 rounded-full bg-xan-card flex items-center justify-center mb-4">
-            <HistoryIcon className="h-10 w-10 text-muted-foreground" />
-          </div>
+          <XaniMascot mood="sleepy" size={96} className="mb-4" />
           <p className="text-lg font-medium text-foreground">No history yet</p>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
             Start watching anime and your progress will appear here for quick resume.

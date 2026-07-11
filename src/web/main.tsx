@@ -14,7 +14,9 @@ import { Settings } from "./routes/Settings";
 import { MyLibrary } from "./routes/MyLibrary";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
-import { useSettings, applyTheme, applyRuntimeFlags } from "./hooks/useSettings";
+import { useSettings, applyTheme, applyThemePreset, applyRuntimeFlags, type MoodPreference, type DurationPreference } from "./hooks/useSettings";
+import { OnboardingSheet } from "./components/OnboardingSheet";
+import { useState } from "react";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -24,14 +26,46 @@ function ScrollToTop() {
   return null;
 }
 
-// Apply theme on every route change — ensures light/dark persists across navigation
+// Apply theme on every route change — ensures light/dark + preset persists across navigation
 function ThemeApplier() {
   const [settings] = useSettings();
   useEffect(() => {
     applyTheme(settings.theme);
+    applyThemePreset(settings.themePreset);
     applyRuntimeFlags(settings);
-  }, [settings.theme, settings.reducedMotion, settings.tvMode]);
+  }, [settings.theme, settings.themePreset, settings.reducedMotion, settings.tvMode]);
   return null;
+}
+
+// Show the one-time onboarding sheet on first visit (redesign plan §5).
+// Tracked via settings.hasSeenOnboarding. Reset from Settings > Data.
+function OnboardingGate() {
+  const [settings, update] = useSettings();
+  // Local "dismissed this session" state — once dismissed (skip or complete),
+  // don't reopen even if the user navigates around (until they reset it).
+  const [dismissed, setDismissed] = useState(false);
+  const open = !settings.hasSeenOnboarding && !dismissed;
+
+  const handleComplete = (mood: MoodPreference, duration: DurationPreference) => {
+    update({
+      hasSeenOnboarding: true,
+      moodPreference: mood,
+      durationPreference: duration,
+    });
+    setDismissed(true);
+  };
+  const handleSkip = () => {
+    update({ hasSeenOnboarding: true });
+    setDismissed(true);
+  };
+
+  return (
+    <OnboardingSheet
+      open={open}
+      onComplete={handleComplete}
+      onSkip={handleSkip}
+    />
+  );
 }
 
 function AppShell() {
@@ -43,6 +77,7 @@ function AppShell() {
     <>
       <ThemeApplier />
       <ScrollToTop />
+      <OnboardingGate />
       {isLanding ? (
         <Routes>
           <Route path="/" element={<Landing />} />

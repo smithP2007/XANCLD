@@ -33,6 +33,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useSettings, clearHistory, getHistory } from "../hooks/useSettings";
+import { ThemePicker } from "../components/ThemePicker";
 import {
   useVideoEnhancer,
   ENHANCER_PRESETS as ENHANCER_PRESET_LIST,
@@ -224,6 +225,22 @@ export function Settings() {
               >
                 <Monitor className="h-4 w-4" /> System
               </button>
+            </div>
+          </Row>
+          <Row
+            label="Theme preset"
+            desc={
+              settings.theme === "light"
+                ? "Presets only apply in dark mode (the video player UI is tuned for dark backgrounds)."
+                : "Pick a curated color palette. Applies instantly across the whole app."
+            }
+            fullWidth
+          >
+            <div className="w-full max-w-3xl">
+              <ThemePicker
+                current={settings.themePreset}
+                onSelect={(preset) => update({ themePreset: preset })}
+              />
             </div>
           </Row>
           <Row
@@ -668,6 +685,26 @@ export function Settings() {
               <Trash2 className="h-4 w-4" /> Reset All
             </button>
           </Row>
+          <Row
+            label="Redo onboarding"
+            desc="Show the welcome + mood/duration questions again on next visit"
+          >
+            <button
+              onClick={() => update({ hasSeenOnboarding: false, moodPreference: null, durationPreference: null })}
+              className="btn-premium flex items-center gap-2 px-4 py-2 rounded-lg bg-xan-card border border-xan-border hover:border-xan-crimson/40 text-sm text-muted-foreground hover:text-foreground transition-all"
+            >
+              <RotateCcw className="h-4 w-4" /> Redo Onboarding
+            </button>
+          </Row>
+          <div className="mt-2 p-3 rounded-lg bg-xan-card/50 border border-xan-border/50">
+            <p className="text-[11px] text-muted-foreground leading-relaxed flex items-start gap-1.5">
+              <ShieldAlert className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 text-xan-crimson/60" />
+              <span>
+                All your settings, history, and saved lists are stored only in this browser
+                (localStorage) and are never sent anywhere else.
+              </span>
+            </p>
+          </div>
         </Section>
 
         {/* About */}
@@ -749,11 +786,26 @@ function Row({
   label,
   desc,
   children,
+  fullWidth,
 }: {
   label: string;
   desc: string;
   children: React.ReactNode;
+  /** When true, the children container spans full width below the label
+   *  instead of being right-aligned. Use for wide controls like ThemePicker. */
+  fullWidth?: boolean;
 }) {
+  if (fullWidth) {
+    return (
+      <div className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
+        <div className="min-w-0">
+          <p className="font-medium text-sm text-foreground">{label}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{desc}</p>
+        </div>
+        <div className="w-full">{children}</div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 py-4 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">

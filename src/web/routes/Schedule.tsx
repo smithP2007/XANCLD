@@ -1,8 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Calendar, Clock, AlertCircle, ChevronLeft, ChevronRight, CalendarOff } from "lucide-react";
+import { Calendar, Clock, AlertCircle, ChevronLeft, ChevronRight, CalendarOff, Filter } from "lucide-react";
 import { fetchSchedule, getTitle, type AiringAnime } from "../lib/anilist";
 import { useCountdownTick, formatCountdown } from "../hooks/useCountdownTick";
+import { useBookmarks } from "../hooks/useBookmarks";
+import { useAnimeList } from "../hooks/useAnimeList";
+import { useWatchHistory } from "../hooks/useSettings";
+import { EmptyState } from "../components/EmptyState";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -18,7 +22,22 @@ export function Schedule() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<number>(new Date().getDay());
+  // "Only show saved/recently watched" toggle (redesign plan §4) — purely
+  // client-side filter against bookmarks + animelist + watch history.
+  const [onlySaved, setOnlySaved] = useState(false);
   const now = useCountdownTick();
+  const { bookmarks } = useBookmarks();
+  const { list: animeList } = useAnimeList();
+  const history = useWatchHistory();
+
+  // Build a Set of anime IDs the user has saved/watched/bookmarked
+  const savedIds = useMemo(() => {
+    const ids = new Set<number>();
+    bookmarks.forEach((b) => ids.add(b.animeId));
+    animeList.forEach((e) => ids.add(e.animeId));
+    history.forEach((h) => ids.add(h.animeId));
+    return ids;
+  }, [bookmarks, animeList, history]);
 
   useEffect(() => {
     (async () => {
@@ -58,10 +77,22 @@ export function Schedule() {
   const todayDay = new Date(now).getDay();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
 
-  // Sort within active day by latest airing time
-  const activeEntries = Array.from(byDay[activeDay].values()).sort(
-    (a, b) => a.latest.airingAt - b.latest.airingAt,
-  );
+  // Sort within active day by latest airing time. When onlySaved is on,
+  // filter to entries whose anime ID appears in bookmarks/animelist/history.
+  const activeEntries = Array.from(byDay[activeDay].values())
+    .filter((e) => !onlySaved || savedIds.has(e.anime.id))
+    .sort((a, b) => a.latest.airingAt - b.latest.airingAt);
+
+  // Count of saved shows across all days (for the toggle's badge)
+  const savedCount = useMemo(() => {
+    let n = 0;
+    for (let i = 0; i < 7; i++) {
+      for (const id of byDay[i].keys()) {
+        if (savedIds.has(id)) n++;
+      }
+    }
+    return n;
+  }, [byDay, savedIds]);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
@@ -78,9 +109,35 @@ export function Schedule() {
           <p className="text-sm text-muted-foreground">Currently airing anime — next episodes</p>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground mb-6 ml-13">
+      <p className="text-xs text-muted-foreground mb-4 ml-13">
         Airing times in {timezone}
       </p>
+
+      {/* "Only show saved" toggle (redesign plan §4) */}
+      <div className="flex items-center justify-between mb-6">
+        <button
+          type="button"
+          onClick={() => setOnlySaved((v) => !v)}
+          aria-pressed={onlySaved}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+            onlySaved
+              ? "bg-xan-crimson/15 border-xan-crimson/50 text-xan-crimson"
+              : "bg-xan-card border-xan-border text-muted-foreground hover:text-foreground hover:border-xan-crimson/40"
+          }`}
+        >
+          <Filter className="h-3.5 w-3.5" />
+          {onlySaved ? "Showing saved only" : "Only show saved"}
+          {savedCount > 0 && (
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                onlySaved ? "bg-xan-crimson/20 text-xan-crimson" : "bg-xan-card-hover text-muted-foreground"
+              }`}
+            >
+              {savedCount}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* Day-of-week tabs */}
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 mb-6">
@@ -122,13 +179,19 @@ export function Schedule() {
 
       {/* Active day entries */}
       {activeEntries.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center border border-xan-border rounded-xl bg-xan-card/30">
-          <CalendarOff className="h-12 w-12 text-muted-foreground mb-3" />
-          <p className="text-lg font-medium text-foreground">Nothing airing this day</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            Try another day — there are {anime.length} scheduled episodes this week.
-          </p>
-        </div>
+        <EmptyState
+          mascotMood="sleepy"
+          title={onlySaved ? "No saved shows airing this day" : "Nothing airing this day"}
+          description={
+            onlySaved
+              ? savedCount === 0
+                ? "Bookmark or watch anime to see them filtered here. Toggle off to see all scheduled shows."
+                : "Try another day, or toggle off the filter to see all scheduled shows."
+              : `Try another day — there are ${anime.length} scheduled episodes this week.`
+          }
+          actionLabel={onlySaved ? "Show all scheduled" : undefined}
+          onAction={onlySaved ? () => setOnlySaved(false) : undefined}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-fade-in-up">
           {activeEntries.map((entry) => (

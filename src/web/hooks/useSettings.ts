@@ -1,7 +1,31 @@
 import { useState, useEffect, useCallback } from "react";
 
+export type ThemePreset = "classic" | "sakura" | "neon" | "sunset" | "ocean" | "royal";
+
+/** Onboarding mood preference (redesign plan §5). Used by recommend.ts. */
+export type MoodPreference = "action" | "cozy" | "funny" | "romance" | "mystery" | "dark" | "surprise";
+/** Onboarding duration preference (redesign plan §5). Used by recommend.ts. */
+export type DurationPreference = "short" | "medium" | "long" | "any";
+
+export const THEME_PRESETS: { id: ThemePreset; label: string; swatch: [string, string]; desc: string }[] = [
+  { id: "classic", label: "XAN Classic",   swatch: ["#e94560", "#7b2ff7"], desc: "Crimson + violet on near-black" },
+  { id: "sakura",  label: "Sakura Bloom",  swatch: ["#ff4d8d", "#c084fc"], desc: "Hot pink + lavender on deep plum" },
+  { id: "neon",    label: "Neon Shonen",   swatch: ["#4de8ff", "#8b5cf6"], desc: "Cyan + electric violet on near-black" },
+  { id: "sunset",  label: "Sunset Bloom",  swatch: ["#ff7849", "#fbbf24"], desc: "Coral + golden amber on deep wine" },
+  { id: "ocean",   label: "Ocean Abyss",   swatch: ["#2dd4bf", "#06b6d4"], desc: "Teal + aqua on deep oceanic black" },
+  { id: "royal",   label: "Royal Indigo",  swatch: ["#818cf8", "#fbbf24"], desc: "Indigo + gold on royal purple-black" },
+];
+
 export interface XanSettings {
+  /** Color-scheme: dark / light / follow OS. Existing field, unchanged. */
   theme: "dark" | "light" | "system";
+  /**
+   * Visual theme preset (only applies in dark color-scheme).
+   * "classic" | "sakura" | "neon" | "cozy" | "midnight".
+   * Light mode keeps the XAN Classic palette since the video player UI
+   * hardcodes white-on-glass overlays.
+   */
+  themePreset: ThemePreset;
   autoplay: boolean;
   skipIntro: boolean;
   skipOutro: boolean;
@@ -22,10 +46,15 @@ export interface XanSettings {
   pinnedSource: string | null;
   // Enhancer
   enhancerEnabled: boolean;
+  // Onboarding (redesign plan §5) — shown once, resettable from Settings > Data
+  hasSeenOnboarding: boolean;
+  moodPreference: MoodPreference | null;
+  durationPreference: DurationPreference | null;
 }
 
 const DEFAULTS: XanSettings = {
   theme: "dark",
+  themePreset: "classic",
   autoplay: true,
   skipIntro: true,
   skipOutro: false,
@@ -41,7 +70,10 @@ const DEFAULTS: XanSettings = {
   preferredProvider: "allanime",
   disabledSources: ["gogoanime"],
   pinnedSource: null,
-  enhancerEnabled: true,
+  enhancerEnabled: false,
+  hasSeenOnboarding: false,
+  moodPreference: null,
+  durationPreference: null,
 };
 
 const STORAGE_KEY = "xan:settings";
@@ -92,7 +124,15 @@ export function updateSettings(updates: Partial<XanSettings>): void {
   if (updates.theme) {
     applyTheme(updates.theme);
   }
+  if (updates.themePreset) {
+    applyThemePreset(updates.themePreset);
+  }
   applyRuntimeFlags(currentSettings);
+}
+
+export function applyThemePreset(preset: ThemePreset): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.setAttribute("data-theme-preset", preset);
 }
 
 export function applyTheme(theme: "dark" | "light" | "system"): void {
@@ -107,13 +147,15 @@ export function applyTheme(theme: "dark" | "light" | "system"): void {
   if (actual === "light") {
     root.classList.remove("dark");
     root.style.colorScheme = "light";
+    // Light mode keeps the XAN Classic palette — presets only apply in dark mode
     document.body.style.backgroundColor = "#fafafa";
     document.body.style.color = "#0a0a0a";
   } else {
     root.classList.add("dark");
     root.style.colorScheme = "dark";
-    document.body.style.backgroundColor = "#0a0a0a";
-    document.body.style.color = "#fafafa";
+    // Use var(--background) so the active theme preset's background applies
+    document.body.style.backgroundColor = "var(--background)";
+    document.body.style.color = "var(--foreground)";
   }
   // Apply reduced-motion + tv-mode kill switches
   root.classList.toggle("xan-reduce-motion", false); // toggled below via dedicated settings
@@ -128,6 +170,7 @@ export function useSettings(): [XanSettings, (updates: Partial<XanSettings>) => 
     currentSettings = loadSettings();
     setSettings(currentSettings);
     applyTheme(currentSettings.theme);
+    applyThemePreset(currentSettings.themePreset);
     applyRuntimeFlags(currentSettings);
 
     // React to OS theme changes when in "system" mode

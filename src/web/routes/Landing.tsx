@@ -1,8 +1,12 @@
 import { Link } from "react-router-dom";
-import { Play, ArrowRight } from "lucide-react";
-import { useEffect } from "react";
+import { Play, ArrowRight, Shuffle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { fetchTrending } from "../lib/anilist";
+import { XaniMascot } from "../components/XaniMascot";
 
 export function Landing() {
+  const [surpriseId, setSurpriseId] = useState<number | null>(null);
+
   // Press Enter to enter the app
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -13,6 +17,23 @@ export function Landing() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // "Surprise Me" — pick a random trending anime and navigate to its detail page.
+  // Uses the same AniList data Home/Trending already use.
+  const handleSurprise = async () => {
+    try {
+      const trending = await fetchTrending(20);
+      if (trending.length > 0) {
+        const pick = trending[Math.floor(Math.random() * trending.length)];
+        setSurpriseId(pick.id);
+        window.location.href = `/anime/${pick.id}`;
+      } else {
+        window.location.href = "/home";
+      }
+    } catch {
+      window.location.href = "/home";
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
@@ -32,6 +53,12 @@ export function Landing() {
           backgroundSize: "60px 60px",
         }}
       />
+
+      {/* Xani mascot — subtle, peeking from the bottom-right (redesign plan §4:
+          "Show the Xani mascot once, subtly, near the button — not full-screen"). */}
+      <div className="hidden md:block absolute bottom-8 right-8 z-10 opacity-90">
+        <XaniMascot mood="curious" size={88} />
+      </div>
 
       {/* Content */}
       <div className="relative z-10 text-center px-4 max-w-2xl animate-fade-in-up">
@@ -53,13 +80,24 @@ export function Landing() {
           favorites, and watch in HD.
         </p>
 
-        <Link
-          to="/home"
-          className="btn-premium inline-flex items-center gap-2 px-10 py-4 rounded-2xl bg-gradient-to-r from-xan-crimson to-xan-crimson-dark hover:from-xan-crimson-dark hover:to-xan-crimson font-semibold text-white transition-all shadow-2xl shadow-xan-crimson/40 hover:shadow-xan-crimson/60 hover:scale-105"
-        >
-          Start Watching
-          <ArrowRight className="h-5 w-5" />
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-3 mb-2">
+          <Link
+            to="/home"
+            className="btn-premium inline-flex items-center gap-2 px-10 py-4 rounded-2xl bg-gradient-to-r from-xan-crimson to-xan-crimson-dark hover:from-xan-crimson-dark hover:to-xan-crimson font-semibold text-white transition-all shadow-2xl shadow-xan-crimson/40 hover:shadow-xan-crimson/60 hover:scale-105"
+          >
+            Start Watching
+            <ArrowRight className="h-5 w-5" />
+          </Link>
+          <button
+            type="button"
+            onClick={handleSurprise}
+            disabled={surpriseId !== null}
+            className="btn-premium inline-flex items-center gap-2 px-6 py-4 rounded-2xl glass-strong border border-xan-border hover:border-xan-crimson/50 text-foreground font-semibold transition-all hover:scale-105 disabled:opacity-60"
+          >
+            <Shuffle className="h-5 w-5" />
+            Surprise Me
+          </button>
+        </div>
 
         <p className="mt-10 text-xs text-muted-foreground">
           Press <kbd className="px-2 py-0.5 rounded-md glass font-mono text-[10px]">Enter</kbd> to explore

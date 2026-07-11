@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   Maximize,
+  List,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
 import {
@@ -25,6 +26,8 @@ import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
 import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
 import { VideoEnhancerPanel } from "../components/VideoEnhancerPanel";
 import { VideoPlayer } from "../components/VideoPlayer";
+import { EpisodePickerSheet } from "../components/EpisodePickerSheet";
+import { EpisodePanel } from "../components/EpisodePanel";
 
 type Provider = "allanime" | "koto" | "zen" | "gogoanime";
 
@@ -63,6 +66,8 @@ export function Watch() {
   const [provider, setProvider] = useState<Provider>(settings.preferredProvider);
   const [autoPlayNext, setAutoPlayNext] = useState(false);
   const [showEnhancer, setShowEnhancer] = useState(false);
+  // Mobile bottom-sheet episode picker (redesign plan §4)
+  const [sheetOpen, setSheetOpen] = useState(false);
   const enhancer = useVideoEnhancer();
   const [providerStatus, setProviderStatus] = useState<Record<Provider, "idle" | "loading" | "done" | "error">>({
     allanime: "idle",
@@ -136,6 +141,9 @@ export function Watch() {
   useEffect(() => {
     if (!animeId) return;
     setAutoPlayNext(false);
+    // Reset resume position when episode changes — otherwise switching from
+    // ep 1 (saved at 5:00) to ep 2 would carry over ep 1's resume point.
+    setResumeTime(undefined);
     (async () => {
       setLoading(true);
       setError(null);
@@ -158,13 +166,27 @@ export function Watch() {
           return;
         }
 
-        // Check history for resume position
+        // Check history for resume position.
+        // FIX (redesign plan §4): if the saved timestamp is in the last ~8%
+        // of duration (or within the last 45 seconds), don't resume at that
+        // exact point — the user has effectively finished the episode.
+        // Restart from 0 instead. This avoids the annoying case where the
+        // user lands 2 seconds before the credits and has to manually click
+        // "next episode".
         const history = getHistory();
         const existing = history.find(
           (e) => e.animeId === animeId && e.episode === episode,
         );
-        if (existing && existing.timestamp > 5) {
-          setResumeTime(existing.timestamp);
+        if (existing && existing.timestamp > 5 && existing.duration > 0) {
+          const remaining = existing.duration - existing.timestamp;
+          const remainingPct = remaining / existing.duration;
+          // Within last 8% OR within last 45 seconds → treat as finished
+          const nearEnd = remainingPct < 0.08 || remaining < 45;
+          if (nearEnd) {
+            setResumeTime(undefined);
+          } else {
+            setResumeTime(existing.timestamp);
+          }
         } else {
           setResumeTime(undefined);
         }
@@ -555,11 +577,31 @@ export function Watch() {
               )}
             </div>
           )}
+
+          {/* Mobile-only: button to open the bottom-sheet episode picker
+              (redesign plan §4: "Add a bottom-sheet episode picker on mobile
+              within the Watch page, reusing the same component built for
+              AnimeDetail"). Desktop uses the sidebar grid below. */}
+          {anime && (
+            <button
+              type="button"
+              onClick={() => setSheetOpen(true)}
+              className="lg:hidden flex items-center justify-between gap-2 px-4 py-3 rounded-xl glass border border-xan-border hover:border-xan-crimson/40 text-sm font-medium text-foreground transition-all"
+            >
+              <span className="flex items-center gap-2">
+                <List className="h-4 w-4 text-xan-crimson" />
+                Browse episodes
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {anime.episodes ? `EP ${episode} / ${anime.episodes}` : `EP ${episode}`}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* ─── Sidebar ─── */}
         <div className="space-y-4">
-          {/* Episodes panel — polished */}
+          {/* Episodes panel — paginated, auto-opens to current episode's page */}
           <div className="glass rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-foreground flex items-center gap-2">
@@ -573,53 +615,12 @@ export function Watch() {
                 ) : null;
               })()}
             </div>
-            {(() => {
-              const epCount = anime?.episodes ?? (anime?.nextAiringEpisode ? anime.nextAiringEpisode.episode - 1 : 0);
-              const nextAir = anime?.nextAiringEpisode?.episode ?? null;
-              const showCount = Math.min(epCount, 50);
-              if (showCount === 0) {
-                return <p className="text-xs text-muted-foreground text-center py-4">Episode count unknown</p>;
-              }
-              return (
-                <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5 max-h-64 overflow-y-auto pr-1 no-scrollbar">
-                  {Array.from({ length: showCount }, (_, i) => i + 1).map((ep) => {
-                    const isUnaired = nextAir !== null && ep >= nextAir;
-                    const isNextAiring = nextAir !== null && ep === nextAir;
-                    if (isUnaired) {
-                      return (
-                        <div
-                          key={ep}
-                          className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs font-medium cursor-not-allowed relative ${
-                            isNextAiring
-                              ? "bg-xan-crimson/5 border border-xan-crimson/20 text-xan-crimson/30"
-                              : "bg-xan-card/20 border border-xan-border/20 text-muted-foreground/20"
-                          }`}
-                          title={isNextAiring ? "Airing soon" : "Not yet aired"}
-                        >
-                          {ep}
-                          {isNextAiring && (
-                            <span className="text-[7px] font-bold text-xan-crimson/50 uppercase">Soon</span>
-                          )}
-                        </div>
-                      );
-                    }
-                    return (
-                      <Link
-                        key={ep}
-                        to={`/watch/${animeId}?ep=${ep}`}
-                        className={`aspect-square flex items-center justify-center rounded-lg text-xs font-medium transition-all ${
-                          ep === episode
-                            ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30"
-                            : "bg-xan-card-hover text-muted-foreground hover:text-foreground hover:bg-xan-card border border-transparent hover:border-xan-crimson/30"
-                        }`}
-                      >
-                        {ep}
-                      </Link>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+            <EpisodePanel
+              animeId={animeId}
+              currentEpisode={episode}
+              totalEpisodes={anime?.episodes ?? (anime?.nextAiringEpisode ? anime.nextAiringEpisode.episode - 1 : 0)}
+              nextAirEp={anime?.nextAiringEpisode?.episode ?? null}
+            />
           </div>
 
           {/* Audio mode selector — polished */}
@@ -713,6 +714,22 @@ export function Watch() {
           )}
         </div>
       </div>
+
+      {/* Mobile bottom-sheet episode picker (redesign plan §4).
+          Reuses the same EpisodePickerSheet component as AnimeDetail. */}
+      {anime && (
+        <EpisodePickerSheet
+          open={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+          animeId={animeId}
+          currentEpisode={episode}
+          totalEpisodes={
+            anime.episodes ??
+            (anime.nextAiringEpisode ? anime.nextAiringEpisode.episode - 1 : 0)
+          }
+          nextAirEp={anime.nextAiringEpisode?.episode ?? null}
+        />
+      )}
     </div>
   );
 }

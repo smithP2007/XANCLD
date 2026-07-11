@@ -135,6 +135,32 @@ export async function searchAnime(
   };
 }
 
+/**
+ * Fetch a small number of search suggestions for the inline dropdown that
+ * appears while the user types in the search bar (redesign plan §4).
+ * Uses a smaller page size (default 6) and only fetches the fields needed
+ * for a poster + title chip.
+ */
+export async function fetchSearchSuggestions(
+  query: string,
+  perPage = 6,
+): Promise<AnimeCard[]> {
+  if (!query.trim()) return [];
+  const data = await gql<{ Page: { media: AnimeCard[] } }>(
+    `query($search: String, $perPage: Int) {
+      Page(page: 1, perPage: $perPage) {
+        media(search: $search, sort: SEARCH_MATCH, type: ANIME) {
+          id title { romaji english native }
+          coverImage { large extraLarge color }
+          averageScore format episodes status seasonYear season
+        }
+      }
+    }`,
+    { search: query, perPage },
+  );
+  return data?.Page?.media ?? [];
+}
+
 export interface SearchFilters {
   sort?: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "TRENDING_DESC" | "START_DATE_DESC" | "FAVOURITES_DESC";
   genres?: string[];
