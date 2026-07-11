@@ -30,11 +30,11 @@ export function Home() {
   const [settings] = useSettings();
   const [recs, setRecs] = useState<ScoredRecommendation[]>([]);
   const [recsSeed, setRecsSeed] = useState<string | null>(null);
-  // Watch-history-based recommendations (separate from the bookmark-based
-  // "Because you saved" row — this one seeds from the most-recently-watched
-  // anime and surfaces shows similar to what you're currently watching).
+  // Watch-history-based recommendations — collects the top 5 unique anime
+  // from watch history, fetches each one's AniList recommendations, merges +
+  // dedupes + re-scores them into a single "Recommendations" row.
   const [historyRecs, setHistoryRecs] = useState<ScoredRecommendation[]>([]);
-  const [historyRecsSeed, setHistoryRecsSeed] = useState<string | null>(null);
+  const [historyRecsCount, setHistoryRecsCount] = useState(0);
   // "Airing Today" row (redesign plan §4) — reuses fetchSchedule.
   const [airingToday, setAiringToday] = useState<AiringAnime[]>([]);
 
@@ -136,46 +136,124 @@ export function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmarkSig, listSig, settings.moodPreference, settings.durationPreference]);
 
-  // ─── Watch-history-based recommendations ───
-  // Seeds from the most-recently-watched anime (not bookmarks). Surfaces
-  // shows similar to what you're currently watching — distinct from the
-  // bookmark-based "Because you saved" row above.
+  // ─── Recommendations row ───
+  // Collects the top 5 unique anime from watch history (most-recent first),
+  // fetches each one's AniList detail in parallel to gather recommendations,
+  // then merges + dedupes + re-scores all candidates into a single row.
+  // This gives a broader "shows you might like" row based on everything
+  // you've been watching, not just the single most-recent show.
   useEffect(() => {
     if (history.length === 0) {
       setHistoryRecs([]);
-      setHistoryRecsSeed(null);
+      setHistoryRecsCount(0);
       return;
     }
-    // Pick the most-recently-watched anime as the seed. useWatchHistory
-    // returns entries with the most-recent updatedAt first (via the
-    // addToHistory prepend + sort by updatedAt in the hook).
-    const seed = history[0];
+    // Dedupe by animeId (history can have multiple episodes of the same show)
+    // and take the top 5 unique shows, most-recent first.
+    const seenIds = new Set<number>();
+    const seeds = history
+      .filter((h) => {
+        if (seenIds.has(h.animeId)) return false;
+        seenIds.add(h.animeId);
+        return true;
+      })
+      .slice(0, 5);
+    setHistoryRecsCount(seeds.length);
+
     let cancelled = false;
     (async () => {
       try {
-        const detail = await fetchAnimeDetail(seed.animeId);
-        if (cancelled || !detail) return;
-        const candidates = detail.recommendations?.nodes
-          ?.map((n) => n.mediaRecommendation)
-          .filter((c): c is AnimeCardType => !!c) ?? [];
-        const scored = recommendFromSeed(candidates, {
-          bookmarks,
-          animeList,
-          recentlyViewed: [],
-          hidden: [],
-          signalGenres: detail.genres,
-          moodPreference:
-            settings.moodPreference && settings.moodPreference !== "surprise"
-              ? (settings.moodPreference as Mood)
-              : undefined,
-          durationPreference:
-            settings.durationPreference && settings.durationPreference !== "any"
-              ? (settings.durationPreference as DurationPref)
-              : undefined,
-        });
+        // Fetch detail for each seed anime in parallel — each returns its
+        // own recommendations list + genres (used as the signalGenres for
+        // scoring candidates from that seed).
+        const details = await Promise.all(
+          seeds.map((s) => fetchAnimeDetail(s.animeId).catch(() => null)),
+        );
+
+        // Merge all candidates from all seeds into one pool. Build a map
+        // of animeId -> signalGenres so we can score each candidate against
+        // the genres of the seed that recommended it (and boost candidates
+        // that appear across multiple seeds — those are stronger recs).
+        const candidateMap = new Map<number, AnimeCardType>();
+        const candidateGenreSignals = new Map<number, string[]>();
+        const candidateSeedCount = new Map<number, number>();
+
+        for (const detail of details) {
+          if (!detail?.recommendations?.nodes) continue;
+          for (const node of detail.recommendations.nodes) {
+            const c = node.mediaRecommendation;
+            if (!c) continue;
+            if (!candidateMap.has(c.id)) {
+              candidateMap.set(c.id, c);
+              candidateGenreSignals.set(c.id, detail.genres ?? []);
+              candidateSeedCount.set(c.id, 1);
+            } else {
+              // Candidate recommended by multiple seeds — boost its seed count
+              candidateSeedCount.set(c.id, (candidateSeedCount.get(c.id) ?? 1) + 1);
+              // Merge genre signals (union of all recommending seeds' genres)
+              const existing = candidateGenreSignals.get(c.id) ?? [];
+              const merged = Array.from(new Set([...existing, ...(detail.genres ?? [])]));
+              candidateGenreSignals.set(c.id, merged);
+            }
+          }
+        }
+
+        // Exclude anime the user is already watching or has bookmarked —
+        // no point recommending shows they're already on.
+        const excludeIds = new Set<number>([
+          ...bookmarks.map((b) => b.animeId),
+          ...animeList.map((e) => e.animeId),
+          ...seeds.map((s) => s.animeId),
+        ]);
+
+        // Score each candidate. Candidates recommended by multiple seeds
+        // get a bonus per extra seed (cross-show agreement = stronger rec).
+        const scored: ScoredRecommendation[] = [];
+        for (const [id, anime] of candidateMap) {
+          if (excludeIds.has(id)) continue;
+          const signalGenres = candidateGenreSignals.get(id) ?? [];
+          const seedCount = candidateSeedCount.get(id) ?? 1;
+          const { score, reason } = (function scoreCandidate() {
+            // Inline scoring using the same logic as recommend.ts scoreAnime
+            // but with the cross-seed bonus. We call recommendFromSeed with
+            // a single-element array to reuse the existing scoring logic,
+            // then add the bonus.
+            const single = recommendFromSeed([anime], {
+              bookmarks,
+              animeList,
+              recentlyViewed: [],
+              hidden: [],
+              signalGenres,
+              moodPreference:
+                settings.moodPreference && settings.moodPreference !== "surprise"
+                  ? (settings.moodPreference as Mood)
+                  : undefined,
+              durationPreference:
+                settings.durationPreference && settings.durationPreference !== "any"
+                  ? (settings.durationPreference as DurationPref)
+                  : undefined,
+            });
+            return single[0] ?? { anime, score: 0, reason: "Recommended for you" };
+          })();
+          // Bonus: +2 per additional seed that recommended this candidate
+          // (cross-show agreement is a strong signal).
+          const bonusScore = (seedCount - 1) * 2;
+          const finalScore = score + bonusScore;
+          if (finalScore > 0) {
+            scored.push({
+              anime,
+              score: finalScore,
+              reason: seedCount > 1
+                ? `Recommended by ${seedCount} of your recent shows`
+                : reason,
+            });
+          }
+        }
+
+        // Sort by score descending, take top 18 for the row
+        scored.sort((a, b) => b.score - a.score);
         if (!cancelled) {
-          setHistoryRecs(scored);
-          setHistoryRecsSeed(seed.title);
+          setHistoryRecs(scored.slice(0, 18));
         }
       } catch {
         // Best-effort — never block the Home page.
@@ -292,15 +370,18 @@ export function Home() {
           </SectionRow>
         )}
 
-        {/* Because you watched — recommendations seeded from your most-recently-
-            watched anime. Distinct from the bookmark-based "Because you saved"
-            row above — this one reflects what you're currently watching, not
-            what you've saved. Hidden when there's no watch history or no
-            scored recommendations. */}
-        {historyRecs.length > 0 && historyRecsSeed && (
+        {/* Recommendations — collects top 5 unique anime from watch history,
+            fetches each one's AniList recommendations, merges + dedupes +
+            re-scores into a single row. Hidden when there's no watch history
+            or no scored recommendations. */}
+        {historyRecs.length > 0 && (
           <SectionRow
-            title="Because you watched"
-            subtitle={`Based on "${historyRecsSeed}" — similar to what you're watching`}
+            title="Recommendations"
+            subtitle={
+              historyRecsCount > 0
+                ? `Based on your last ${historyRecsCount} watched ${historyRecsCount === 1 ? "show" : "shows"}`
+                : "Based on your watch history"
+            }
             icon={<HistoryIcon className="h-4 w-4 text-xan-crimson" />}
           >
             {historyRecs.map((r, idx) => (
