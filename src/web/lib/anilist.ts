@@ -327,24 +327,38 @@ export interface AiringAnime extends AnimeCard {
   nextAiringEpisode: { episode: number; airingAt: number; timeUntilAiring: number } | null;
 }
 
-export async function fetchSchedule(perPage = 30): Promise<AiringAnime[]> {
-  const now = Math.floor(Date.now() / 1000);
-  const data = await gql<{ Page: { media: AiringAnime[] } }>(
-    `query($perPage: Int) {
-      Page(page: 1, perPage: $perPage) {
-        media(type: ANIME, status: RELEASING, sort: TRENDING_DESC) {
-          id title { romaji english native }
-          coverImage { large extraLarge color }
-          averageScore format episodes status seasonYear season
-          nextAiringEpisode { episode airingAt timeUntilAiring }
+export async function fetchSchedule(perPage = 50): Promise<AiringAnime[]> {
+  // Fetch multiple pages of RELEASING anime to get ALL currently-airing shows.
+  // AniList has ~5000 RELEASING anime but many don't have nextAiringEpisode
+  // (they're either between seasons or haven't scheduled the next ep yet).
+  // We fetch up to 5 pages (250 anime) sorted by POPULARITY_DESC so the most
+  // popular airing shows are included first. This is a balance between
+  // completeness (more anime) and performance (fewer API calls).
+  const allMedia: AiringAnime[] = [];
+  const maxPages = 5;
+
+  for (let page = 1; page <= maxPages; page++) {
+    const data = await gql<{ Page: { media: AiringAnime[]; pageInfo: { hasNextPage: boolean } } }>(
+      `query($page: Int, $perPage: Int) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo { hasNextPage }
+          media(type: ANIME, status: RELEASING, sort: POPULARITY_DESC) {
+            id title { romaji english native }
+            coverImage { large extraLarge color }
+            averageScore format episodes status seasonYear season
+            nextAiringEpisode { episode airingAt timeUntilAiring }
+          }
         }
-      }
-    }`,
-    { perPage },
-  );
-  const media = data?.Page?.media ?? [];
-  // Sort by next airing time
-  return media
+      }`,
+      { page, perPage },
+    );
+    const pageMedia = data?.Page?.media ?? [];
+    allMedia.push(...pageMedia);
+    if (!data?.Page?.pageInfo?.hasNextPage) break;
+  }
+
+  // Filter to only those with a next airing episode, then sort by airing time
+  return allMedia
     .filter((m) => m.nextAiringEpisode)
     .sort((a, b) => (a.nextAiringEpisode!.airingAt - b.nextAiringEpisode!.airingAt));
 }

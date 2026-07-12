@@ -101,13 +101,21 @@ export function Schedule() {
     }),
     [weekStart],
   );
-  const weekEnd = weekDates[6];
+  // weekEndInclusive = end of the last day (23:59:59.999) so the boundary
+  // check `d <= weekEndInclusive` correctly includes episodes airing late
+  // on the last day of the week (was `d > weekEnd` which excluded them
+  // because weekEnd was at midnight 00:00:00).
+  const weekEndInclusive = useMemo(() => {
+    const d = new Date(weekDates[6]);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, [weekDates]);
 
   // Determine if the selected week is the current week (contains today)
   const today = new Date(now);
   const todayWeekStart = startOfWeek(today);
   const isCurrentWeek = weekStart.getTime() === todayWeekStart.getTime();
-  const isPastWeek = weekEnd < todayWeekStart;
+  const isPastWeek = weekEndInclusive < todayWeekStart;
   const isFutureWeek = weekStart > todayWeekStart;
 
   // Group anime by day-of-week within the selected week.
@@ -126,7 +134,7 @@ export function Schedule() {
       const d = new Date(projectedAiringAt);
       const day = d.getDay();
       // Only include if the projected date actually falls in the selected week
-      if (d < weekStart || d > weekEnd) continue;
+      if (d < weekStart || d > weekEndInclusive) continue;
       const existing = map[day].get(a.id);
       const ep = { episode: a.nextAiringEpisode.episode + weekOffset, airingAt: projectedAiringAt };
       if (existing) {
@@ -137,7 +145,7 @@ export function Schedule() {
       }
     }
     return map;
-  }, [anime, weekOffset, weekStart, weekEnd]);
+  }, [anime, weekOffset, weekStart, weekEndInclusive]);
 
   const todayDay = new Date(now).getDay();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
@@ -173,7 +181,7 @@ export function Schedule() {
       ? "Next Week"
       : isPastWeek && weekOffset === -1
         ? "Last Week"
-        : `${formatShortDate(weekStart)} – ${formatShortDate(weekEnd)}`;
+        : `${formatShortDate(weekStart)} – ${formatShortDate(weekDates[6])}`;
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
@@ -231,9 +239,9 @@ export function Schedule() {
       </div>
       <p className="text-xs text-muted-foreground mb-4 sm:ml-13">
         {isPastWeek
-          ? `Past schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekEnd)} (already aired)`
+          ? `Past schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekDates[6])} (already aired)`
           : isFutureWeek
-            ? `Upcoming schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekEnd)} (projected from current airing patterns)`
+            ? `Upcoming schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekDates[6])} (projected from current airing patterns)`
             : `Airing times in ${timezone}`}
       </p>
 

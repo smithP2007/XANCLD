@@ -43,14 +43,9 @@ export function Home() {
       setLoading(true);
       setError(null);
       try {
-        // Fetch trending + popular + schedule in parallel. Schedule powers
-        // both the "Airing Today" row here and the Schedule page (single
-        // shared fetchSchedule, no duplicate fetch logic).
-        //
-        // We fetch 50 (not 30) for the schedule because the previous 30-item
-        // cap + TRENDING_DESC sort meant many currently-airing shows were
-        // cut off before reaching the "Airing Today" filter. 50 is AniList's
-        // practical per-page limit for a single request without pagination.
+        // Fetch trending + popular + schedule in parallel. fetchSchedule now
+        // paginates internally (up to 5 pages = 250 anime) to get ALL
+        // currently-airing shows, not just the top 50.
         const [t, p, sched] = await Promise.all([
           fetchTrending(10),
           fetchPopular(18),
