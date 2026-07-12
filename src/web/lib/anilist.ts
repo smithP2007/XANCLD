@@ -6,6 +6,30 @@
 
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
 
+// ─── Rate-limit-aware GraphQL fetcher ──────────────────────────
+// AniList rate-limits at 90 requests per minute. When rate-limited (HTTP
+// 429), we retry with an exponential backoff. The gql function is called
+// by many components simultaneously (Home fetches 5+ requests in parallel
+// via fetchSchedule's pagination), so rate-limiting is a real issue.
+
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL_MS = 700; // ~85 req/min — just under AniList's 90/min limit
+
+/** Sleep for ms milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Throttle: ensure at least MIN_REQUEST_INTERVAL_MS between requests. */
+async function throttle(): Promise<void> {
+  const now = Date.now();
+  const elapsed = now - lastRequestTime;
+  if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+    await sleep(MIN_REQUEST_INTERVAL_MS - elapsed);
+  }
+  lastRequestTime = Date.now();
+}
+
 // ─── Types ─────────────────────────────────────────────────────
 export interface AnimeCard {
   id: number;
@@ -40,28 +64,67 @@ export interface AnimeDetail extends AnimeCard {
   recommendations: { nodes: { mediaRecommendation: AnimeCard }[] };
 }
 
-// ─── GraphQL fetcher ───────────────────────────────────────────
+// ─── GraphQL fetcher with rate-limit handling + retry ──────────
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T | null> {
-  try {
-    const res = await fetch(ANILIST_GRAPHQL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query, variables }),
-    });
-    if (!res.ok) {
-      console.warn(`[AniList] HTTP ${res.status}`);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff: 1s, 2s, 4s
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Throttle: ensure we don't exceed AniList's rate limit
+      await throttle();
+
+      const res = await fetch(ANILIST_GRAPHQL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ query, variables }),
+      });
+
+      // Handle rate-limiting (HTTP 429) — retry after backoff
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get("Retry-After") || "0", 10);
+        const delay = retryAfter > 0 ? retryAfter * 1000 : RETRY_DELAYS[attempt] ?? 4000;
+        console.warn(`[AniList] Rate limited (429), retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+        if (attempt < MAX_RETRIES) {
+          await sleep(delay);
+          continue;
+        }
+        console.warn("[AniList] Rate limited — max retries exceeded");
+        return null;
+      }
+
+      // Handle server errors (5xx) — retry
+      if (res.status >= 500 && attempt < MAX_RETRIES) {
+        console.warn(`[AniList] Server error ${res.status}, retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+        await sleep(RETRY_DELAYS[attempt] ?? 4000);
+        continue;
+      }
+
+      if (!res.ok) {
+        console.warn(`[AniList] HTTP ${res.status}`);
+        return null;
+      }
+
+      const json: Record<string, unknown> = await res.json();
+      if (json?.errors) {
+        const errMsg = (json.errors as Array<{ message?: string }>)[0]?.message;
+        console.warn("[AniList] GraphQL errors:", errMsg);
+        // Don't retry on GraphQL errors — they're query syntax issues, not transient
+        return null;
+      }
+      return (json?.data as T) ?? null;
+    } catch (err) {
+      // Network error — retry with backoff
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[AniList] Network error, retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, err);
+        await sleep(RETRY_DELAYS[attempt] ?? 4000);
+        continue;
+      }
+      console.error("[AniList] fetch failed after retries:", err);
       return null;
     }
-    const json: Record<string, unknown> = await res.json();
-    if (json?.errors) {
-      console.warn("[AniList] errors:", (json.errors as Array<{ message?: string }>)[0]?.message);
-      return null;
-    }
-    return (json?.data as T) ?? null;
-  } catch (err) {
-    console.error("[AniList] fetch failed:", err);
-    return null;
   }
+  return null;
 }
 
 // ─── API ───────────────────────────────────────────────────────
@@ -328,33 +391,32 @@ export interface AiringAnime extends AnimeCard {
 }
 
 export async function fetchSchedule(perPage = 50): Promise<AiringAnime[]> {
-  // Fetch multiple pages of RELEASING anime to get ALL currently-airing shows.
-  // AniList has ~5000 RELEASING anime but many don't have nextAiringEpisode
-  // (they're either between seasons or haven't scheduled the next ep yet).
-  // We fetch up to 5 pages (250 anime) sorted by POPULARITY_DESC so the most
-  // popular airing shows are included first. This is a balance between
-  // completeness (more anime) and performance (fewer API calls).
-  const allMedia: AiringAnime[] = [];
-  const maxPages = 5;
-
-  for (let page = 1; page <= maxPages; page++) {
-    const data = await gql<{ Page: { media: AiringAnime[]; pageInfo: { hasNextPage: boolean } } }>(
-      `query($page: Int, $perPage: Int) {
-        Page(page: $page, perPage: $perPage) {
-          pageInfo { hasNextPage }
-          media(type: ANIME, status: RELEASING, sort: POPULARITY_DESC) {
-            id title { romaji english native }
-            coverImage { large extraLarge color }
-            averageScore format episodes status seasonYear season
-            nextAiringEpisode { episode airingAt timeUntilAiring }
+  // Fetch 3 pages (150 anime) of RELEASING anime sorted by POPULARITY_DESC.
+  // We fetch pages in PARALLEL (not sequential) to avoid the throttle delay
+  // stacking up. 3 pages gives a good balance between coverage and API load.
+  const pages = [1, 2, 3];
+  const results = await Promise.all(
+    pages.map((page) =>
+      gql<{ Page: { media: AiringAnime[]; pageInfo: { hasNextPage: boolean } } }>(
+        `query($page: Int, $perPage: Int) {
+          Page(page: $page, perPage: $perPage) {
+            pageInfo { hasNextPage }
+            media(type: ANIME, status: RELEASING, sort: POPULARITY_DESC) {
+              id title { romaji english native }
+              coverImage { large extraLarge color }
+              averageScore format episodes status seasonYear season
+              nextAiringEpisode { episode airingAt timeUntilAiring }
+            }
           }
-        }
-      }`,
-      { page, perPage },
-    );
-    const pageMedia = data?.Page?.media ?? [];
-    allMedia.push(...pageMedia);
-    if (!data?.Page?.pageInfo?.hasNextPage) break;
+        }`,
+        { page, perPage },
+      ),
+    ),
+  );
+
+  const allMedia: AiringAnime[] = [];
+  for (const data of results) {
+    if (data?.Page?.media) allMedia.push(...data.Page.media);
   }
 
   // Filter to only those with a next airing episode, then sort by airing time
