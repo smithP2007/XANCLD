@@ -329,37 +329,41 @@ const RULES: VibeRule[] = [
   },
 
   // ─── Comedy (4) ───────────────────────────────────────────────
+  // Comedy rules use minMatches: 1 so the Comedy genre alone is enough to
+  // fire — this ensures EVERY comedy anime gets a comedy vibe. Tag matches
+  // then determine WHICH comedy vibe wins (absurd-parody vs laugh-out-loud
+  // vs wholesome-comedy). "Surreal Comedy" is a very common AniList tag.
   {
     vibe: "absurd-parody",
     label: "Absurd parody",
     emoji: "🤪",
     genres: ["Comedy"],
-    tags: ["Parody", "Gag Humor", "Slapstick", "Satire", "Meta", "Absurd"],
-    minMatches: 2, // Need Comedy + parody tag
+    tags: ["Parody", "Gag Humor", "Slapstick", "Satire", "Meta", "Absurd", "Surreal Comedy"],
+    minMatches: 1, // Comedy genre alone fires; tags determine which comedy vibe wins
   },
   {
     vibe: "laugh-out-loud",
     label: "Laugh-out-loud",
     emoji: "😂",
     genres: ["Comedy"],
-    tags: ["Slapstick", "Gag Humor", "Misunderstanding", "Ensemble Cast"],
-    minMatches: 2, // Need Comedy + comedy tag
+    tags: ["Slapstick", "Gag Humor", "Misunderstanding", "Ensemble Cast", "Surreal Comedy", "Comedy"],
+    minMatches: 1, // Comedy genre alone fires
   },
   {
     vibe: "wholesome-comedy",
     label: "Wholesome comedy",
     emoji: "😊",
     genres: ["Comedy", "Slice of Life"],
-    tags: ["School", "Friendship", "Family", "Workplace", "Cute"],
-    minMatches: 3, // Need Comedy+SoL+tag
+    tags: ["School", "Friendship", "Family", "Workplace", "Cute", "Cute Girls Doing Cute Things", "Iyashikei"],
+    minMatches: 2, // Need Comedy+SoL, or Comedy+wholesome tag
   },
   {
     vibe: "situational-cringe-comedy",
     label: "Situational cringe comedy",
     emoji: "😅",
     genres: ["Comedy", "Slice of Life"],
-    tags: ["Misunderstanding", "Embarrassing", "Awkward", "Cringe", "Social Anxiety"],
-    minMatches: 3,
+    tags: ["Misunderstanding", "Embarrassing", "Awkward", "Cringe", "Social Anxiety", "Surreal Comedy"],
+    minMatches: 2,
   },
 
   // ─── Adventure / fantasy (5) ───────────────────────────────────
