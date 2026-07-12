@@ -7,27 +7,15 @@
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
 
 // ─── Rate-limit-aware GraphQL fetcher ──────────────────────────
-// AniList rate-limits at 90 requests per minute. When rate-limited (HTTP
-// 429), we retry with an exponential backoff. The gql function is called
-// by many components simultaneously (Home fetches 5+ requests in parallel
-// via fetchSchedule's pagination), so rate-limiting is a real issue.
-
-let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL_MS = 700; // ~85 req/min — just under AniList's 90/min limit
+// AniList rate-limits at 90 requests per minute. We DON'T throttle every
+// request (that serializes parallel Promise.all calls and causes 7+ second
+// load times). Instead, we rely on retry-on-429 with exponential backoff —
+// if AniList rate-limits us, we retry after a delay. This keeps parallel
+// requests fast while still handling rate-limiting gracefully.
 
 /** Sleep for ms milliseconds. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Throttle: ensure at least MIN_REQUEST_INTERVAL_MS between requests. */
-async function throttle(): Promise<void> {
-  const now = Date.now();
-  const elapsed = now - lastRequestTime;
-  if (elapsed < MIN_REQUEST_INTERVAL_MS) {
-    await sleep(MIN_REQUEST_INTERVAL_MS - elapsed);
-  }
-  lastRequestTime = Date.now();
 }
 
 // ─── Types ─────────────────────────────────────────────────────
@@ -71,9 +59,6 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      // Throttle: ensure we don't exceed AniList's rate limit
-      await throttle();
-
       const res = await fetch(ANILIST_GRAPHQL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
