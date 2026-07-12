@@ -163,7 +163,7 @@ export function AnimeDetail() {
   const synopsisText = anime.description
     ? anime.description.replace(/<br\s*\/?>/g, " ").replace(/<[^>]+>/g, "")
     : "";
-  const accentColor = anime.coverImage?.color ?? "#e94560";
+  const accentColor = anime.coverImage?.color ?? "var(--color-xan-crimson)";
 
   return (
     <div className="pb-16">

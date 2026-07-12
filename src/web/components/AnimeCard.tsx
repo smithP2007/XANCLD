@@ -15,7 +15,7 @@ export function AnimeCard({ anime, index = 0 }: Props) {
   const image = anime.coverImage?.large ?? anime.coverImage?.extraLarge ?? "/placeholder.svg";
   const score = anime.averageScore ? `${Math.round(anime.averageScore)}%` : null;
   const episodes = anime.episodes ? `${anime.episodes} eps` : anime.status ?? "Ongoing";
-  const color = anime.coverImage?.color ?? "#e94560";
+  const color = anime.coverImage?.color ?? "var(--color-xan-crimson)";
   const { isBookmarked, toggleBookmark } = useBookmarks();
 
   const bookmarked = isBookmarked(anime.id);

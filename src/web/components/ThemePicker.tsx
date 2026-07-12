@@ -47,7 +47,7 @@ export function ThemePicker({ current, onSelect }: Props) {
               />
               <div
                 className="ml-auto w-5 h-5 rounded-md border border-white/10"
-                style={{ background: "var(--bg-preview, #0a0a0a)" }}
+                style={{ background: "var(--background)" }}
               />
             </div>
             <div className="flex items-center gap-1.5">

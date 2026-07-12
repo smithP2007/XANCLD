@@ -118,6 +118,11 @@ interface VibeRule {
   tags?: string[];
   /** Minimum total score required. Default 1. */
   minMatches?: number;
+  /** When true, ALL listed genres must be present for the rule to fire.
+   *  Prevents tags from compensating for a missing required genre.
+   *  E.g. explosive-shounen needs BOTH Action AND Adventure, not just
+   *  Action + Shounen tag. */
+  requireAllGenres?: boolean;
 }
 
 const RULES: VibeRule[] = [
@@ -392,7 +397,8 @@ const RULES: VibeRule[] = [
     emoji: "💥",
     genres: ["Action", "Adventure"],
     tags: ["Shounen", "Battle", "Super Power", "Power Suit", "Fighting", "Swordplay", "Superhero"],
-    minMatches: 4, // Need BOTH Action+Adventure (2) + 1 tag (2) = 4
+    minMatches: 4,
+    requireAllGenres: true, // BOTH Action AND Adventure required — prevents JJK/Spies from matching
   },
   {
     vibe: "high-energy-action",
@@ -647,6 +653,9 @@ export function getVibeLabel(
 
   for (const rule of RULES) {
     const genreMatches = rule.genres.filter((g) => genres.includes(g)).length;
+    // If requireAllGenres is set, ALL listed genres must be present.
+    // This prevents tags (worth 2x) from compensating for a missing genre.
+    if (rule.requireAllGenres && genreMatches < rule.genres.length) continue;
     const tagMatches = rule.tags
       ? rule.tags.filter((t) => tagArr.some((u) => u.toLowerCase() === t.toLowerCase())).length
       : 0;

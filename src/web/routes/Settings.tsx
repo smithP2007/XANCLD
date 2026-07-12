@@ -334,7 +334,7 @@ export function Settings() {
                 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5
                 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-xan-crimson"
               style={{
-                background: `linear-gradient(to right, #e94560 ${settings.volume}%, rgba(255,255,255,0.1) ${settings.volume}%)`,
+                background: `linear-gradient(to right, var(--color-xan-crimson) ${settings.volume}%, rgba(255,255,255,0.1) ${settings.volume}%)`,
               }}
             />
           </Row>
