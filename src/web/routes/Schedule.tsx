@@ -74,7 +74,7 @@ export function Schedule() {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchSchedule(50);
+        const data = await fetchSchedule(50, 7); // 7 pages = all ~127 airing anime
         setAnime(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load");

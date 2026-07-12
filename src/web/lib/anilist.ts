@@ -375,13 +375,17 @@ export interface AiringAnime extends AnimeCard {
   nextAiringEpisode: { episode: number; airingAt: number; timeUntilAiring: number } | null;
 }
 
-export async function fetchSchedule(perPage = 50): Promise<AiringAnime[]> {
-  // Fetch 7 pages (350 anime) of RELEASING anime sorted by POPULARITY_DESC.
-  // AniList has ~127 anime with nextAiringEpisode spread across 7 pages
-  // (pages 8+ have 0). We fetch all 7 in PARALLEL via Promise.all so the
-  // throttle delays don't stack sequentially — total wait is ~4.2s (6 gaps
-  // × 700ms throttle) but wall-clock is shorter because requests overlap.
-  const pages = [1, 2, 3, 4, 5, 6, 7];
+export async function fetchSchedule(perPage = 50, maxPages = 2): Promise<AiringAnime[]> {
+  // Fetch multiple pages of RELEASING anime sorted by POPULARITY_DESC.
+  // AniList has ~127 anime with nextAiringEpisode spread across 7 pages.
+  //
+  // maxPages controls how many pages to fetch:
+  //   - Home page uses maxPages=2 (100 anime, ~86 with nextAir) for speed
+  //   - Schedule page uses maxPages=7 (350 anime, ~127 with nextAir) for
+  //     comprehensive coverage
+  //
+  // All pages are fetched in PARALLEL via Promise.all for speed.
+  const pages = Array.from({ length: maxPages }, (_, i) => i + 1);
   const results = await Promise.all(
     pages.map((page) =>
       gql<{ Page: { media: AiringAnime[]; pageInfo: { hasNextPage: boolean } } }>(
