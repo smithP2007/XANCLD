@@ -29,6 +29,9 @@ export interface AnimeDetail extends AnimeCard {
   description: string | null;
   bannerImage: string | null;
   genres: string[];
+  /** AniList tags (e.g. "Shounen", "Ninja", "Iyashikei"). Fetched for the
+   *  detail page and used by vibes.ts for more accurate vibe inference. */
+  tags: { name: string; rank: number }[];
   duration: number | null;
   studios: { nodes: { name: string; isAnimationStudio: boolean }[] };
   nextAiringEpisode: { episode: number; airingAt: number; timeUntilAiring?: number } | null;
@@ -261,6 +264,7 @@ export async function fetchAnimeDetail(id: number): Promise<AnimeDetail | null> 
         description
         averageScore format episodes status seasonYear season duration
         genres
+        tags { name rank }
         studios { nodes { name isAnimationStudio } }
         nextAiringEpisode { episode airingAt timeUntilAiring }
         characters(sort: ROLE, perPage: 8) {

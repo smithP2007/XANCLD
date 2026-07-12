@@ -84,7 +84,7 @@ export function AnimeDetail() {
   }, [history, anime]);
 
   const vibe = useMemo(
-    () => (anime ? getVibeLabel(anime.genres, undefined) : null),
+    () => (anime ? getVibeLabel(anime.genres, anime.tags?.map((t) => t.name)) : null),
     [anime],
   );
 
