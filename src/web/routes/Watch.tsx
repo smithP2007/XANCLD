@@ -250,61 +250,78 @@ export function Watch() {
           return;
         }
 
-        // Normal flow (no pinned source) — only load active (non-disabled) providers
+        // ─── PARALLEL provider loading ───
+        // Load ALL providers at once via Promise.allSettled. This is much
+        // faster than sequential loading — Koto (instant) and Zen (fast
+        // CORS proxy) resolve first and the video starts playing immediately,
+        // while AllAnime (slowest — AES-GCM crypto + multiple API calls)
+        // finishes in the background and populates the server picker.
+        //
+        // We use Promise.allSettled (not Promise.all) so a failure in one
+        // provider doesn't reject the entire batch.
+        const providerPromises = finalOrderedProviders.map((prov) =>
+          loadFromProvider(prov, title).then((provSources) => ({
+            prov,
+            sources: provSources.filter((s) => !settings.disabledSources.includes(s.sourceName)),
+          })),
+        );
+
+        // As each provider resolves, immediately update the UI with its sources.
+        // This means if Koto resolves first (instant), the video starts playing
+        // right away — we don't wait for AllAnime to finish.
         let sources: UnifiedSource[] = [];
-        for (const prov of finalOrderedProviders) {
-          const provSources = await loadFromProvider(prov, title);
-          // Filter out disabled sources from this provider's results
-          const enabledProvSources = provSources.filter((s) => !settings.disabledSources.includes(s.sourceName));
-          if (enabledProvSources.length > 0) {
-            sources = enabledProvSources;
-            console.log(`[Watch] using ${prov} (${sources.length} sources)`);
-            break;
-          }
-        }
+        let firstResolved = false;
 
-        // In the background, try remaining active providers to populate the source picker
-        for (const prov of finalOrderedProviders) {
-          if (providerStatus[prov] === "idle") {
-            loadFromProvider(prov, title).then((extraSources) => {
-              // Only add non-disabled sources
-              const enabledExtras = extraSources.filter((s) => !settings.disabledSources.includes(s.sourceName));
-              if (enabledExtras.length > 0) {
-                setAllSources((prev) => {
-                  const existingUrls = new Set(prev.map((s) => s.url));
-                  const newOnes = enabledExtras.filter((s) => !existingUrls.has(s.url));
-                  return [...prev, ...newOnes];
-                });
+        providerPromises.forEach((promise) => {
+          promise.then(({ prov, sources: provSources }) => {
+            if (provSources.length > 0) {
+              console.log(`[Watch] ${prov} resolved with ${provSources.length} sources`);
+              // Add to allSources for the server picker
+              setAllSources((prev) => {
+                const existingUrls = new Set(prev.map((s) => s.url));
+                const newOnes = provSources.filter((s) => !existingUrls.has(s.url));
+                return [...prev, ...newOnes];
+              });
+
+              // If this is the FIRST provider to resolve, immediately start
+              // playing its best source — don't wait for slower providers.
+              if (!firstResolved) {
+                firstResolved = true;
+                const directSources = provSources.filter((s) => s.type === "mp4" || s.type === "hls");
+                const iframeSources = provSources.filter((s) => s.type === "iframe");
+                const best = directSources[0] ?? iframeSources[0] ?? provSources[0];
+                if (best) {
+                  console.log(`[Watch] Starting playback from ${prov}: ${best.sourceName}`);
+                  setStream(best);
+                  setLoading(false);
+                }
               }
-            });
+            }
+          });
+        });
+
+        // Wait for ALL providers to finish (for the server picker), but
+        // playback has already started from the first-resolved provider.
+        const results = await Promise.allSettled(providerPromises);
+        for (const result of results) {
+          if (result.status === "fulfilled" && result.value.sources.length > 0) {
+            sources = [...sources, ...result.value.sources];
+            break; // We just need at least one set of sources
           }
         }
 
-        if (sources.length === 0) {
-          // Last resort: demo HLS stream so the player at least shows something
+        // If no provider resolved with sources, show error or demo fallback
+        if (sources.length === 0 && !firstResolved) {
           console.log("[Watch] All providers failed — adding demo stream fallback");
-          sources = [{
+          const demoSource: UnifiedSource = {
             url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
             type: "hls" as const,
             quality: "Demo",
             sourceName: "Demo Stream",
             provider: "allanime" as const,
-          }];
-        }
-
-        setAllSources(sources);
-
-        // Sources are already filtered by disabledSources during loading — no fallback to disabled sources
-        const selectableSources = sources;
-
-        // Prefer direct mp4/hls sources over iframe embeds
-        const directSources = selectableSources.filter((s) => s.type === "mp4" || s.type === "hls");
-        const iframeSources = selectableSources.filter((s) => s.type === "iframe");
-        const best = directSources[0] ?? iframeSources[0] ?? selectableSources[0];
-        if (best) {
-          setStream(best);
-        } else {
-          setError("No playable stream sources found");
+          };
+          setAllSources([demoSource]);
+          setStream(demoSource);
         }
         setLoading(false);
       } catch (err) {
