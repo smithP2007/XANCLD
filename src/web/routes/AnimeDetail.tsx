@@ -686,31 +686,60 @@ export function AnimeDetail() {
               </div>
             </section>
 
-            {/* Relations — redesigned separate section */}
+            {/* Relations — redesigned separate section with type badges
+                (ANIME vs MANGA vs NOVEL etc.) so users can distinguish
+                which related entries are watchable anime vs source material. */}
             {anime.relations?.nodes?.length > 0 && (
               <section className="animate-fade-in-up">
                 <div className="flex items-center gap-2.5 mb-4">
                   <div className="w-1 h-6 rounded-full bg-gradient-to-b from-xan-crimson to-xan-violet" />
                   <h2 className="text-xl font-bold font-display text-foreground">Related</h2>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {anime.relations.nodes.slice(0, 4).map((r) => (
-                    <Link key={`r-${r.id}`} to={`/anime/${r.id}`} className="group hover-lift">
-                      <div className="aspect-[2/3] rounded-xl overflow-hidden border border-xan-border group-hover:border-xan-crimson/50 transition-all relative shadow-lg">
-                        <img
-                          src={r.coverImage?.large ?? "/placeholder.svg"}
-                          alt={getTitle(r.title)}
-                          loading="lazy"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.3")}
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent" />
-                        <p className="absolute bottom-2 left-2 right-2 text-[10px] font-medium text-white line-clamp-2 leading-tight">
-                          {getTitle(r.title)}
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {anime.relations.nodes.slice(0, 6).map((r) => {
+                    const isAnime = !r.type || r.type === "ANIME";
+                    const typeLabel = formatMediaType(r.type);
+                    const typeColor = getMediaTypeColor(r.type);
+                    return (
+                      <Link
+                        key={`r-${r.id}`}
+                        to={isAnime ? `/anime/${r.id}` : `https://anilist.co/${r.type?.toLowerCase() ?? "manga"}/${r.id}`}
+                        {...(!isAnime ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                        className="group hover-lift"
+                      >
+                        <div className={`aspect-[2/3] rounded-xl overflow-hidden border transition-all relative shadow-lg ${
+                          isAnime
+                            ? "border-xan-border group-hover:border-xan-crimson/50"
+                            : "border-purple-500/30 group-hover:border-purple-500/60"
+                        }`}>
+                          <img
+                            src={r.coverImage?.large ?? "/placeholder.svg"}
+                            alt={getTitle(r.title)}
+                            loading="lazy"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.3")}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                          {/* Type badge — top-left corner */}
+                          <div
+                            className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider ${typeColor}`}
+                          >
+                            {typeLabel}
+                          </div>
+                          <p className="absolute bottom-2 left-2 right-2 text-[10px] font-medium text-white line-clamp-2 leading-tight">
+                            {getTitle(r.title)}
+                          </p>
+                          {!isAnime && (
+                            <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/70 backdrop-blur-sm flex items-center justify-center">
+                              <svg className="h-3 w-3 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </Link>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -758,6 +787,28 @@ export function AnimeDetail() {
       />
     </div>
   );
+}
+
+/** Format AniList media type for display: ANIME → "Anime", MANGA → "Manga", etc. */
+function formatMediaType(type: string | null | undefined): string {
+  if (!type) return "Anime";
+  switch (type) {
+    case "ANIME": return "Anime";
+    case "MANGA": return "Manga";
+    case "NOVEL": return "Novel";
+    case "ONE_SHOT": return "One Shot";
+    case "SPECIAL": return "Special";
+    case "MUSIC": return "Music";
+    default: return type.charAt(0) + type.slice(1).toLowerCase().replace(/_/g, " ");
+  }
+}
+
+/** Get badge color classes for a media type — anime gets crimson (clickable),
+ *  manga/novels get purple (external link), others get neutral. */
+function getMediaTypeColor(type: string | null | undefined): string {
+  if (!type || type === "ANIME") return "bg-xan-crimson/90 text-white";
+  if (type === "MANGA" || type === "NOVEL" || type === "ONE_SHOT") return "bg-purple-500/90 text-white";
+  return "bg-zinc-600/90 text-white";
 }
 
 function NextAiringCard({ anime }: { anime: AnimeDetail }) {

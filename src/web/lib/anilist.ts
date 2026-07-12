@@ -20,6 +20,9 @@ export interface AnimeCard {
   bannerImage?: string | null;
   genres?: string[];
   description?: string | null;
+  /** AniList media type: "ANIME" | "MANGA" | "NOVEL" | etc. Available on
+   *  relations nodes; null/undefined on top-level search/trending results. */
+  type?: string | null;
 }
 
 export interface AnimeDetail extends AnimeCard {
@@ -267,7 +270,7 @@ export async function fetchAnimeDetail(id: number): Promise<AnimeDetail | null> 
             image { large }
           }
         }
-        relations { nodes { id title { romaji english native } coverImage { large extraLarge color } averageScore format episodes status seasonYear } }
+        relations { nodes { id type title { romaji english native } coverImage { large extraLarge color } averageScore format episodes status seasonYear } }
         recommendations(sort: RATING_DESC, perPage: 6) {
           nodes { mediaRecommendation { id title { romaji english native } coverImage { large extraLarge color } averageScore format episodes status seasonYear } }
         }
