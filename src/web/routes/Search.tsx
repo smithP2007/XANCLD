@@ -70,6 +70,9 @@ export function Search() {
   }, [q]);
 
   // Sync debounced query to URL
+  // M-1 FIX: Added searchParams to deps so URL updates use the latest
+  // searchParams object (was missing, causing stale params to overwrite
+  // new filter changes).
   useEffect(() => {
     if (debouncedQuery !== q) {
       const next = new URLSearchParams(searchParams);
@@ -78,7 +81,7 @@ export function Search() {
       next.delete("page");
       setSearchParams(next, { replace: true });
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, searchParams, q]);
 
   // ─── Fetch inline suggestions while typing (redesign plan §4) ───
   // Only show when input is focused + has 2+ chars + the debounced query

@@ -558,7 +558,7 @@ export function AnimeDetail() {
             </section>
 
             {/* Characters — redesigned prominent side-scroll with arrows */}
-            {anime.characters?.nodes?.length > 0 && (
+            {(anime.characters?.nodes?.length ?? 0) > 0 && (
               <section className="animate-fade-in-up">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2.5">

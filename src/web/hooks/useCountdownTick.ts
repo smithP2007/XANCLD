@@ -33,10 +33,15 @@ export function useCountdownTick(): number {
   useEffect(() => {
     // Start fresh in case this is the first subscriber since page load
     setNow(Date.now());
-    const unsub = (n: number) => setNow(n);
+    // L-7 FIX: isMounted guard prevents setState on unmounted component
+    let isMounted = true;
+    const unsub = (n: number) => {
+      if (isMounted) setNow(n);
+    };
     subscribers.add(unsub);
     ensureTimer();
     return () => {
+      isMounted = false;
       subscribers.delete(unsub);
       stopTimerIfEmpty();
     };

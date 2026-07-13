@@ -19,7 +19,7 @@ import {
   extractStreamUrl,
   type StreamResult,
 } from "../lib/allanime";
-import { extractGogoStream, type GogoSource } from "../lib/gogoanime";
+// gogoanime removed
 import { getKotoSource } from "../lib/providers/koto";
 import { fetchZenSources } from "../lib/providers/zen";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
@@ -29,7 +29,7 @@ import { VideoPlayer } from "../components/VideoPlayer";
 import { EpisodePickerSheet } from "../components/EpisodePickerSheet";
 import { EpisodePanel } from "../components/EpisodePanel";
 
-type Provider = "allanime" | "koto" | "zen" | "gogoanime";
+type Provider = "allanime" | "koto" | "zen";
 
 interface UnifiedSource {
   url: string;
@@ -43,7 +43,7 @@ interface UnifiedSource {
 function isProviderFullyDisabled(prov: Provider, disabledSources: string[]): boolean {
   if (prov === "koto") return disabledSources.includes("Koto");
   if (prov === "zen") return disabledSources.includes("Zen") && disabledSources.includes("Zen (Dual→Dub)");
-  if (prov === "gogoanime") return disabledSources.includes("gogoanime");
+  // gogoanime removed
   // allanime: source names are dynamic (Mp4, Ok, etc.) — can't know in advance, so still load it
   return false;
 }
@@ -64,6 +64,14 @@ export function Watch() {
   const [mode, setMode] = useState<"sub" | "dub">(settings.defaultMode);
   const [resumeTime, setResumeTime] = useState<number | undefined>(undefined);
   const [provider, setProvider] = useState<Provider>(settings.preferredProvider);
+
+  // H-4 FIX: Sync provider state with settings — if the user changes their
+  // preferred provider in Settings mid-session, the Watch page should pick
+  // up the new preference on next render.
+  useEffect(() => {
+    setProvider(settings.preferredProvider);
+  }, [settings.preferredProvider]);
+
   const [autoPlayNext, setAutoPlayNext] = useState(false);
   const [showEnhancer, setShowEnhancer] = useState(false);
   // Mobile bottom-sheet episode picker (redesign plan §4)
@@ -73,7 +81,6 @@ export function Watch() {
     allanime: "idle",
     koto: "idle",
     zen: "idle",
-    gogoanime: "idle",
   });
 
   // Cache AllAnime show ID to avoid re-searching on every episode change
@@ -118,15 +125,6 @@ export function Watch() {
           sourceName: s.sourceName,
           provider: "zen" as const,
         }));
-      } else if (prov === "gogoanime") {
-        const result = await extractGogoStream(title, episode);
-        sources = result.sources.map((s: GogoSource) => ({
-          url: s.url,
-          type: s.type,
-          quality: s.quality,
-          sourceName: `Gogo-${s.quality}`,
-          provider: "gogoanime" as const,
-        }));
       }
 
       setProviderStatus((prev) => ({ ...prev, [prov]: sources.length > 0 ? "done" : "error" }));
@@ -144,12 +142,13 @@ export function Watch() {
     // Reset resume position when episode changes — otherwise switching from
     // ep 1 (saved at 5:00) to ep 2 would carry over ep 1's resume point.
     setResumeTime(undefined);
+  allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
     (async () => {
       setLoading(true);
       setError(null);
       setStream(null);
       setAllSources([]);
-      setProviderStatus({ allanime: "idle", koto: "idle", zen: "idle", gogoanime: "idle" });
+      setProviderStatus({ allanime: "idle", koto: "idle", zen: "idle" });
 
       try {
         const detail = await fetchAnimeDetail(animeId);
@@ -184,19 +183,21 @@ export function Watch() {
           const nearEnd = remainingPct < 0.08 || remaining < 45;
           if (nearEnd) {
             setResumeTime(undefined);
+  allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
           } else {
             setResumeTime(existing.timestamp);
           }
         } else {
           setResumeTime(undefined);
+  allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
         }
 
         // Try providers in priority order — Koto first (instant, no API call) so
         // the user sees something immediately, then AllAnime (fastest real sources)
         // in the background. When dub is selected, prefer AllAnime first.
         const allProviders: Provider[] = mode === "dub"
-          ? ["allanime", "zen", "koto", "gogoanime"]
-          : ["koto", "allanime", "zen", "gogoanime"];
+          ? ["allanime", "zen", "koto"]
+          : ["koto", "allanime", "zen"];
 
         // Filter out providers whose sources are ALL disabled — don't even load them
         const activeProviders = allProviders.filter((prov) => !isProviderFullyDisabled(prov, settings.disabledSources));
@@ -270,7 +271,7 @@ export function Watch() {
         // This means if Koto resolves first (instant), the video starts playing
         // right away — we don't wait for AllAnime to finish.
         let sources: UnifiedSource[] = [];
-        let firstResolved = false;
+        const firstResolvedRef = useRef(false);
 
         providerPromises.forEach((promise) => {
           promise.then(({ prov, sources: provSources }) => {
@@ -285,8 +286,8 @@ export function Watch() {
 
               // If this is the FIRST provider to resolve, immediately start
               // playing its best source — don't wait for slower providers.
-              if (!firstResolved) {
-                firstResolved = true;
+              if (!firstResolvedRef.current) {
+                firstResolvedRef.current = true;
                 const directSources = provSources.filter((s) => s.type === "mp4" || s.type === "hls");
                 const iframeSources = provSources.filter((s) => s.type === "iframe");
                 const best = directSources[0] ?? iframeSources[0] ?? provSources[0];
@@ -311,7 +312,7 @@ export function Watch() {
         }
 
         // If no provider resolved with sources, show error or demo fallback
-        if (sources.length === 0 && !firstResolved) {
+        if (sources.length === 0 && !firstResolvedRef.current) {
           console.log("[Watch] All providers failed — adding demo stream fallback");
           const demoSource: UnifiedSource = {
             url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
@@ -379,7 +380,7 @@ export function Watch() {
               <p className="text-sm text-muted-foreground max-w-md">{error}</p>
               {/* Show provider status */}
               <div className="mt-4 flex items-center gap-3 text-xs">
-                {(["allanime", "gogoanime"] as const).map((p) => (
+                {((["allanime"] as const)).map((p) => (
                   <div key={p} className="flex items-center gap-1.5">
                     <span className={`w-2 h-2 rounded-full ${
                       providerStatus[p] === "done" ? "bg-green-500" :
@@ -573,8 +574,10 @@ export function Watch() {
             </div>
           )}
 
-          {/* Navigation buttons */}
-          {anime?.episodes && (
+          {/* Navigation buttons — M-10 FIX: show even when episode count is
+              unknown (anime.episodes is null). Use nextAiringEpisode as fallback
+              for the "next" button visibility. */}
+          {(anime?.episodes || episode > 1) && (
             <div className="flex items-center gap-3">
               {episode > 1 && (
                 <Link
@@ -584,7 +587,15 @@ export function Watch() {
                   <ArrowLeft className="h-4 w-4" /> Episode {episode - 1}
                 </Link>
               )}
-              {episode < anime.episodes && (
+              {anime?.episodes && episode < anime.episodes && (
+                <Link
+                  to={`/watch/${animeId}?ep=${episode + 1}`}
+                  className="btn-premium flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-xan-crimson to-xan-crimson-dark text-white text-sm font-medium transition-all shadow-lg shadow-xan-crimson/20"
+                >
+                  Next Episode <SkipForward className="h-4 w-4" />
+                </Link>
+              )}
+              {!anime?.episodes && (
                 <Link
                   to={`/watch/${animeId}?ep=${episode + 1}`}
                   className="btn-premium flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-xan-crimson to-xan-crimson-dark text-white text-sm font-medium transition-all shadow-lg shadow-xan-crimson/20"
@@ -674,7 +685,7 @@ export function Watch() {
               <div className="space-y-3 max-h-64 overflow-y-auto pr-1 no-scrollbar">
                 {/* Group by provider */}
                 {(() => {
-                  const providerOrder = ["allanime", "zen", "koto", "gogoanime"];
+                  const providerOrder = ["allanime", "zen", "koto"];
                   const groups = providerOrder.map((p) => ({
                     providerId: p,
                     label: p === "allanime" ? "AllAnime"

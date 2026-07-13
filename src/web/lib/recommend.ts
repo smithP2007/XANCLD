@@ -110,13 +110,31 @@ function genreOverlap(candidateGenres: string[] | undefined, signal: string[]): 
   return candidateGenres.filter((g) => signal.includes(g)).length;
 }
 
+// ─── Pre-computed sets for efficient scoring ────────────────────────────────
+// M-4 FIX: These sets were created inside scoreAnime() which was called once
+// per candidate — creating hundreds of redundant Sets. Now pre-computed once
+// in recommendTopN and passed to scoreAnime.
+interface PrecomputedSets {
+  hidden: Set<number>;
+  completed: Set<number>;
+  inProgress: Set<number>;
+  recentlyViewed: Set<number>;
+}
+
 // ─── Main scoring function ──────────────────────────────────────────────────
 export function scoreAnime(
   candidate: AnimeCard,
   ctx: RecommendationContext,
+  sets?: PrecomputedSets,
 ): { score: number; reason: string } {
+  // Use pre-computed sets if provided, otherwise compute (backward compat)
+  const hiddenIds = sets?.hidden ?? hiddenSet(ctx.hidden);
+  const completedIds = sets?.completed ?? completedSet(ctx.animeList);
+  const inProgressIds = sets?.inProgress ?? inProgressSet(ctx.animeList);
+  const recentlyViewedIds = sets?.recentlyViewed ?? recentlyViewedSet(ctx.recentlyViewed);
+
   // Hard exclusion: hidden titles never appear in recommendations.
-  if (hiddenSet(ctx.hidden).has(candidate.id)) {
+  if (hiddenIds.has(candidate.id)) {
     return { score: -1000, reason: "Hidden" };
   }
 
@@ -126,7 +144,6 @@ export function scoreAnime(
   // Genre overlap (coarse — see note in file header)
   const overlapCount = genreOverlap(candidate.genres, ctx.signalGenres ?? []);
   if (overlapCount > 0) {
-    // +3 per overlapping genre, capped at +9 so it doesn't dominate
     const genreScore = Math.min(overlapCount * 3, 9);
     score += genreScore;
     topReason = `Shares ${overlapCount} genre${overlapCount > 1 ? "s" : ""} with your saved anime`;
@@ -153,15 +170,14 @@ export function scoreAnime(
   }
 
   // Already completed — suppress (don't re-recommend finished shows)
-  if (completedSet(ctx.animeList).has(candidate.id)) {
+  if (completedIds.has(candidate.id)) {
     score -= 6;
     topReason = "Already completed";
   }
 
   // Recently viewed but not in progress — suppress (avoid re-suggesting
   // dismissed titles)
-  const inProgress = inProgressSet(ctx.animeList);
-  if (recentlyViewedSet(ctx.recentlyViewed).has(candidate.id) && !inProgress.has(candidate.id)) {
+  if (recentlyViewedIds.has(candidate.id) && !inProgressIds.has(candidate.id)) {
     score -= 4;
   }
 
@@ -174,15 +190,23 @@ export function recommendTopN(
   ctx: RecommendationContext,
   n: number,
 ): ScoredRecommendation[] {
+  // M-4 FIX: Pre-compute sets ONCE instead of inside every scoreAnime() call.
+  const sets: PrecomputedSets = {
+    hidden: hiddenSet(ctx.hidden),
+    completed: completedSet(ctx.animeList),
+    inProgress: inProgressSet(ctx.animeList),
+    recentlyViewed: recentlyViewedSet(ctx.recentlyViewed),
+  };
+
   const scored = candidates
     .map((anime) => {
-      const { score, reason } = scoreAnime(anime, ctx);
+      const { score, reason } = scoreAnime(anime, ctx, sets);
       return { anime, score, reason };
     })
-    .filter((s) => s.score > 0) // drop zero-or-below (hidden, completed-only, etc.)
+    .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  // Dedupe by id (candidates may contain duplicates from multiple sources)
+  // Dedupe by id
   const seen = new Set<number>();
   const deduped: ScoredRecommendation[] = [];
   for (const s of scored) {

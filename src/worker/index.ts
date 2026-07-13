@@ -59,18 +59,7 @@ const PROXY_ALLOWED_HOSTS = [
   "allanimenews.com",
   "mkissa.to",
   "allmanga.to", // legacy, may still respond for some endpoints
-  // Gogoanime (rotating domains)
-  "gogoanime.fi",
-  "gogoanime.vc",
-  "gogoanime.dk",
-  "gogoanime3.co",
-  "gogoanime.hu",
-  "gogoanime.bid",
-  "ajax.gogocdn.net",
-  "gogocdn.net",
-  "gogoplay.io",
-  "streamani.net",
-  "gogostream.tv",
+  // gogoanime removed
   // Koto + Zen (iframe providers)
   "megaplay.buzz",
   "flixcloud.cc",
@@ -402,6 +391,12 @@ app.get("/api/health", (c) =>
 // React SPA instead of 404. The browser's client-side router handles the
 // actual route rendering.
 app.get("*", (c) => {
+  // C-5 FIX: Don't serve SPA HTML for /api/* routes — return proper 404 JSON.
+  // Without this, a typo'd API route (e.g. /api/proxi) returns index.html
+  // (200 OK with HTML), causing JSON.parse() errors in the client.
+  if (c.req.path.startsWith("/api/")) {
+    return c.json({ error: "Unknown API route", path: c.req.path }, 404);
+  }
   // Try to serve from assets first (for /assets/*, /logo.svg, /placeholder.svg, etc.)
   // The ASSETS binding handles this automatically when not_found_handling is set,
   // but we need to explicitly fall back to index.html for SPA routes.

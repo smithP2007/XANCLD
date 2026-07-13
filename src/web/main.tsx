@@ -16,7 +16,36 @@ import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import { useSettings, applyTheme, applyThemePreset, applyRuntimeFlags, type MoodPreference, type DurationPreference } from "./hooks/useSettings";
 import { OnboardingSheet } from "./components/OnboardingSheet";
-import { useState } from "react";
+import { useState, Component, type ReactNode } from "react";
+import { AlertCircle } from "lucide-react";
+
+// H-8 FIX: Error Boundary — prevents white-screen crashes when a component
+// throws during render (e.g. undefined.map() from a malformed API response).
+// Shows a retry button instead of a blank page.
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen text-center px-6">
+          <AlertCircle className="h-12 w-12 text-xan-crimson mb-4" />
+          <h2 className="text-xl font-bold text-foreground mb-2">Something went wrong</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            An unexpected error occurred. Try refreshing the page.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-xan-crimson to-xan-violet text-white font-semibold shadow-lg"
+          >
+            Refresh
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -107,8 +136,10 @@ function AppShell() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
-      <AppShell />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AppShell />
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 );

@@ -502,7 +502,7 @@ export function Settings() {
             desc="Which anime source API to try first when loading an episode"
           >
             <div className="flex gap-1.5 bg-xan-card/60 p-1 rounded-lg border border-xan-border">
-              {(["allanime", "koto", "zen", "gogoanime"] as const).map((p) => (
+              {(["allanime", "koto", "zen"] as const).map((p) => (
                 <button
                   key={p}
                   onClick={() => update({ preferredProvider: p })}
