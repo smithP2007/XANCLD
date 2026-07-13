@@ -120,28 +120,65 @@ export function Schedule() {
 
   // Group anime by day-of-week within the selected week.
   // For the CURRENT week, use the real nextAiringEpisode.airingAt.
-  // For FUTURE weeks, project airing times forward by weekOffset weeks
-  //   (most airing shows are weekly, so ep N+1 airs ~7 days after ep N).
+  // For FUTURE weeks, project airing times forward by weekOffset weeks.
   // For PAST weeks, project backward — these episodes have already aired.
+  //
+  // IMPORTANT: AniList updates nextAiringEpisode to point to the NEXT
+  // upcoming episode after the current one airs. So if a show aired on
+  // Monday and it's now Tuesday, nextAiringEpisode points to next Monday.
+  // This means the show disappears from this week's Monday schedule.
+  //
+  // FIX: For the current week, we ALSO check if nextAiringEpisode - 7 days
+  // falls within this week. If so, the show aired earlier this week and
+  // should still be shown (as "Aired") on its original day.
   const byDay = useMemo(() => {
     const map: Record<number, Map<number, GroupedEntry>> = {};
     for (let i = 0; i < 7; i++) map[i] = new Map();
     for (const a of anime) {
       if (!a.nextAiringEpisode) continue;
       const realAiringAt = a.nextAiringEpisode.airingAt * 1000;
-      // Project the airing time into the selected week
+
+      // Try the projected airing time for the selected week
       const projectedAiringAt = realAiringAt + weekOffset * MS_PER_WEEK;
       const d = new Date(projectedAiringAt);
-      const day = d.getDay();
-      // Only include if the projected date actually falls in the selected week
-      if (d < weekStart || d > weekEndInclusive) continue;
-      const existing = map[day].get(a.id);
-      const ep = { episode: a.nextAiringEpisode.episode + weekOffset, airingAt: projectedAiringAt };
-      if (existing) {
-        existing.episodes.push(ep);
-        if (ep.airingAt > existing.latest.airingAt) existing.latest = ep;
-      } else {
-        map[day].set(a.id, { anime: a, episodes: [ep], latest: ep });
+
+      // Also try shifting back by 1 week — this catches shows that already
+      // aired this week but whose nextAiringEpisode has moved to next week.
+      // E.g. show aired Monday, now it's Wednesday, nextAiringEpisode points
+      // to next Monday → shift back 1 week → it falls on this Monday (aired).
+      const shiftedAiringAt = projectedAiringAt - MS_PER_WEEK;
+      const shiftedDate = new Date(shiftedAiringAt);
+
+      // Check both the projected and shifted dates against the selected week
+      const candidates: { airingAt: number; episode: number; date: Date }[] = [];
+
+      if (d >= weekStart && d <= weekEndInclusive) {
+        candidates.push({
+          airingAt: projectedAiringAt,
+          episode: a.nextAiringEpisode.episode + weekOffset,
+          date: d,
+        });
+      }
+      // Only add the shifted candidate for the current week (weekOffset === 0)
+      // to avoid duplicating entries in past/future weeks.
+      if (weekOffset === 0 && shiftedDate >= weekStart && shiftedDate <= weekEndInclusive) {
+        candidates.push({
+          airingAt: shiftedAiringAt,
+          episode: a.nextAiringEpisode.episode - 1, // the episode that already aired
+          date: shiftedDate,
+        });
+      }
+
+      for (const c of candidates) {
+        const day = c.date.getDay();
+        const existing = map[day].get(a.id);
+        const ep = { episode: c.episode, airingAt: c.airingAt };
+        if (existing) {
+          existing.episodes.push(ep);
+          if (ep.airingAt > existing.latest.airingAt) existing.latest = ep;
+        } else {
+          map[day].set(a.id, { anime: a, episodes: [ep], latest: ep });
+        }
       }
     }
     return map;
@@ -369,7 +406,7 @@ export function Schedule() {
       {activeEntries.length === 0 ? (
         <EmptyState
           mascotMood="sleepy"
-          title={onlySaved ? "No saved shows airing this day" : "Nothing airing this day"}
+          title={onlySaved ? "No saved shows for this day" : "No shows scheduled this day"}
           description={
             onlySaved
               ? savedCount === 0
@@ -379,7 +416,7 @@ export function Schedule() {
                 ? "No episodes were scheduled this day in the selected week."
                 : isFutureWeek
                   ? "No episodes projected for this day. Most airing shows follow weekly patterns — try the current week for accurate data."
-                  : `Try another day — there are ${totalThisWeek} scheduled episodes this week.`
+                  : "No new episodes airing this day. Check other days for more shows."
           }
           actionLabel={onlySaved ? "Show all scheduled" : undefined}
           onAction={onlySaved ? () => setOnlySaved(false) : undefined}
