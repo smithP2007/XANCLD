@@ -41,11 +41,34 @@ export function MyLibrary() {
     return c;
   }, [list, bookmarks]);
 
-  // Filter by active tab
+  // Custom status order for the "All" tab: Plan to Watch → Watching →
+  // Completed → On Hold → Dropped. This groups anime by their list status
+  // so the All tab is organized into clear sections rather than a random
+  // insertion-order list.
+  const ALL_TAB_ORDER: Record<AnimeStatus, number> = {
+    PLANNING: 0,
+    WATCHING: 1,
+    COMPLETED: 2,
+    ON_HOLD: 3,
+    DROPPED: 4,
+  };
+
+  // Filter by active tab. For "all", sort by the custom status order above
+  // so anime are grouped: Plan to Watch first, then Watching, etc.
   const filtered = useMemo(() => {
-    if (tab === "all") return list;
+    if (tab === "all") {
+      return [...list].sort((a, b) => {
+        const orderA = ALL_TAB_ORDER[a.status] ?? 99;
+        const orderB = ALL_TAB_ORDER[b.status] ?? 99;
+        if (orderA !== orderB) return orderA - orderB;
+        // Within the same status, sort by most recently updated
+        return b.updatedAt - a.updatedAt;
+      });
+    }
     if (tab === "bookmarks") return [];
-    return list.filter((e) => e.status === tab);
+    return list
+      .filter((e) => e.status === tab)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
   }, [tab, list]);
 
   const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }>; iconOnly?: boolean }[] = [
