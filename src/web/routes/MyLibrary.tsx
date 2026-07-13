@@ -24,6 +24,22 @@ import {
 } from "../hooks/useAnimeList";
 import { XaniMascot } from "../components/XaniMascot";
 
+// Status icons + colors for section headers in the "All" tab
+const STATUS_ICONS: Record<AnimeStatus, React.ComponentType<{ className?: string }>> = {
+  WATCHING: Eye,
+  COMPLETED: Check,
+  PLANNING: Clock,
+  ON_HOLD: Pause,
+  DROPPED: X,
+};
+const STATUS_COLORS: Record<AnimeStatus, string> = {
+  WATCHING: "text-green-500",
+  COMPLETED: "text-blue-500",
+  PLANNING: "text-yellow-500",
+  ON_HOLD: "text-orange-500",
+  DROPPED: "text-red-500",
+};
+
 type Tab = "all" | AnimeStatus | "bookmarks";
 
 export function MyLibrary() {
@@ -252,29 +268,101 @@ export function MyLibrary() {
           ))}
         </div>
       ) : view === "grid" ? (
-        // List grid view
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-fade-in-up">
-          {filtered.map((entry, i) => (
-            <ListCard
-              key={entry.animeId}
-              entry={entry}
-              index={i}
-              onRemove={() => handleRemove(entry.animeId)}
-            />
-          ))}
-        </div>
+        // List grid view — when on "All" tab, group by status with section headers
+        tab === "all" ? (
+          <div className="space-y-8 animate-fade-in-up">
+            {(["PLANNING", "WATCHING", "COMPLETED", "ON_HOLD", "DROPPED"] as AnimeStatus[])
+              .filter((s) => filtered.some((e) => e.status === s))
+              .map((status) => {
+                const sectionEntries = filtered.filter((e) => e.status === status);
+                const StatusIcon = STATUS_ICONS[status];
+                return (
+                  <div key={status}>
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-1 h-6 rounded-full bg-gradient-to-b from-xan-crimson to-xan-violet" />
+                      <StatusIcon className={`h-5 w-5 ${STATUS_COLORS[status]}`} />
+                      <h3 className="text-lg font-bold font-display text-foreground">
+                        {STATUS_LABELS[status]}
+                      </h3>
+                      <span className="text-xs text-muted-foreground bg-xan-card px-2 py-0.5 rounded-full">
+                        {sectionEntries.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                      {sectionEntries.map((entry, i) => (
+                        <ListCard
+                          key={entry.animeId}
+                          entry={entry}
+                          index={i}
+                          onRemove={() => handleRemove(entry.animeId)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        ) : (
+          // Single-status tab — flat grid (no section headers needed)
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-fade-in-up">
+            {filtered.map((entry, i) => (
+              <ListCard
+                key={entry.animeId}
+                entry={entry}
+                index={i}
+                onRemove={() => handleRemove(entry.animeId)}
+              />
+            ))}
+          </div>
+        )
       ) : (
-        // List view (rows)
-        <div className="space-y-2 animate-fade-in-up">
-          {filtered.map((entry, i) => (
-            <ListRowItem
-              key={entry.animeId}
-              entry={entry}
-              index={i}
-              onRemove={() => handleRemove(entry.animeId)}
-            />
-          ))}
-        </div>
+        // List view (rows) — when on "All" tab, group by status with section headers
+        tab === "all" ? (
+          <div className="space-y-8 animate-fade-in-up">
+            {(["PLANNING", "WATCHING", "COMPLETED", "ON_HOLD", "DROPPED"] as AnimeStatus[])
+              .filter((s) => filtered.some((e) => e.status === s))
+              .map((status) => {
+                const sectionEntries = filtered.filter((e) => e.status === status);
+                const StatusIcon = STATUS_ICONS[status];
+                return (
+                  <div key={status}>
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <div className="w-1 h-6 rounded-full bg-gradient-to-b from-xan-crimson to-xan-violet" />
+                      <StatusIcon className={`h-5 w-5 ${STATUS_COLORS[status]}`} />
+                      <h3 className="text-lg font-bold font-display text-foreground">
+                        {STATUS_LABELS[status]}
+                      </h3>
+                      <span className="text-xs text-muted-foreground bg-xan-card px-2 py-0.5 rounded-full">
+                        {sectionEntries.length}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {sectionEntries.map((entry, i) => (
+                        <ListRowItem
+                          key={entry.animeId}
+                          entry={entry}
+                          index={i}
+                          onRemove={() => handleRemove(entry.animeId)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        ) : (
+          // Single-status tab — flat list (no section headers needed)
+          <div className="space-y-2 animate-fade-in-up">
+            {filtered.map((entry, i) => (
+              <ListRowItem
+                key={entry.animeId}
+                entry={entry}
+                index={i}
+                onRemove={() => handleRemove(entry.animeId)}
+              />
+            ))}
+          </div>
+        )
       )}
     </div>
   );
