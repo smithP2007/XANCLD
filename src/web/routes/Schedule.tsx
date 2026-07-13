@@ -119,18 +119,24 @@ export function Schedule() {
   const isFutureWeek = weekStart > todayWeekStart;
 
   // Group anime by day-of-week within the selected week.
-  // For the CURRENT week, use the real nextAiringEpisode.airingAt.
-  // For FUTURE weeks, project airing times forward by weekOffset weeks.
-  // For PAST weeks, project backward — these episodes have already aired.
   //
-  // IMPORTANT: AniList updates nextAiringEpisode to point to the NEXT
-  // upcoming episode after the current one airs. So if a show aired on
-  // Monday and it's now Tuesday, nextAiringEpisode points to next Monday.
-  // This means the show disappears from this week's Monday schedule.
+  // AniList only provides nextAiringEpisode (the NEXT upcoming episode).
+  // For ANY selected week (past, current, or future), we try MULTIPLE
+  // offsets (-2, -1, 0, +1, +2 weeks from the projected airing time) to
+  // catch all episodes that fall within the selected week.
   //
-  // FIX: For the current week, we ALSO check if nextAiringEpisode - 7 days
-  // falls within this week. If so, the show aired earlier this week and
-  // should still be shown (as "Aired") on its original day.
+  // Why multiple offsets? AniList updates nextAiringEpisode after an episode
+  // airs, moving it forward by 1 week. So:
+  //   - Current week: a show that aired Monday may have nextAiringEpisode
+  //     pointing to next Monday. Offset -1 catches the Monday that aired.
+  //   - Previous week: nextAiringEpisode is 1-2 weeks ahead of the previous
+  //     week. Offset -1 or -2 catches the episode that aired that week.
+  //   - Future weeks: nextAiringEpisode points to the nearest upcoming
+  //     episode. Offset +1 or +2 projects future episodes.
+  //
+  // Each offset produces a candidate with episode number adjusted by the
+  // offset. Deduplication by animeId + day prevents the same show appearing
+  // twice on the same day from different offsets.
   const byDay = useMemo(() => {
     const map: Record<number, Map<number, GroupedEntry>> = {};
     for (let i = 0; i < 7; i++) map[i] = new Map();
@@ -138,42 +144,27 @@ export function Schedule() {
       if (!a.nextAiringEpisode) continue;
       const realAiringAt = a.nextAiringEpisode.airingAt * 1000;
 
-      // Try the projected airing time for the selected week
-      const projectedAiringAt = realAiringAt + weekOffset * MS_PER_WEEK;
-      const d = new Date(projectedAiringAt);
+      // Try offsets from -2 to +2 weeks around the projected airing time.
+      // This covers all cases: past week (needs -1/-2), current week (needs
+      // -1 for already-aired + 0 for upcoming), future week (needs 0/+1/+2).
+      for (let offsetDelta = -2; offsetDelta <= 2; offsetDelta++) {
+        const totalOffset = weekOffset + offsetDelta;
+        const candidateAiringAt = realAiringAt + totalOffset * MS_PER_WEEK;
+        const candidateDate = new Date(candidateAiringAt);
 
-      // Also try shifting back by 1 week — this catches shows that already
-      // aired this week but whose nextAiringEpisode has moved to next week.
-      // E.g. show aired Monday, now it's Wednesday, nextAiringEpisode points
-      // to next Monday → shift back 1 week → it falls on this Monday (aired).
-      const shiftedAiringAt = projectedAiringAt - MS_PER_WEEK;
-      const shiftedDate = new Date(shiftedAiringAt);
+        // Only include if this candidate falls within the selected week
+        if (candidateDate < weekStart || candidateDate > weekEndInclusive) continue;
 
-      // Check both the projected and shifted dates against the selected week
-      const candidates: { airingAt: number; episode: number; date: Date }[] = [];
+        const day = candidateDate.getDay();
+        const episodeNum = a.nextAiringEpisode.episode + totalOffset;
+        const ep = { episode: episodeNum, airingAt: candidateAiringAt };
 
-      if (d >= weekStart && d <= weekEndInclusive) {
-        candidates.push({
-          airingAt: projectedAiringAt,
-          episode: a.nextAiringEpisode.episode + weekOffset,
-          date: d,
-        });
-      }
-      // Only add the shifted candidate for the current week (weekOffset === 0)
-      // to avoid duplicating entries in past/future weeks.
-      if (weekOffset === 0 && shiftedDate >= weekStart && shiftedDate <= weekEndInclusive) {
-        candidates.push({
-          airingAt: shiftedAiringAt,
-          episode: a.nextAiringEpisode.episode - 1, // the episode that already aired
-          date: shiftedDate,
-        });
-      }
-
-      for (const c of candidates) {
-        const day = c.date.getDay();
+        // Deduplicate: if this anime already has an entry for this day,
+        // only add the episode if it's a different episode number.
         const existing = map[day].get(a.id);
-        const ep = { episode: c.episode, airingAt: c.airingAt };
         if (existing) {
+          // Skip if this episode number is already recorded
+          if (existing.episodes.some((e) => e.episode === episodeNum)) continue;
           existing.episodes.push(ep);
           if (ep.airingAt > existing.latest.airingAt) existing.latest = ep;
         } else {
