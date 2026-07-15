@@ -626,19 +626,22 @@ export function CommandMenu() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
         >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeMenu} />
+          {/* Backdrop — slightly stronger blur for depth */}
+          <div className="absolute inset-0 bg-black/65 backdrop-blur-md" onClick={closeMenu} />
 
-          {/* Palette — minimalistic: thinner border, less shadow, smaller radius */}
+          {/* Palette — aesthetic: rounded-2xl, layered shadow, subtle gradient border */}
           <motion.div
-            className="relative w-full max-w-xl rounded-xl bg-zinc-950/90 border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[75vh]"
-            initial={{ scale: 0.97, opacity: 0, y: -6 }}
+            className="relative w-full max-w-xl rounded-2xl bg-zinc-950/90 backdrop-blur-2xl border border-white/[0.08] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.04)] overflow-hidden flex flex-col max-h-[75vh]"
+            initial={{ scale: 0.97, opacity: 0, y: -8 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.97, opacity: 0, y: -6 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ scale: 0.97, opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            {/* Search input — minimal: single bottom border, smaller padding */}
-            <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-white/10">
+            {/* Subtle top accent line — crimson→violet gradient */}
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-xan-crimson/40 to-transparent" aria-hidden />
+
+            {/* Search input — rounded focus glow, generous padding */}
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/[0.06]">
               <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               <input
                 ref={inputRef}
@@ -647,13 +650,13 @@ export function CommandMenu() {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onListKeyDown}
                 placeholder="Search or jump to…"
-                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none tracking-[0.01em]"
               />
               {query && (
                 <button
                   type="button"
                   onClick={() => setQuery("")}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors rounded-md p-0.5 hover:bg-white/5"
                   aria-label="Clear"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -661,33 +664,41 @@ export function CommandMenu() {
               )}
             </div>
 
-            {/* Tab bar — minimal: smaller height, no pills, just text + kbd */}
-            <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-white/10 overflow-x-auto no-scrollbar">
+            {/* Tab bar — rounded pills, active tab gets gradient accent */}
+            <div className="flex items-center gap-1 px-3 py-2 border-b border-white/[0.06] overflow-x-auto no-scrollbar">
               {TABS.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => { setActiveTab(t.id); setActiveIndex(0); }}
-                  className={`flex items-center gap-1 h-6 px-2 rounded text-[11px] font-medium transition-colors flex-shrink-0 ${
+                  className={`flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[11px] font-medium transition-all flex-shrink-0 ${
                     activeTab === t.id
-                      ? "text-foreground bg-white/5"
-                      : "text-muted-foreground/70 hover:text-foreground"
+                      ? "text-foreground bg-white/[0.07] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+                      : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.03]"
                   }`}
                 >
                   {t.label}
-                  <span className={`text-[9px] font-mono ${activeTab === t.id ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
+                  <span className={`text-[9px] font-mono px-1 py-px rounded ${activeTab === t.id ? "bg-white/[0.06] text-muted-foreground" : "text-muted-foreground/40"}`}>
                     {t.hotkey}
                   </span>
                 </button>
               ))}
             </div>
 
-            {/* Results — minimal: tighter padding, smaller items */}
-            <div ref={listRef} className="overflow-y-auto py-1 flex-1">
+            {/* Results — rounded items with margin for breathing room.
+                scrollbar-gutter: stable reserves the scrollbar gutter
+                always, so item width stays constant whether or not the
+                list overflows. Without this, items visibly shift ~6px
+                narrower when the scrollbar appears. */}
+            <div
+              ref={listRef}
+              className="overflow-y-auto p-2 flex-1"
+              style={{ scrollbarGutter: "stable" }}
+            >
               {itemEntries.length === 0 && flatItems.length === 0 ? (
-                <div className="px-6 py-8 text-center">
-                  <Search className="h-6 w-6 text-muted-foreground mx-auto mb-1.5 opacity-40" />
-                  <p className="text-xs text-muted-foreground">
+                <div className="px-6 py-10 text-center">
+                  <Search className="h-7 w-7 text-muted-foreground mx-auto mb-2 opacity-30" />
+                  <p className="text-xs text-muted-foreground/70">
                     {query.trim() ? `No results for "${query}"` : "Nothing in this tab"}
                   </p>
                 </div>
@@ -698,19 +709,19 @@ export function CommandMenu() {
                     const isCollapsible = section?.collapsible;
                     const isCollapsed = !!collapsed[entry.sectionId];
                     return (
-                      <div key={`hdr-${entry.sectionId}`} className="px-3 pt-2 pb-0.5">
+                      <div key={`hdr-${entry.sectionId}`} className="px-2.5 pt-3 pb-1">
                         <button
                           type="button"
                           onClick={() => {
                             if (isCollapsible) toggleCollapse(entry.sectionId, section?.onExpand);
                           }}
-                          className={`flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 ${
-                            isCollapsible ? "hover:text-foreground cursor-pointer" : "cursor-default"
+                          className={`flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60 ${
+                            isCollapsible ? "hover:text-foreground/90 cursor-pointer transition-colors" : "cursor-default"
                           }`}
                         >
                           {entry.sectionLabel}
                           {isCollapsible && (
-                            <ChevronDown className={`h-3 w-3 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                            <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`} />
                           )}
                         </button>
                       </div>
@@ -726,55 +737,59 @@ export function CommandMenu() {
                       data-idx={entry.index}
                       onClick={entry.item.onSelect}
                       onMouseEnter={() => setActiveIndex(entry.index)}
-                      className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors ${
-                        isActive ? "bg-white/5" : "hover:bg-white/[0.03]"
-                      } ${isFooter ? "text-[11px] text-muted-foreground hover:text-foreground" : ""}`}
+                      className={`w-full flex items-center gap-3 px-2.5 py-2 text-left transition-all duration-150 ${
+                        isActive
+                          ? "bg-white/[0.06] rounded-lg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]"
+                          : "hover:bg-white/[0.03] rounded-lg"
+                      } ${isFooter ? "text-[11px] text-muted-foreground hover:text-foreground italic" : ""}`}
                     >
-                      {/* Thumbnail or icon — minimal: smaller, no ring */}
+                      {/* Thumbnail or icon — rounded with subtle ring */}
                       {entry.item.thumbnail ? (
                         <img
                           src={entry.item.thumbnail}
                           alt=""
                           loading="lazy"
-                          className="w-6 h-8 rounded object-cover flex-shrink-0"
+                          className="w-7 h-9 rounded-md object-cover flex-shrink-0 ring-1 ring-white/10"
                           onError={(e) => ((e.target as HTMLImageElement).style.opacity = "0.3")}
                         />
                       ) : entry.item.icon ? (
-                        <div className="w-6 h-8 rounded flex items-center justify-center flex-shrink-0">
-                          <entry.item.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                        <div className={`w-7 h-9 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
+                          isActive ? "bg-xan-crimson/10" : "bg-white/[0.04]"
+                        }`}>
+                          <entry.item.icon className={`h-3.5 w-3.5 ${isActive ? "text-xan-crimson" : "text-muted-foreground"}`} />
                         </div>
                       ) : (
-                        <div className="w-6 h-8 flex-shrink-0" />
+                        <div className="w-7 h-9 flex-shrink-0" />
                       )}
 
-                      {/* Label + sublabel — minimal: smaller text */}
+                      {/* Label + sublabel */}
                       <div className="flex-1 min-w-0">
-                        <p className={`text-[13px] font-medium truncate ${isActive ? "text-foreground" : "text-foreground/90"}`}>
+                        <p className={`text-[13px] font-medium truncate tracking-[0.01em] ${isActive ? "text-foreground" : "text-foreground/90"}`}>
                           {entry.item.label}
                         </p>
                         {entry.item.sublabel && (
-                          <p className="text-[10px] text-muted-foreground/70 truncate">{entry.item.sublabel}</p>
+                          <p className="text-[10px] text-muted-foreground/60 truncate mt-0.5">{entry.item.sublabel}</p>
                         )}
                       </div>
 
-                      {/* Status badge — minimal: smaller */}
+                      {/* Status badge — rounded pill */}
                       {entry.item.badge && (
-                        <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-xan-crimson/15 text-xan-crimson uppercase tracking-wider">
+                        <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[9px] font-semibold bg-xan-crimson/15 text-xan-crimson uppercase tracking-[0.08em]">
                           {entry.item.badge}
                         </span>
                       )}
 
-                      {/* Score badge — minimal: smaller, no border */}
+                      {/* Score badge — rounded with star */}
                       {entry.item.score != null && (
-                        <span className="flex-shrink-0 flex items-center gap-0.5 text-[10px] font-medium text-yellow-500/90">
+                        <span className="flex-shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-500/10 text-yellow-500/90">
                           <Star className="h-2.5 w-2.5 fill-yellow-500/80 text-yellow-500/80" />
                           {Math.round(entry.item.score)}
                         </span>
                       )}
 
-                      {/* Active indicator — minimal: just a dot */}
+                      {/* Active indicator — return arrow */}
                       {isActive && !isFooter && (
-                        <CornerDownLeft className="flex-shrink-0 h-3 w-3 text-muted-foreground/60" />
+                        <CornerDownLeft className="flex-shrink-0 h-3 w-3 text-muted-foreground/50" />
                       )}
                     </button>
                   );
@@ -782,23 +797,30 @@ export function CommandMenu() {
               )}
             </div>
 
-            {/* Footer — minimal: single line, smaller text */}
-            <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-t border-white/10 text-[10px] text-muted-foreground/70">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="flex items-center gap-0.5">
-                  <ArrowUp className="h-2.5 w-2.5" /><ArrowDown className="h-2.5 w-2.5" />
+            {/* Footer — rounded keycaps, refined spacing */}
+            <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-t border-white/[0.06] text-[10px] text-muted-foreground/60">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] font-mono text-[9px] leading-none flex items-center gap-0.5">
+                    <ArrowUp className="h-2 w-2" /><ArrowDown className="h-2 w-2" />
+                  </kbd>
+                  <span className="ml-0.5">navigate</span>
                 </span>
-                <span className="flex items-center gap-0.5">
-                  <CornerDownLeft className="h-2.5 w-2.5" />
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] font-mono text-[9px] leading-none flex items-center">
+                    <CornerDownLeft className="h-2.5 w-2.5" />
+                  </kbd>
+                  <span className="ml-0.5">select</span>
                 </span>
-                <span className="flex items-center gap-0.5">
-                  <kbd className="px-1 py-0 rounded border border-white/10 font-mono text-[9px]">⌘1-5</kbd>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] font-mono text-[9px] leading-none">⌘1-5</kbd>
+                  <span className="ml-0.5">tabs</span>
                 </span>
-                <span className="flex items-center gap-0.5">
-                  <kbd className="px-1 py-0 rounded border border-white/10 font-mono text-[9px]">ESC</kbd>
+                <span className="flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] font-mono text-[9px] leading-none">esc</kbd>
                 </span>
               </div>
-              <span className="opacity-50">XAN</span>
+              <span className="opacity-40 font-semibold tracking-[0.15em] text-[9px]">XAN</span>
             </div>
           </motion.div>
         </motion.div>
