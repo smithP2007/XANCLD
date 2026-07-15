@@ -12,8 +12,11 @@ import { Schedule } from "./routes/Schedule";
 import { History } from "./routes/History";
 import { Settings } from "./routes/Settings";
 import { MyLibrary } from "./routes/MyLibrary";
+import { Browse } from "./routes/Browse";
+import { Character } from "./routes/Character";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
+import { CommandMenu } from "./components/command/CommandMenu";
 import { useSettings, applyTheme, applyThemePreset, applyRuntimeFlags, type MoodPreference, type DurationPreference } from "./hooks/useSettings";
 import { OnboardingSheet } from "./components/OnboardingSheet";
 import { useState, Component, type ReactNode } from "react";
@@ -118,8 +121,10 @@ function AppShell() {
             <Routes>
               <Route path="/home" element={<Home />} />
               <Route path="/anime/:id" element={<AnimeDetail />} />
+              <Route path="/character/:id" element={<Character />} />
               <Route path="/watch/:id" element={<Watch />} />
               <Route path="/search" element={<Search />} />
+              <Route path="/browse" element={<Browse />} />
               <Route path="/trending" element={<Trending />} />
               <Route path="/schedule" element={<Schedule />} />
               <Route path="/history" element={<History />} />
@@ -130,6 +135,10 @@ function AppShell() {
           <Footer />
         </div>
       )}
+      {/* ─── Command Menu (⌘K) — mounted globally so it's available on
+          every page, including the Landing page. Listens for the
+          ⌘K / "/" hotkeys and the Navbar's openCommandMenu() event. */}
+      <CommandMenu />
     </>
   );
 }

@@ -11,13 +11,15 @@ import {
   Calendar,
   History as HistoryIcon,
   Library,
+  Command,
 } from "lucide-react";
+import { openCommandMenu } from "./command/CommandMenu";
 
 const NAV_LINKS = [
   { label: "Home", to: "/home", icon: HomeIcon },
   { label: "Discover", to: "/trending", icon: Compass },
   { label: "Schedule", to: "/schedule", icon: Calendar },
-  { label: "My Library", to: "/list", icon: Library },
+  { label: "Library", to: "/list", icon: Library },
   { label: "History", to: "/history", icon: HistoryIcon },
 ];
 
@@ -97,6 +99,27 @@ export function Navbar() {
 
         {/* Search + actions */}
         <div className="flex items-center gap-2">
+          {/* Command button (desktop) — ⌘K palette */}
+          <button
+            type="button"
+            onClick={openCommandMenu}
+            className="hidden md:flex items-center gap-2 h-9 px-3 rounded-lg border border-xan-border bg-xan-card text-muted-foreground hover:text-foreground hover:bg-xan-card-hover transition-colors"
+            aria-label="Open command menu (⌘K)"
+            title="Open command menu (⌘K)"
+          >
+            <Command className="h-4 w-4" />
+            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-xan-border bg-background/60">⌘K</kbd>
+          </button>
+          {/* Command button (mobile) — icon only */}
+          <button
+            type="button"
+            onClick={openCommandMenu}
+            className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-xan-card transition-colors"
+            aria-label="Open command menu"
+          >
+            <Command className="h-5 w-5" />
+          </button>
+
           {/* Desktop search */}
           <form onSubmit={onSubmit} className="hidden md:flex items-center relative">
             <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />

@@ -121,7 +121,7 @@ export function MyLibrary() {
             <Library className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold font-display text-foreground">My Library</h1>
+            <h1 className="text-2xl md:text-3xl font-bold font-display text-foreground">Library</h1>
             <p className="text-sm text-muted-foreground">
               {list.length + bookmarks.length} anime across your lists and bookmarks
             </p>

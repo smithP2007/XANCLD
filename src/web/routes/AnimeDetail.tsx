@@ -31,6 +31,7 @@ import { useCountdownTick, formatCountdown } from "../hooks/useCountdownTick";
 import { getVibeLabel } from "../lib/vibes";
 import { AnimeStatusButton } from "../components/AnimeStatusButton";
 import { EpisodePickerSheet } from "../components/EpisodePickerSheet";
+import { RecentlyVisitedTracker } from "../components/anime/RecentlyVisitedTracker";
 
 const EPISODES_PER_PAGE = 100;
 
@@ -167,6 +168,7 @@ export function AnimeDetail() {
 
   return (
     <div className="pb-16">
+      <RecentlyVisitedTracker anime={anime} />
       {/* ─── Cinematic Hero (redesigned) ─── */}
       <section className="relative">
         {/* Full-bleed banner background with Ken Burns + parallax-style blur */}
@@ -596,9 +598,10 @@ export function AnimeDetail() {
                     className="flex gap-4 overflow-x-auto no-scrollbar pb-3 -mx-2 px-2 mask-fade-edges snap-x snap-mandatory"
                   >
                     {anime.characters.nodes.map((c, idx) => (
-                      <div
+                      <Link
                         key={c.id}
-                        className="w-32 sm:w-36 md:w-40 shrink-0 group card-enter snap-start"
+                        to={`/character/${c.id}`}
+                        className="w-32 sm:w-36 md:w-40 shrink-0 group card-enter snap-start block"
                         style={{ "--card-index": Math.min(idx, 10) } as React.CSSProperties}
                       >
                         <div className="relative aspect-[3/4] rounded-xl overflow-hidden border border-xan-border group-hover:border-xan-crimson/50 transition-all shadow-lg">
@@ -623,7 +626,7 @@ export function AnimeDetail() {
                             />
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 </div>

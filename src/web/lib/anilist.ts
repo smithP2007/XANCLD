@@ -333,6 +333,44 @@ export async function fetchAnimeDetail(id: number): Promise<AnimeDetail | null> 
   return data?.Media ?? null;
 }
 
+// ─── Character fetcher ─────────────────────────────────────────
+// Added for the new /character/:id route. Uses React's cache() so
+// multiple components in the same render pass share a single network
+// request (mirrors the Next.js pattern from the original XAN spec).
+import { cache } from "react";
+import { CHARACTER_QUERY } from "./anilist-queries";
+import {
+  CharacterDetailSchema,
+  type CharacterDetail,
+} from "../types/anime";
+
+/** Internal — performs the raw GraphQL fetch + schema validation. */
+async function fetchCharacterUncached(id: number): Promise<CharacterDetail | null> {
+  // AniList returns { Character: {...} } with media.edges[]; we flatten
+  // edges → media[] so consumers can render with .map().
+  const data = await gql<{ Character: unknown }>(CHARACTER_QUERY, { id });
+  if (!data?.Character) return null;
+  // Reshape: GraphQL returns { media: { edges: [...] } } but CharacterDetailSchema
+  // expects { media: [{ characterRole, media: {...} }] }. Translate.
+  const raw = data.Character as Record<string, unknown>;
+  const mediaRoot = (raw.media ?? {}) as Record<string, unknown>;
+  const edges = Array.isArray(mediaRoot.edges) ? mediaRoot.edges : [];
+  const reshaped: Record<string, unknown> = {
+    ...raw,
+    media: edges.map((e) => {
+      const edge = (e ?? {}) as Record<string, unknown>;
+      return {
+        characterRole: edge.characterRole,
+        media: edge.node,
+      };
+    }),
+  };
+  return CharacterDetailSchema.parse(reshaped);
+}
+
+/** Cached character fetch — same id in one render pass = one network call. */
+export const fetchCharacter = cache(fetchCharacterUncached);
+
 // ─── Helpers ───────────────────────────────────────────────────
 export function getTitle(title: AnimeCard["title"]): string {
   return title.english || title.romaji || title.native || "Untitled";

@@ -1,0 +1,32 @@
+module.exports = {
+  apps: [
+    {
+      name: 'xancld-worker',
+      cwd: '/home/z/my-project/XANCLD',
+      script: 'node_modules/.bin/wrangler',
+      args: 'dev --port 3003 --ip 0.0.0.0',
+      interpreter: 'none',
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      out_file: '/home/z/my-project/logs/worker.log',
+      error_file: '/home/z/my-project/logs/worker.err.log',
+      merge_logs: true,
+      time: true,
+    },
+    {
+      name: 'xancld-vite',
+      cwd: '/home/z/my-project/XANCLD',
+      script: 'node_modules/.bin/vite',
+      args: '--host 0.0.0.0 --port 3000',
+      interpreter: 'none',
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      out_file: '/home/z/my-project/logs/vite.log',
+      error_file: '/home/z/my-project/logs/vite.err.log',
+      merge_logs: true,
+      time: true,
+    },
+  ],
+};
