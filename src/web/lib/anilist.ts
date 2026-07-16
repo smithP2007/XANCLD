@@ -334,42 +334,45 @@ export async function fetchAnimeDetail(id: number): Promise<AnimeDetail | null> 
 }
 
 // ─── Character fetcher ─────────────────────────────────────────
-// Added for the new /character/:id route. Uses React's cache() so
-// multiple components in the same render pass share a single network
-// request (mirrors the Next.js pattern from the original XAN spec).
-import { cache } from "react";
+// Browser-safe module-level cache (NOT React's cache() which is
+// server-only and throws error #321 in client bundles).
+// One fetch per character id per page-load — subsequent calls return
+// the cached promise/result.
 import { CHARACTER_QUERY } from "./anilist-queries";
 import {
   CharacterDetailSchema,
   type CharacterDetail,
 } from "../types/anime";
 
-/** Internal — performs the raw GraphQL fetch + schema validation. */
-async function fetchCharacterUncached(id: number): Promise<CharacterDetail | null> {
-  // AniList returns { Character: {...} } with media.edges[]; we flatten
-  // edges → media[] so consumers can render with .map().
-  const data = await gql<{ Character: unknown }>(CHARACTER_QUERY, { id });
-  if (!data?.Character) return null;
-  // Reshape: GraphQL returns { media: { edges: [...] } } but CharacterDetailSchema
-  // expects { media: [{ characterRole, media: {...} }] }. Translate.
-  const raw = data.Character as Record<string, unknown>;
-  const mediaRoot = (raw.media ?? {}) as Record<string, unknown>;
-  const edges = Array.isArray(mediaRoot.edges) ? mediaRoot.edges : [];
-  const reshaped: Record<string, unknown> = {
-    ...raw,
-    media: edges.map((e) => {
-      const edge = (e ?? {}) as Record<string, unknown>;
-      return {
-        characterRole: edge.characterRole,
-        media: edge.node,
-      };
-    }),
-  };
-  return CharacterDetailSchema.parse(reshaped);
-}
+const characterCache = new Map<number, Promise<CharacterDetail | null>>();
 
-/** Cached character fetch — same id in one render pass = one network call. */
-export const fetchCharacter = cache(fetchCharacterUncached);
+/** Fetch a character by id, with module-level caching. */
+export function fetchCharacter(id: number): Promise<CharacterDetail | null> {
+  const cached = characterCache.get(id);
+  if (cached) return cached;
+  const p = (async () => {
+    const data = await gql<{ Character: unknown }>(CHARACTER_QUERY, { id });
+    if (!data?.Character) return null;
+    // Reshape: GraphQL returns { media: { edges: [...] } } but
+    // CharacterDetailSchema expects { media: [{ characterRole, media: {...} }] }.
+    const raw = data.Character as Record<string, unknown>;
+    const mediaRoot = (raw.media ?? {}) as Record<string, unknown>;
+    const edges = Array.isArray(mediaRoot.edges) ? mediaRoot.edges : [];
+    const reshaped: Record<string, unknown> = {
+      ...raw,
+      media: edges.map((e) => {
+        const edge = (e ?? {}) as Record<string, unknown>;
+        return {
+          characterRole: edge.characterRole,
+          media: edge.node,
+        };
+      }),
+    };
+    return CharacterDetailSchema.parse(reshaped);
+  })();
+  characterCache.set(id, p);
+  return p;
+}
 
 // ─── Helpers ───────────────────────────────────────────────────
 export function getTitle(title: AnimeCard["title"]): string {
