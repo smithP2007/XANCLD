@@ -85,6 +85,11 @@ export function Watch() {
 
   // Cache AllAnime show ID to avoid re-searching on every episode change
   const allAnimeShowIdRef = useRef<string | null>(null);
+  // Guard ref for "first provider to resolve wins" — must live at the top
+  // level of the component (NOT inside the useEffect below) so the Rules
+  // of Hooks aren't violated. Reset to false at the start of each
+  // episode/mode change effect.
+  const firstResolvedRef = useRef(false);
 
   // Load stream from a specific provider
   const loadFromProvider = async (prov: Provider, title: string) => {
@@ -142,7 +147,8 @@ export function Watch() {
     // Reset resume position when episode changes — otherwise switching from
     // ep 1 (saved at 5:00) to ep 2 would carry over ep 1's resume point.
     setResumeTime(undefined);
-  allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
+    allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
+    firstResolvedRef.current = false; // Reset "first-resolved wins" guard
     (async () => {
       setLoading(true);
       setError(null);
@@ -183,13 +189,11 @@ export function Watch() {
           const nearEnd = remainingPct < 0.08 || remaining < 45;
           if (nearEnd) {
             setResumeTime(undefined);
-  allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
           } else {
             setResumeTime(existing.timestamp);
           }
         } else {
           setResumeTime(undefined);
-  allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
         }
 
         // Try providers in priority order — Koto first (instant, no API call) so
@@ -271,7 +275,9 @@ export function Watch() {
         // This means if Koto resolves first (instant), the video starts playing
         // right away — we don't wait for AllAnime to finish.
         let sources: UnifiedSource[] = [];
-        const firstResolvedRef = useRef(false);
+        // NOTE: firstResolvedRef is declared at the top of the component
+        // (hooks can't be called inside useEffect/async). It's reset to
+        // false at the start of this effect.
 
         providerPromises.forEach((promise) => {
           promise.then(({ prov, sources: provSources }) => {
