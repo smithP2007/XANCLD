@@ -152,9 +152,13 @@ export const CharacterDetailSchema = {
       bloodType: (o.bloodType as string) ?? null,
       media: mediaEdges
         .map((e) => CharacterMediaEdgeSchema.parse(e))
-        .filter((e) => e.media.id !== 0)
-        .sort((a, b) => (b.media.averageScore ?? 0) - (a.media.averageScore ?? 0))
-        .slice(0, 25),
+        .filter((e) => e.media.id !== 0),
+        // L-1 FIX: removed the averageScore re-sort. CHARACTER_QUERY explicitly
+        // requests `media(sort: POPULARITY_DESC, perPage: 25)` — top appearances
+        // by POPULARITY — but re-sorting client-side by score (nulls → 0)
+        // silently destroyed that order and pushed unscored titles last.
+        // Keep AniList's popularity order. (slice(0,25) was redundant too —
+        // the query already caps at perPage: 25.)
     };
   },
 };

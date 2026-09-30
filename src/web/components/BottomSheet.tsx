@@ -33,6 +33,15 @@ export function BottomSheet({ open, onClose, title, children, footer, tall = fal
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const [dragY, setDragY] = useState(0); // swipe-down offset in px
   const dragStartY = useRef<number | null>(null);
+  // M-10 FIX: every consumer passes an inline `onClose` (new identity on each
+  // parent render). Keying the open/close effects on `onClose` re-ran their
+  // cleanup on EVERY parent re-render while the sheet was open: unlock body
+  // scroll → re-lock, steal focus back to the page → re-focus the sheet.
+  // Keep the latest callback in a ref and key the effects on [open] only.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   // Focus trap + escape + body scroll lock
   useEffect(() => {
@@ -41,7 +50,7 @@ export function BottomSheet({ open, onClose, title, children, footer, tall = fal
     // Move focus into the sheet
     const t = setTimeout(() => sheetRef.current?.focus(), 10);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     lockBodyScroll();
@@ -51,7 +60,7 @@ export function BottomSheet({ open, onClose, title, children, footer, tall = fal
       unlockBodyScroll();
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   // Reset drag offset when opening/closing
   useEffect(() => {
@@ -88,7 +97,7 @@ export function BottomSheet({ open, onClose, title, children, footer, tall = fal
       if (dragStartY.current === null) return;
       // Read latest dragY via a microtask to avoid stale closure
       setDragY((current) => {
-        if (current > 100) onClose();
+        if (current > 100) onCloseRef.current();
         return 0;
       });
       dragStartY.current = null;
@@ -102,7 +111,7 @@ export function BottomSheet({ open, onClose, title, children, footer, tall = fal
       sheet.removeEventListener("touchmove", onMove);
       sheet.removeEventListener("touchend", onEnd);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

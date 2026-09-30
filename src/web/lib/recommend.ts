@@ -169,16 +169,20 @@ export function scoreAnime(
     }
   }
 
-  // Already completed — suppress (don't re-recommend finished shows)
+  // Already completed — HARD exclusion (don't re-recommend finished shows).
+  // M-13 FIX: this used to be a soft −6 penalty. Genre overlap alone adds up
+  // to +9, so a completed show sharing 3 genres scored 9−6=3 > 0, passed the
+  // `score > 0` filter and was displayed with the reason "Already completed"
+  // — the exact anti-pattern the file header says this function prevents.
   if (completedIds.has(candidate.id)) {
-    score -= 6;
-    topReason = "Already completed";
+    return { score: -1000, reason: "Already completed" };
   }
 
-  // Recently viewed but not in progress — suppress (avoid re-suggesting
-  // dismissed titles)
+  // Recently viewed but not in progress — HARD exclusion (avoid re-suggesting
+  // dismissed titles). Same reasoning as above: the −4 penalty was overridden
+  // by genre overlap (+9), so dismissed titles still surfaced.
   if (recentlyViewedIds.has(candidate.id) && !inProgressIds.has(candidate.id)) {
-    score -= 4;
+    return { score: -1000, reason: "Recently viewed" };
   }
 
   return { score, reason: topReason };

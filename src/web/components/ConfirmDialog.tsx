@@ -34,6 +34,13 @@ export function ConfirmDialog({
 }: Props) {
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  // M-10 FIX: consumers pass an inline `onCancel` — keying this effect on it
+  // re-ran cleanup on every parent re-render while open (unlock body scroll →
+  // re-lock, steal focus → re-focus). Latest callback via ref, [open] only.
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  });
 
   // Focus trap + restore
   useEffect(() => {
@@ -42,7 +49,7 @@ export function ConfirmDialog({
     // Focus the confirm button when opening
     const t = setTimeout(() => confirmBtnRef.current?.focus(), 10);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape") onCancelRef.current();
     };
     document.addEventListener("keydown", onKey);
     lockBodyScroll();
@@ -52,7 +59,7 @@ export function ConfirmDialog({
       unlockBodyScroll();
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onCancel]);
+  }, [open]);
 
   if (!open) return null;
 

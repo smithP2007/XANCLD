@@ -265,7 +265,9 @@ export async function getEpisodeSources(
         | undefined;
 
       // Case 1: response is cleartext
-      if (data?.episode?.sourceUrls) {
+      // M-14 FIX: require a non-empty list — `[]` is truthy and used to
+      // short-circuit here, skipping the crypto-route fallback entirely.
+      if (data?.episode?.sourceUrls && data.episode.sourceUrls.length > 0) {
         return data.episode.sourceUrls;
       }
 
@@ -603,6 +605,22 @@ export async function findShowByAniListId(
   const exact = results.find((s) => s.aniListId === String(anilistId));
   if (exact) return exact;
 
-  // Fallback: first result
-  return results[0] ?? null;
+  // M-24 FIX: the old fallback returned results[0] unconditionally — for
+  // franchises/seasons with near-identical titles ("Dandadan Season 2",
+  // long-running Shounen entries) the first hit is frequently a DIFFERENT
+  // season, silently streaming the wrong show. Now:
+  //   1. exact aniListId match (above)
+  //   2. normalized-title match (english/romaji/native)
+  //   3. the first result ONLY when the search returned exactly one hit
+  //   4. otherwise null — the AllAnime provider reports an error and the
+  //      other providers (Koto/Zen) still cover playback.
+  const norm = (s: string | null | undefined) =>
+    (s ?? "").toLowerCase().replace(/[^a-z0-9\u00a1-\uffff]+/g, "");
+  const target = norm(title);
+  const byTitle = results.find(
+    (s) => norm(s.englishName) === target || norm(s.name) === target || norm(s.nativeName) === target,
+  );
+  if (byTitle) return byTitle;
+
+  return results.length === 1 ? results[0] : null;
 }

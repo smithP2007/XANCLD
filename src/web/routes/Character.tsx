@@ -29,12 +29,18 @@ export function Character() {
 
   useEffect(() => {
     if (!id) return;
+    // M-12 FIX: guard against stale responses — navigating between character
+    // pages quickly could let the OLD response settle last and render the
+    // wrong character under the new URL.
+    let cancelled = false;
     (async () => {
       setLoading(true);
       const c = await fetchCharacter(parseInt(id, 10));
+      if (cancelled) return;
       setCharacter(c);
       setLoading(false);
     })();
+    return () => { cancelled = true; };
   }, [id]);
 
   if (loading) {

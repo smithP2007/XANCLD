@@ -11,13 +11,31 @@ import { useState, useEffect } from "react";
 let currentNow = Date.now();
 const subscribers = new Set<(n: number) => void>();
 let timer: ReturnType<typeof setInterval> | null = null;
+let wakeListenersHooked = false;
+
+/** Update the shared clock and notify every subscriber immediately. */
+function poke() {
+  currentNow = Date.now();
+  for (const sub of subscribers) sub(currentNow);
+}
 
 function ensureTimer() {
   if (timer) return;
-  timer = setInterval(() => {
-    currentNow = Date.now();
-    for (const sub of subscribers) sub(currentNow);
-  }, 1000);
+  timer = setInterval(poke, 1000);
+
+  // Background tabs get setInterval throttled (down to ~1/minute or paused
+  // entirely), so `now` can be minutes stale the instant the user returns.
+  // Poke the shared tick on visibility/focus so every countdown — schedule
+  // cards, AnimeDetail next-episode timer — is correct immediately instead of
+  // drifting until the next throttled tick fires.
+  if (!wakeListenersHooked && typeof document !== "undefined") {
+    wakeListenersHooked = true;
+    const onWake = () => {
+      if (!document.hidden) poke();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+  }
 }
 
 function stopTimerIfEmpty() {

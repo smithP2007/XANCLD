@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Calendar,
@@ -9,9 +9,16 @@ import {
   CalendarOff,
   Filter,
   Check,
+  RefreshCw,
 } from "lucide-react";
-import { fetchSchedule, getTitle, type AiringAnime } from "../lib/anilist";
-import { useCountdownTick, formatCountdown } from "../hooks/useCountdownTick";
+import {
+  fetchSchedule,
+  fetchAiringScheduleWindow,
+  getTitle,
+  type AiringAnime,
+  type AiringScheduleEntry,
+} from "../lib/anilist";
+import { useCountdownTick, formatCountdown, formatTimeAgo } from "../hooks/useCountdownTick";
 import { useBookmarks } from "../hooks/useBookmarks";
 import { useAnimeList } from "../hooks/useAnimeList";
 import { useWatchHistory } from "../hooks/useSettings";
@@ -19,7 +26,22 @@ import { EmptyState } from "../components/EmptyState";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Shift a timestamp by whole calendar weeks while preserving the local
+ * wall-clock time-of-day.
+ *
+ * Epoch arithmetic (`ts + weeks * 604800000`) preserves a strict 168h
+ * duration, which is NOT the same as "same time next week": across a DST
+ * boundary the projected airing time displays an hour off, and an episode
+ * airing near midnight can even bucket into the wrong day. Calendar
+ * arithmetic via setDate() keeps 20:00 local as 20:00 local in every week.
+ */
+function shiftWeeks(tsMs: number, weeks: number): number {
+  const d = new Date(tsMs);
+  d.setDate(d.getDate() + weeks * 7);
+  return d.getTime();
+}
 
 interface GroupedEntry {
   anime: AiringAnime;
@@ -49,14 +71,23 @@ function formatFullDate(d: Date): string {
 
 export function Schedule() {
   const [anime, setAnime] = useState<AiringAnime[]>([]);
+  // REAL airing timetable entries from AniList's airingSchedules, keyed by
+  // week-start epoch ms. Authoritative data (exact episode + exact time) for
+  // any week the timetable covers; projection below is only a fallback.
+  const [realByWeek, setRealByWeek] = useState<Record<number, AiringScheduleEntry[]>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState(0);
+  // Bumping reloadKey triggers a (re)fetch; 0 = initial load.
+  const [reloadKey, setReloadKey] = useState(0);
   // activeDay is 0-6 (Sun-Sat) within the selected week
   const [activeDay, setActiveDay] = useState<number>(new Date().getDay());
   // weekOffset: 0 = current week, -1 = previous, +1 = next, etc.
   const [weekOffset, setWeekOffset] = useState<number>(0);
   const [onlySaved, setOnlySaved] = useState(false);
   const now = useCountdownTick();
+  const lastUpdatedRef = useRef(0);
   const { bookmarks } = useBookmarks();
   const { list: animeList } = useAnimeList();
   const history = useWatchHistory();
@@ -69,30 +100,87 @@ export function Schedule() {
     return ids;
   }, [bookmarks, animeList, history]);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await fetchSchedule(50, 7); // 7 pages = all ~127 airing anime
-        setAnime(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load");
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const triggerRefresh = useCallback(() => {
+    setRealByWeek({}); // invalidate cached timetable windows -> refetched on demand
+    setReloadKey((k) => k + 1);
   }, []);
 
+  // Fetch with a cancellation guard (prevents a slow stale response from
+  // overwriting a newer one after quick unmount/remount) and two refresh
+  // modes: initial load shows the skeleton, background refreshes are silent.
+  useEffect(() => {
+    let cancelled = false;
+    const isInitialLoad = reloadKey === 0;
+    if (isInitialLoad) setLoading(true);
+    else setRefreshing(true);
+    setError(null);
+    (async () => {
+      try {
+        const data = await fetchSchedule(50, 7); // 7 pages = all ~127 airing anime
+        if (cancelled) return;
+        setAnime(data);
+        const ts = Date.now();
+        lastUpdatedRef.current = ts;
+        setLastUpdated(ts);
+      } catch (err) {
+        if (cancelled) return;
+        // On a failed background refresh, keep the already-rendered rows —
+        // blowing the whole page into an error state is worse than showing
+        // slightly stale data (the "Updated Xm ago" label exposes it).
+        if (isInitialLoad || anime.length === 0) {
+          setError(err instanceof Error ? err.message : "Failed to load");
+        } else {
+          console.warn("[Schedule] Background refresh failed:", err);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey]);
+
+  // Auto-refresh: AniList advances nextAiringEpisode server-side after each
+  // episode airs, so a fetch-once snapshot goes stale within hours.
+  //  - Every 5 min while the tab is visible
+  //  - On tab focus / return from background if data is older than 5 min
+  useEffect(() => {
+    const REFRESH_MS = 5 * 60 * 1000;
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") triggerRefresh();
+    }, REFRESH_MS);
+    const onWake = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastUpdatedRef.current > REFRESH_MS) triggerRefresh();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
+    };
+  }, [triggerRefresh]);
+
+  // Local-day index — increments exactly once per local midnight. Used as the
+  // memo key so the week grid follows the clock when the tab stays open
+  // across midnight. (Previously weekStart froze at mount: after a
+  // Saturday→Sunday rollover the header mislabeled the current week as
+  // "Last Week" with "already aired" banners while the grid showed stale days.)
+  const dayStamp = Math.floor((now - new Date(now).getTimezoneOffset() * 60000) / 86400000);
+  const currentWeekStart = useMemo(() => startOfWeek(new Date(now)), [dayStamp]);
   // Compute the selected week's start (Sunday) and the 7 dates within it
-  const weekStart = useMemo(
-    () => {
-      const base = startOfWeek(new Date());
-      base.setDate(base.getDate() + weekOffset * 7);
-      return base;
-    },
-    [weekOffset],
-  );
+  const weekStart = useMemo(() => {
+    const base = new Date(currentWeekStart);
+    base.setDate(base.getDate() + weekOffset * 7);
+    return base;
+  }, [currentWeekStart, weekOffset]);
+  const weekKey = weekStart.getTime();
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => {
       const d = new Date(weekStart);
@@ -111,6 +199,35 @@ export function Schedule() {
     return d;
   }, [weekDates]);
 
+  // ── Fetch the REAL timetable window for the viewed week ──
+  // Runs whenever the selected week changes (cached per week) or after a
+  // refresh invalidates the cache. While it loads, the projection fallback
+  // renders so week navigation stays instant.
+  useEffect(() => {
+    if (realByWeek[weekKey] !== undefined) return; // cached (or cached-failure)
+    let cancelled = false;
+    (async () => {
+      try {
+        const entries = await fetchAiringScheduleWindow(
+          Math.floor(weekStart.getTime() / 1000),
+          Math.floor(weekEndInclusive.getTime() / 1000),
+        );
+        if (cancelled) return;
+        setRealByWeek((prev) => ({ ...prev, [weekKey]: entries }));
+      } catch (err) {
+        if (cancelled) return;
+        // Cache the failure as an empty window so we don't loop-refetch;
+        // projection data still renders and the next refresh retries.
+        console.warn("[Schedule] Real timetable fetch failed:", err);
+        setRealByWeek((prev) => ({ ...prev, [weekKey]: [] }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekKey, weekEndInclusive]);
+
   // Determine if the selected week is the current week (contains today)
   const today = new Date(now);
   const todayWeekStart = startOfWeek(today);
@@ -118,69 +235,99 @@ export function Schedule() {
   const isPastWeek = weekEndInclusive < todayWeekStart;
   const isFutureWeek = weekStart > todayWeekStart;
 
+  // Follow the clock: when the local day rolls over while the page is open,
+  // move the active tab to the new "today" — but only if the user was still
+  // on the previous day (respects manual day browsing).
+  const todayDay = new Date(now).getDay();
+  const prevTodayDay = useRef(todayDay);
+  useEffect(() => {
+    if (prevTodayDay.current === todayDay) return;
+    const wasFollowing = activeDay === prevTodayDay.current;
+    prevTodayDay.current = todayDay;
+    if (wasFollowing && isCurrentWeek) setActiveDay(todayDay);
+  }, [todayDay, isCurrentWeek, activeDay]);
+
   // Group anime by day-of-week within the selected week.
   //
-  // AniList only provides nextAiringEpisode (the NEXT upcoming episode).
-  // For ANY selected week (past, current, or future), we try MULTIPLE
-  // offsets (-2, -1, 0, +1, +2 weeks from the projected airing time) to
-  // catch all episodes that fall within the selected week.
+  // PRIMARY SOURCE — AniList's real airing timetable (airingSchedules):
+  // exact episode numbers + exact airing timestamps for every scheduled
+  // episode, past and future. For past/current weeks the timetable is
+  // complete, so it is used ALONE (projection would fabricate entries for
+  // hiatuses / irregular gaps). For future weeks, projection entries are
+  // merged in for shows whose episodes aren't scheduled yet.
   //
-  // Why multiple offsets? AniList updates nextAiringEpisode after an episode
-  // airs, moving it forward by 1 week. So:
-  //   - Current week: a show that aired Monday may have nextAiringEpisode
-  //     pointing to next Monday. Offset -1 catches the Monday that aired.
-  //   - Previous week: nextAiringEpisode is 1-2 weeks ahead of the previous
-  //     week. Offset -1 or -2 catches the episode that aired that week.
-  //   - Future weeks: nextAiringEpisode points to the nearest upcoming
-  //     episode. Offset +1 or +2 projects future episodes.
-  //
-  // Each offset produces a candidate with episode number adjusted by the
-  // offset. Deduplication by animeId + day prevents the same show appearing
-  // twice on the same day from different offsets.
+  // FALLBACK — nextAiringEpisode projection (±2 weeks, weekly cadence):
+  // used when the timetable window hasn't loaded or the selected week is
+  // beyond the timetable horizon (far-future weeks).
+  const realEntries = realByWeek[weekKey];
+  const useRealOnly = realEntries !== undefined && (isPastWeek || isCurrentWeek);
+
   const byDay = useMemo(() => {
     const map: Record<number, Map<number, GroupedEntry>> = {};
     for (let i = 0; i < 7; i++) map[i] = new Map();
-    for (const a of anime) {
-      if (!a.nextAiringEpisode) continue;
-      const realAiringAt = a.nextAiringEpisode.airingAt * 1000;
 
-      // Try offsets from -2 to +2 weeks around the projected airing time.
-      // This covers all cases: past week (needs -1/-2), current week (needs
-      // -1 for already-aired + 0 for upcoming), future week (needs 0/+1/+2).
-      for (let offsetDelta = -2; offsetDelta <= 2; offsetDelta++) {
-        const totalOffset = weekOffset + offsetDelta;
-        const candidateAiringAt = realAiringAt + totalOffset * MS_PER_WEEK;
-        const candidateDate = new Date(candidateAiringAt);
+    const addEpisode = (a: AiringAnime, ep: { episode: number; airingAt: number }, day: number) => {
+      const existing = map[day].get(a.id);
+      if (existing) {
+        if (existing.episodes.some((e) => e.episode === ep.episode)) return;
+        existing.episodes.push(ep);
+        if (ep.airingAt > existing.latest.airingAt) existing.latest = ep;
+      } else {
+        map[day].set(a.id, { anime: a, episodes: [ep], latest: ep });
+      }
+    };
 
-        // Only include if this candidate falls within the selected week
-        if (candidateDate < weekStart || candidateDate > weekEndInclusive) continue;
+    // 1) Real timetable entries — exact episode number + exact time.
+    const realEpisodeKeys = new Set<string>();
+    if (realEntries) {
+      for (const entry of realEntries) {
+        const a = entry.media;
+        if (!a) continue;
+        const airingMs = entry.airingAt * 1000;
+        const date = new Date(airingMs);
+        if (date < weekStart || date > weekEndInclusive) continue; // safety bound
+        const ep = { episode: entry.episode ?? 0, airingAt: airingMs };
+        realEpisodeKeys.add(`${a.id}:${ep.episode}`);
+        addEpisode(a, ep, date.getDay());
+      }
+    }
 
-        const day = candidateDate.getDay();
-        const episodeNum = a.nextAiringEpisode.episode + totalOffset;
-        const ep = { episode: episodeNum, airingAt: candidateAiringAt };
+    // 2) Projection fallback — skipped entirely for past/current weeks when
+    // real data is present (it would only add wrong guesses). For future
+    // weeks it covers episodes not yet scheduled; candidates matching a real
+    // (anime, episode) pair are dropped.
+    if (!useRealOnly) {
+      for (const a of anime) {
+        if (!a.nextAiringEpisode) continue;
+        const realAiringAt = a.nextAiringEpisode.airingAt * 1000;
 
-        // Deduplicate: if this anime already has an entry for this day,
-        // only add the episode if it's a different episode number.
-        const existing = map[day].get(a.id);
-        if (existing) {
-          // Skip if this episode number is already recorded
-          if (existing.episodes.some((e) => e.episode === episodeNum)) continue;
-          existing.episodes.push(ep);
-          if (ep.airingAt > existing.latest.airingAt) existing.latest = ep;
-        } else {
-          map[day].set(a.id, { anime: a, episodes: [ep], latest: ep });
+        for (let offsetDelta = -2; offsetDelta <= 2; offsetDelta++) {
+          const totalOffset = weekOffset + offsetDelta;
+          const candidateAiringAt = shiftWeeks(realAiringAt, totalOffset);
+          const candidateDate = new Date(candidateAiringAt);
+
+          if (candidateDate < weekStart || candidateDate > weekEndInclusive) continue;
+
+          const episodeNum = a.nextAiringEpisode.episode + totalOffset;
+          if (realEntries && realEpisodeKeys.has(`${a.id}:${episodeNum}`)) continue;
+          addEpisode(a, { episode: episodeNum, airingAt: candidateAiringAt }, candidateDate.getDay());
         }
       }
     }
     return map;
-  }, [anime, weekOffset, weekStart, weekEndInclusive]);
+  }, [anime, realEntries, useRealOnly, weekOffset, weekStart, weekEndInclusive]);
 
-  const todayDay = new Date(now).getDay();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
 
-  const activeEntries = Array.from(byDay[activeDay].values())
-    .filter((e) => !onlySaved || savedIds.has(e.anime.id))
-    .sort((a, b) => a.latest.airingAt - b.latest.airingAt);
+  // Memoized: this component re-renders every second (countdown tick), and
+  // re-filtering + re-sorting the whole day's entries per tick is pure waste.
+  const activeEntries = useMemo(
+    () =>
+      Array.from(byDay[activeDay].values())
+        .filter((e) => !onlySaved || savedIds.has(e.anime.id))
+        .sort((a, b) => a.latest.airingAt - b.latest.airingAt),
+    [byDay, activeDay, onlySaved, savedIds],
+  );
 
   const savedCount = useMemo(() => {
     let n = 0;
@@ -200,7 +347,7 @@ export function Schedule() {
   }, [byDay]);
 
   if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={triggerRefresh} />;
 
   // Week label e.g. "Jul 14 – Jul 20" or "This Week" / "Next Week" / "Last Week"
   const weekLabel = isCurrentWeek
@@ -223,14 +370,27 @@ export function Schedule() {
             <h1 className="text-2xl md:text-3xl font-bold font-display text-foreground">Schedule</h1>
             <p className="text-sm text-muted-foreground">
               {totalThisWeek > 0
-                ? `${totalThisWeek} scheduled ${totalThisWeek === 1 ? "episode" : "episodes"} this week`
+                ? `${totalThisWeek} ${totalThisWeek === 1 ? "show" : "shows"} scheduled this week`
                 : "Currently airing anime — next episodes"}
+              {lastUpdated > 0 && (
+                <span className="text-muted-foreground/60"> · Updated {formatTimeAgo(lastUpdated)}</span>
+              )}
             </p>
           </div>
         </div>
 
-        {/* Week navigator — prev / label / next + "Today" jump button */}
+        {/* Week navigator — refresh / prev / label / next + "Today" jump button */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={triggerRefresh}
+            disabled={refreshing}
+            aria-label="Refresh schedule"
+            title={`Last updated ${lastUpdated > 0 ? formatTimeAgo(lastUpdated) : "never"}`}
+            className="w-9 h-9 rounded-lg glass border border-xan-border hover:bg-xan-card-hover hover:border-xan-crimson/40 flex items-center justify-center transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin text-xan-crimson" : ""}`} />
+          </button>
           <button
             type="button"
             onClick={() => setWeekOffset((w) => w - 1)}
@@ -267,10 +427,12 @@ export function Schedule() {
       </div>
       <p className="text-xs text-muted-foreground mb-4 sm:ml-13">
         {isPastWeek
-          ? `Past schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekDates[6])} (already aired)`
+          ? `Past schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekDates[6])} (actual times from AniList)`
           : isFutureWeek
-            ? `Upcoming schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekDates[6])} (projected from current airing patterns)`
-            : `Airing times in ${timezone}`}
+            ? realEntries && realEntries.length > 0
+              ? `Upcoming schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekDates[6])} (AniList timetable + estimates)`
+              : `Upcoming schedule — ${formatShortDate(weekStart)} to ${formatShortDate(weekDates[6])} (projected from current airing patterns)`
+            : `Live schedule from AniList — times in ${timezone}`}
       </p>
 
       {/* "Only show saved" toggle */}
@@ -301,9 +463,7 @@ export function Schedule() {
         {/* Week range quick-jump — shows up to 5 weeks: -2, -1, 0, +1, +2 */}
         <div className="hidden sm:flex items-center gap-1">
           {[-2, -1, 0, 1, 2].map((offset) => {
-            const d = new Date(weekStart);
             // Compute the Sunday for this offset relative to the CURRENT week
-            const currentWeekStart = startOfWeek(new Date());
             const targetStart = new Date(currentWeekStart);
             targetStart.setDate(targetStart.getDate() + offset * 7);
             const targetEnd = new Date(targetStart);
@@ -389,6 +549,12 @@ export function Schedule() {
         {isFutureWeek && (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-xan-crimson/15 text-xan-crimson border border-xan-crimson/30">
             Upcoming
+          </span>
+        )}
+        {realEntries === undefined && !loading && (
+          <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-xan-card border border-xan-border text-muted-foreground">
+            <span className="w-2 h-2 rounded-full border border-xan-crimson border-t-transparent animate-spin" />
+            Loading live schedule
           </span>
         )}
       </div>
@@ -532,14 +698,14 @@ function LoadingState() {
   );
 }
 
-function ErrorState({ message }: { message: string }) {
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-32 text-center">
       <AlertCircle className="h-10 w-10 text-xan-crimson mb-3" />
       <p className="text-lg font-medium">Failed to load schedule</p>
       <p className="text-sm text-muted-foreground mt-1">{message}</p>
       <button
-        onClick={() => window.location.reload()}
+        onClick={onRetry}
         className="mt-4 px-4 py-2 rounded-lg bg-xan-card border border-xan-border hover:bg-xan-card-hover text-sm"
       >
         Retry

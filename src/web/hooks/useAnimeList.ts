@@ -36,7 +36,13 @@ const STORAGE_KEY = "xan:animelist";
 function load(): ListEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as ListEntry[];
+    if (raw) {
+      // L-8 backport: guard against valid-JSON-but-non-array payloads that
+      // crashed MyLibrary / AnimeStatusButton with .filter/.find on a
+      // non-array (same fix the storage repositories already have).
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as ListEntry[]) : [];
+    }
   } catch {
     // ignore
   }

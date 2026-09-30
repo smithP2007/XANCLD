@@ -47,7 +47,11 @@ export function Search() {
     () => (genresParam ? genresParam.split(",").filter(Boolean) : []),
     [genresParam],
   );
-  const page = parseInt(searchParams.get("page") || "1", 10);
+  // L-11 FIX: `?page=abc` parsed to NaN — the header rendered "Page NaN of N"
+  // and pagination math (`NaN < 1` is false) let NaN propagate back into the
+  // URL. Browse already guards this with `|| 1`.
+  const parsedPage = parseInt(searchParams.get("page") || "1", 10);
+  const page = Number.isFinite(parsedPage) && parsedPage >= 1 ? parsedPage : 1;
 
   const [results, setResults] = useState<AnimeCardType[]>([]);
   const [loading, setLoading] = useState(false);
@@ -70,24 +74,43 @@ export function Search() {
   }, [q]);
 
   // Sync debounced query to URL
-  // M-1 FIX: Added searchParams to deps so URL updates use the latest
-  // searchParams object (was missing, causing stale params to overwrite
-  // new filter changes).
+  // M-1 FIX: this effect used to compare `debouncedQuery` against the URL's
+  // `q` on EVERY searchParams change. When the user submitted (Enter) or
+  // clicked a recent search within the 400ms debounce window, `q` was
+  // already the new value but `debouncedQuery` was still stale — so this
+  // effect took the else branch and DELETED q, wiping the input and results
+  // until the debounce fired 400ms later (double fetch + visible flash).
+  // Track what we last wrote/committed instead: only rewrite the URL when
+  // the debounced value genuinely diverges from what the user committed.
+  const lastCommittedRef = useRef(q);
   useEffect(() => {
-    if (debouncedQuery !== q) {
-      const next = new URLSearchParams(searchParams);
-      if (debouncedQuery) next.set("q", debouncedQuery);
-      else next.delete("q");
-      next.delete("page");
-      setSearchParams(next, { replace: true });
-    }
-  }, [debouncedQuery, searchParams, q]);
+    if (debouncedQuery === lastCommittedRef.current) return;
+    const next = new URLSearchParams(searchParams);
+    if (debouncedQuery) next.set("q", debouncedQuery);
+    else next.delete("q");
+    next.delete("page");
+    lastCommittedRef.current = debouncedQuery;
+    setSearchParams(next, { replace: true });
+  }, [debouncedQuery, searchParams]);
+
+  // Keep the committed value in sync when the URL changes externally
+  // (navbar search, recent-search click, submit handler — they all write
+  // q imperatively) or when the user clears the input.
+  useEffect(() => {
+    lastCommittedRef.current = q;
+  }, [q]);
 
   // ─── Fetch inline suggestions while typing (redesign plan §4) ───
   // Only show when input is focused + has 2+ chars + the debounced query
   // differs from the committed URL query (otherwise it'd persist after submit).
+  // M-2 FIX: fetch on a DEBOUNCED value. This effect used to depend on the
+  // raw `query`, firing one AniList GraphQL request per keystroke — typing a
+  // 15-char title = 15 requests, which combined with the 90 req/min AniList
+  // rate limit caused 429-driven multi-second stalls of suggestions AND the
+  // main search.
+  const debouncedSuggestionQuery = useDebounce(query, 250);
   useEffect(() => {
-    const trimmed = query.trim();
+    const trimmed = debouncedSuggestionQuery.trim();
     if (!inputFocused || trimmed.length < 2 || trimmed === q) {
       setSuggestions([]);
       return;
@@ -107,7 +130,7 @@ export function Search() {
     return () => {
       cancelled = true;
     };
-  }, [query, inputFocused, q]);
+  }, [debouncedSuggestionQuery, inputFocused, q]);
 
   // ─── Fetch results ───
   // FIX: when no query is present, use POPULARITY_DESC instead of SEARCH_MATCH.
@@ -115,6 +138,13 @@ export function Search() {
   // ("Flash Eigo", "Rhythm Eigo") instead of popular titles. This was the
   // root cause of "search not working properly" on the empty /search page.
   useEffect(() => {
+    // M-23 FIX: this effect had NO stale-response guard (unlike
+    // AnimeDetail/Character/Browse). Two overlapping runs — rapid re-debounce,
+    // or fast page/sort/genre changes while AniList is slow — could settle out
+    // of order: the OLDER response's setResults() landed last, showing results
+    // for the wrong query, and its finally{} cleared the newer run's skeleton
+    // early. A `cancelled` flag makes every stale run a no-op.
+    let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
@@ -136,15 +166,20 @@ export function Search() {
           PER_PAGE,
           filters,
         );
+        if (cancelled) return;
         setResults(media);
         setHasNext(hasNextPage);
         setTotal(t);
       } catch (err) {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : "Search failed");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [q, sort, format, genresParam, page]);
 
   // Record a search to recent-searches when the user commits a query

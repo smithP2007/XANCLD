@@ -12,7 +12,13 @@ const STORAGE_KEY = "xan:bookmarks";
 function load(): BookmarkEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as BookmarkEntry[];
+    if (raw) {
+      // L-8 backport: guard against valid-JSON-but-non-array payloads that
+      // crashed AnimeCard (bookmarks.some) — same fix the storage
+      // repositories already have.
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as BookmarkEntry[]) : [];
+    }
   } catch {
     // ignore
   }

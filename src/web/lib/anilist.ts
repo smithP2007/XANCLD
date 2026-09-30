@@ -6,6 +6,21 @@
 
 const ANILIST_GRAPHQL = "https://graphql.anilist.co";
 
+// M-21 FIX: the "Hide adult content" toggle was a dead setting — persisted by
+// Settings but read NOWHERE, so 18+ titles kept appearing in trending/search/
+// browse/schedule. Every card-level fetch now (a) selects the `isAdult` field
+// and (b) filters through this helper when the setting is on.
+import { getXanSettings } from "../hooks/useSettings";
+
+function filterAdult<T extends { isAdult?: boolean | null }>(media: T[]): T[] {
+  try {
+    if (getXanSettings().hideAdult) return media.filter((m) => !m.isAdult);
+  } catch {
+    // settings not initialized — return unfiltered
+  }
+  return media;
+}
+
 // ─── Rate-limit-aware GraphQL fetcher ──────────────────────────
 // AniList rate-limits at 90 requests per minute. We DON'T throttle every
 // request (that serializes parallel Promise.all calls and causes 7+ second
@@ -35,6 +50,9 @@ export interface AnimeCard {
   /** AniList media type: "ANIME" | "MANGA" | "NOVEL" | etc. Available on
    *  relations nodes; null/undefined on top-level search/trending results. */
   type?: string | null;
+  /** 18+ flag — selected on card-level queries so the "Hide adult content"
+   *  setting (M-21) can filter results client-side. */
+  isAdult?: boolean | null;
 }
 
 export interface AnimeDetail extends AnimeCard {
@@ -49,7 +67,11 @@ export interface AnimeDetail extends AnimeCard {
   nextAiringEpisode: { episode: number; airingAt: number; timeUntilAiring?: number } | null;
   characters: { nodes: { id: number; name: { full: string }; image: { large: string } }[] };
   relations: { nodes: AnimeCard[] };
-  recommendations: { nodes: { mediaRecommendation: AnimeCard }[] };
+  // H-3 FIX: AniList's mediaRecommendation is NULLABLE — recommendation nodes
+  // pointing at merged/deleted/adult-flagged titles come back with null.
+  // The old non-null type made AnimeDetail dereference `r.mediaRecommendation.id`
+  // directly and crash the whole route into the ErrorBoundary.
+  recommendations: { nodes: { mediaRecommendation: AnimeCard | null }[] };
 }
 
 // ─── GraphQL fetcher with rate-limit handling + retry ──────────
@@ -120,14 +142,14 @@ export async function fetchTrending(perPage = 12): Promise<AnimeCard[]> {
         media(sort: TRENDING_DESC, type: ANIME) {
           id title { romaji english native }
           coverImage { large extraLarge color }
-          averageScore format episodes status seasonYear season
+          averageScore format episodes status seasonYear season isAdult
           bannerImage genres
         }
       }
     }`,
     { perPage },
   );
-  return data?.Page?.media ?? [];
+  return filterAdult(data?.Page?.media ?? []);
 }
 
 export async function fetchPopular(perPage = 18): Promise<AnimeCard[]> {
@@ -137,14 +159,14 @@ export async function fetchPopular(perPage = 18): Promise<AnimeCard[]> {
         media(sort: POPULARITY_DESC, type: ANIME) {
           id title { romaji english native }
           coverImage { large extraLarge color }
-          averageScore format episodes status seasonYear season
+          averageScore format episodes status seasonYear season isAdult
           bannerImage genres
         }
       }
     }`,
     { perPage },
   );
-  return data?.Page?.media ?? [];
+  return filterAdult(data?.Page?.media ?? []);
 }
 
 export async function fetchByGenre(genre: string, perPage = 15): Promise<AnimeCard[]> {
@@ -154,14 +176,14 @@ export async function fetchByGenre(genre: string, perPage = 15): Promise<AnimeCa
         media(genre: $genre, sort: POPULARITY_DESC, type: ANIME) {
           id title { romaji english native }
           coverImage { large extraLarge color }
-          averageScore format episodes status seasonYear season
+          averageScore format episodes status seasonYear season isAdult
           bannerImage genres
         }
       }
     }`,
     { genre, perPage },
   );
-  return data?.Page?.media ?? [];
+  return filterAdult(data?.Page?.media ?? []);
 }
 
 export async function searchAnime(
@@ -176,7 +198,7 @@ export async function searchAnime(
         media(search: $search, sort: SEARCH_MATCH, type: ANIME) {
           id title { romaji english native }
           coverImage { large extraLarge color }
-          averageScore format episodes status seasonYear season
+          averageScore format episodes status seasonYear season isAdult
           bannerImage genres
         }
       }
@@ -184,7 +206,7 @@ export async function searchAnime(
     { search: query, page, perPage },
   );
   return {
-    media: data?.Page?.media ?? [],
+    media: filterAdult(data?.Page?.media ?? []),
     hasNextPage: data?.Page?.pageInfo?.hasNextPage ?? false,
   };
 }
@@ -206,17 +228,19 @@ export async function fetchSearchSuggestions(
         media(search: $search, sort: SEARCH_MATCH, type: ANIME) {
           id title { romaji english native }
           coverImage { large extraLarge color }
-          averageScore format episodes status seasonYear season
+          averageScore format episodes status seasonYear season isAdult
         }
       }
     }`,
     { search: query, perPage },
   );
-  return data?.Page?.media ?? [];
+  return filterAdult(data?.Page?.media ?? []);
 }
 
 export interface SearchFilters {
-  sort?: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "TRENDING_DESC" | "START_DATE_DESC" | "FAVOURITES_DESC";
+  // Note: AniList's MediaSort enum uses plain START_DATE (ascending) /
+  // START_DATE_DESC (descending) — there is no START_DATE_ASC value.
+  sort?: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "TRENDING_DESC" | "START_DATE" | "START_DATE_DESC" | "FAVOURITES_DESC" | "TITLE_ROMAJI";
   genres?: string[];
   format?: string | null;
   year?: number | null;
@@ -294,11 +318,23 @@ export async function searchAnimeAdvanced(
       pageInfo: { hasNextPage: boolean; total: number; currentPage: number };
     };
   }>(gqlQuery, variables);
+
+  // M-3 FIX: gql() returns null (never throws) on network failure / 429
+  // rate-limiting / GraphQL errors. Returning an empty result here made
+  // Browse/Search render a confident "No results" page when AniList was
+  // actually unreachable — indistinguishable from a genuinely empty search.
+  // Throw so callers can show a retryable error state instead.
+  if (!data?.Page) {
+    throw new Error(
+      "AniList is unreachable or rate-limited right now. Please retry in a minute.",
+    );
+  }
+
   return {
-    media: data?.Page?.media ?? [],
-    hasNextPage: data?.Page?.pageInfo?.hasNextPage ?? false,
-    total: data?.Page?.pageInfo?.total ?? 0,
-    currentPage: data?.Page?.pageInfo?.currentPage ?? page,
+    media: filterAdult(data.Page.media ?? []),
+    hasNextPage: data.Page.pageInfo?.hasNextPage ?? false,
+    total: data.Page.pageInfo?.total ?? 0,
+    currentPage: data.Page.pageInfo?.currentPage ?? page,
   };
 }
 
@@ -352,23 +388,38 @@ export function fetchCharacter(id: number): Promise<CharacterDetail | null> {
   if (cached) return cached;
   const p = (async () => {
     const data = await gql<{ Character: unknown }>(CHARACTER_QUERY, { id });
-    if (!data?.Character) return null;
+    if (!data?.Character) {
+      // M-22 FIX: failures were cached FOREVER — the promise resolves to
+      // null and every subsequent call (error-state retry, remount) received
+      // the cached null until a full page reload. Drop failures from the
+      // cache so the next attempt re-fetches.
+      characterCache.delete(id);
+      return null;
+    }
     // Reshape: GraphQL returns { media: { edges: [...] } } but
     // CharacterDetailSchema expects { media: [{ characterRole, media: {...} }] }.
-    const raw = data.Character as Record<string, unknown>;
-    const mediaRoot = (raw.media ?? {}) as Record<string, unknown>;
-    const edges = Array.isArray(mediaRoot.edges) ? mediaRoot.edges : [];
-    const reshaped: Record<string, unknown> = {
-      ...raw,
-      media: edges.map((e) => {
-        const edge = (e ?? {}) as Record<string, unknown>;
-        return {
-          characterRole: edge.characterRole,
-          media: edge.node,
-        };
-      }),
-    };
-    return CharacterDetailSchema.parse(reshaped);
+    try {
+      const raw = data.Character as Record<string, unknown>;
+      const mediaRoot = (raw.media ?? {}) as Record<string, unknown>;
+      const edges = Array.isArray(mediaRoot.edges) ? mediaRoot.edges : [];
+      const reshaped: Record<string, unknown> = {
+        ...raw,
+        media: edges.map((e) => {
+          const edge = (e ?? {}) as Record<string, unknown>;
+          return {
+            characterRole: edge.characterRole,
+            media: edge.node,
+          };
+        }),
+      };
+      return CharacterDetailSchema.parse(reshaped);
+    } catch (err) {
+      // Schema mismatch (zod parse error, unexpected shape) — also uncached
+      // so a transient upstream change can recover on retry.
+      console.warn("[AniList] character reshape/parse failed:", err);
+      characterCache.delete(id);
+      return null;
+    }
   })();
   characterCache.set(id, p);
   return p;
@@ -397,7 +448,7 @@ export async function fetchTrendingPage(
         media(sort: TRENDING_DESC, type: ANIME) {
           id title { romaji english native }
           coverImage { large extraLarge color }
-          averageScore format episodes status seasonYear season
+          averageScore format episodes status seasonYear season isAdult
           bannerImage genres
         }
       }
@@ -405,7 +456,7 @@ export async function fetchTrendingPage(
     { page, perPage },
   );
   return {
-    media: data?.Page?.media ?? [],
+    media: filterAdult(data?.Page?.media ?? []),
     hasNextPage: data?.Page?.pageInfo?.hasNextPage ?? false,
     total: data?.Page?.pageInfo?.total ?? 0,
   };
@@ -436,7 +487,7 @@ export async function fetchSchedule(perPage = 50, maxPages = 2): Promise<AiringA
             media(type: ANIME, status: RELEASING, sort: POPULARITY_DESC) {
               id title { romaji english native }
               coverImage { large extraLarge color }
-              averageScore format episodes status seasonYear season
+              averageScore format episodes status seasonYear season isAdult
               nextAiringEpisode { episode airingAt timeUntilAiring }
             }
           }
@@ -447,12 +498,109 @@ export async function fetchSchedule(perPage = 50, maxPages = 2): Promise<AiringA
   );
 
   const allMedia: AiringAnime[] = [];
+  let okPages = 0;
   for (const data of results) {
-    if (data?.Page?.media) allMedia.push(...data.Page.media);
+    if (data?.Page?.media) {
+      okPages++;
+      allMedia.push(...data.Page.media);
+    }
+  }
+
+  // gql() returns null per-page on 429 rate-limiting / network errors /
+  // GraphQL errors and does NOT throw. If every page failed, returning []
+  // would render a confidently wrong "no shows scheduled" page. Surface an
+  // error instead so callers can show an error state with a working retry.
+  if (okPages === 0) {
+    throw new Error(
+      "AniList is unreachable or rate-limited right now. Please retry in a minute.",
+    );
+  }
+  if (okPages < results.length) {
+    console.warn(
+      `[AniList] Schedule: only ${okPages}/${results.length} pages loaded — list may be incomplete`,
+    );
   }
 
   // Filter to only those with a next airing episode, then sort by airing time
-  return allMedia
-    .filter((m) => m.nextAiringEpisode)
-    .sort((a, b) => (a.nextAiringEpisode!.airingAt - b.nextAiringEpisode!.airingAt));
+  // (M-21: filterAdult also drops 18+ entries when the setting is on)
+  return filterAdult(
+    allMedia
+      .filter((m) => m.nextAiringEpisode)
+      .sort((a, b) => (a.nextAiringEpisode!.airingAt - b.nextAiringEpisode!.airingAt)),
+  );
+}
+
+// ─── Real airing timetable (AniList airingSchedules) ───────────
+// AniList maintains an exact airing timetable: one entry per episode with the
+// true episode number and true airing timestamp, for past weeks (history) and
+// future weeks (as far as episodes are scheduled — typically 2-4+ weeks for
+// ongoing shows). This is authoritative data, unlike nextAiringEpisode which
+// only exposes each show's NEXT episode and forces clients to guess the rest
+// by assuming a weekly cadence (wrong for hiatuses, double episodes, movies).
+export interface AiringScheduleEntry {
+  id: number;
+  episode: number | null;
+  airingAt: number; // unix seconds
+  media: (AiringAnime & { isAdult?: boolean }) | null;
+}
+
+/**
+ * Fetch the REAL airing-schedule entries within [startSec, endSec] (unix
+ * seconds). Paginates until the window is drained. Throws when the API is
+ * unreachable / rate-limited so callers can show an error state instead of
+ * silently rendering an empty schedule.
+ */
+export async function fetchAiringScheduleWindow(
+  startSec: number,
+  endSec: number,
+): Promise<AiringScheduleEntry[]> {
+  const out: AiringScheduleEntry[] = [];
+  const PER_PAGE = 50;
+  const MAX_PAGES = 10; // 10 * 50 = 500 entries — more than any single week holds
+  let anySuccess = false;
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const data = await gql<{
+      Page: {
+        pageInfo: { hasNextPage: boolean };
+        airingSchedules: AiringScheduleEntry[];
+      };
+    }>(
+      `query($page: Int, $perPage: Int, $start: Int, $end: Int) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo { hasNextPage }
+          airingSchedules(airingAt_greater: $start, airingAt_lesser: $end) {
+            id
+            episode
+            airingAt
+            media {
+              id
+              title { romaji english native }
+              coverImage { large extraLarge color }
+              averageScore format episodes status seasonYear season isAdult
+              nextAiringEpisode { episode airingAt timeUntilAiring }
+              isAdult
+            }
+          }
+        }
+      }`,
+      { page, perPage: PER_PAGE, start: startSec, end: endSec },
+    );
+
+    if (data?.Page?.airingSchedules) {
+      anySuccess = true;
+      out.push(...data.Page.airingSchedules);
+    }
+    if (!data?.Page?.pageInfo?.hasNextPage) break;
+  }
+
+  if (!anySuccess) {
+    throw new Error(
+      "AniList is unreachable or rate-limited right now. Please retry in a minute.",
+    );
+  }
+
+  return out
+    .filter((e) => e.media && !e.media.isAdult)
+    .sort((a, b) => a.airingAt - b.airingAt);
 }

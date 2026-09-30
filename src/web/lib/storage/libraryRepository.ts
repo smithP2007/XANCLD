@@ -19,7 +19,13 @@ const SYNC_EVENT = "xan-hidden-sync";
 function load(): LocalHiddenTitle[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as LocalHiddenTitle[];
+    if (raw) {
+      // L-8 FIX: try/catch only protects against INVALID JSON — a valid but
+      // non-array payload used to pass through and crash consumers calling
+      // .some()/.filter() on it.
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as LocalHiddenTitle[]) : [];
+    }
   } catch {
     // ignore
   }

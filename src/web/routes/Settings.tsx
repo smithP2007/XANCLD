@@ -46,17 +46,23 @@ interface Section {
   id: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  // L-5 FIX: searchable keywords so the settings search matches terms like
+  // "autoplay" or "volume", not just section titles.
+  keywords?: string[];
 }
 
 const SECTIONS: Section[] = [
-  { id: "appearance", label: "Appearance", icon: Palette },
-  { id: "playback", label: "Playback", icon: Play },
-  { id: "audio", label: "Audio & Subtitles", icon: Languages },
-  { id: "enhancer", label: "Video Enhancer", icon: Sliders },
-  { id: "bandwidth", label: "Bandwidth", icon: Zap },
-  { id: "content", label: "Content & Discovery", icon: Compass },
-  { id: "data", label: "Data & Privacy", icon: Database },
-  { id: "about", label: "About", icon: Info },
+  // L-5 FIX: added keywords per section. The search input's own placeholder
+  // promised "e.g. theme, autoplay, subtitles" but only section LABELS were
+  // matched — searching "autoplay" or "volume" returned nothing.
+  { id: "appearance", label: "Appearance", icon: Palette, keywords: ["theme", "dark", "light", "color", "accent", "preset", "reduced motion"] },
+  { id: "playback", label: "Playback", icon: Play, keywords: ["autoplay", "auto play", "autoplay next", "skip intro", "resume", "speed", "default mode", "sub", "dub", "tv mode"] },
+  { id: "audio", label: "Audio & Subtitles", icon: Languages, keywords: ["volume", "mute", "subtitles", "subs", "audio", "language", "dub"] },
+  { id: "enhancer", label: "Video Enhancer", icon: Sliders, keywords: ["brightness", "contrast", "saturation", "sharpen", "blur", "filter", "gamma", "preset"] },
+  { id: "bandwidth", label: "Bandwidth", icon: Zap, keywords: ["source", "provider", "quality", "pin", "data saver", "koto", "zen", "allanime"] },
+  { id: "content", label: "Content & Discovery", icon: Compass, keywords: ["mood", "recommendations", "vibe", "adult", "trending", "discover"] },
+  { id: "data", label: "Data & Privacy", icon: Database, keywords: ["history", "clear", "export", "import", "reset", "onboarding", "storage", "bookmarks"] },
+  { id: "about", label: "About", icon: Info, keywords: ["version", "credits", "license", "github", "info"] },
 ];
 
 // Known stream sources — shown in Settings > Bandwidth > Source filters
@@ -128,12 +134,15 @@ export function Settings() {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  // Filter sections by search
-  const filteredSections = SECTIONS.filter((s) =>
-    searchQuery.trim()
-      ? s.label.toLowerCase().includes(searchQuery.toLowerCase())
-      : true,
-  );
+  // Filter sections by search — L-5 FIX: match section label AND keywords.
+  const filteredSections = SECTIONS.filter((s) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      s.label.toLowerCase().includes(q) ||
+      s.keywords?.some((k) => k.includes(q) || q.includes(k))
+    );
+  });
 
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-6 py-8 space-y-6">
@@ -485,7 +494,7 @@ export function Settings() {
         >
           <Row
             label="Stream loading strategy"
-            desc="Choose how the player fetches video data. Direct modes save Worker bandwidth; proxy mode maximizes compatibility."
+            desc="Auto: provider order. Direct only: skip iframe embeds (Koto/Zen). Proxy only: prefer direct streams — MP4s load through the Worker proxy."
           >
             <select
               value={settings.bandwidthMode}
@@ -630,7 +639,7 @@ export function Settings() {
         >
           <Row
             label="Hide spoilers"
-            desc="Blur synopsis and preview images until you click them"
+            desc="Blur episode synopses on detail and watch pages until you hover over them"
           >
             <Toggle
               checked={settings.hideSpoilers}

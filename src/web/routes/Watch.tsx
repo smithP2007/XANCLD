@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -12,6 +12,7 @@ import {
   EyeOff,
   Maximize,
   List,
+  RotateCw,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
 import {
@@ -39,6 +40,27 @@ interface UnifiedSource {
   provider: Provider;
 }
 
+// H-6 FIX: bandwidthMode was a dead setting — persisted by Settings but read
+// NOWHERE, so "Direct only"/"Proxy only" did absolutely nothing.
+//   direct-only : iframe embeds (Koto/Zen) are excluded entirely — iframes
+//                 load third-party JS and bypass the worker completely
+//   proxy-only  : direct streams (mp4/hls) are ordered FIRST — MP4 sources
+//                 already stream through /api/stream, maximizing the
+//                 Worker-proxied path; iframes remain as last resort
+//   auto        : unchanged (providers' own priority order)
+function applyBandwidthMode(
+  sources: UnifiedSource[],
+  mode: "auto" | "direct-only" | "proxy-only",
+): UnifiedSource[] {
+  if (mode === "direct-only") return sources.filter((s) => s.type !== "iframe");
+  if (mode === "proxy-only") {
+    return [...sources].sort(
+      (a, b) => (a.type === "iframe" ? 1 : 0) - (b.type === "iframe" ? 1 : 0),
+    );
+  }
+  return sources;
+}
+
 // Check if ALL source names from a provider are disabled — if so, skip loading that provider entirely
 function isProviderFullyDisabled(prov: Provider, disabledSources: string[]): boolean {
   if (prov === "koto") return disabledSources.includes("Koto");
@@ -52,7 +74,11 @@ export function Watch() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const episode = parseInt(searchParams.get("ep") || "1", 10);
+  // L-11 FIX: `?ep=abc` parsed to NaN — the header showed "EP NaN", providers
+  // were queried with String(NaN), and history lookups never matched. Clamp
+  // to a positive integer, defaulting to 1.
+  const parsedEp = parseInt(searchParams.get("ep") || "1", 10);
+  const episode = Number.isFinite(parsedEp) && parsedEp >= 1 ? parsedEp : 1;
   const animeId = parseInt(id || "0", 10);
 
   const [settings] = useSettings();
@@ -74,6 +100,10 @@ export function Watch() {
 
   const [autoPlayNext, setAutoPlayNext] = useState(false);
   const [showEnhancer, setShowEnhancer] = useState(false);
+  // L-12 FIX: the Stream Unavailable / demo-fallback states had no retry —
+  // the user's only recovery was a full page reload. Bumping retryKey re-runs
+  // the whole provider-loading effect.
+  const [retryKey, setRetryKey] = useState(0);
   // Mobile bottom-sheet episode picker (redesign plan §4)
   const [sheetOpen, setSheetOpen] = useState(false);
   const enhancer = useVideoEnhancer();
@@ -90,9 +120,20 @@ export function Watch() {
   // of Hooks aren't violated. Reset to false at the start of each
   // episode/mode change effect.
   const firstResolvedRef = useRef(false);
+  // H-2 FIX: per-run identity for the provider-loading effect. The effect
+  // spawns async work that can outlive the run (user clicks episode 2 while
+  // episode 1's providers are still resolving). Without a run guard, the OLD
+  // run's callbacks fired after the new run reset firstResolvedRef, so the
+  // old episode's sources won the race and played under the new episode URL.
+  const runIdRef = useRef(0);
 
   // Load stream from a specific provider
-  const loadFromProvider = async (prov: Provider, title: string) => {
+  // H-2 FIX: isStale() marks a run superseded by a newer one — stale runs
+  // must not touch provider status or the AllAnime show-id cache (a late
+  // `allAnimeShowIdRef.current = show._id` from the PREVIOUS anime used to
+  // poison the cache and stream the wrong show).
+  const loadFromProvider = async (prov: Provider, title: string, isStale?: () => boolean) => {
+    if (isStale?.()) return [];
     setProviderStatus((prev) => ({ ...prev, [prov]: "loading" }));
     try {
       let sources: UnifiedSource[] = [];
@@ -103,10 +144,10 @@ export function Watch() {
         if (!showId) {
           const show = await findShowByAniListId(animeId, title);
           if (!show) {
-            setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
+            if (!isStale?.()) setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
             return [];
           }
-          allAnimeShowIdRef.current = show._id;
+          if (!isStale?.()) allAnimeShowIdRef.current = show._id;
           showId = show._id;
         }
         const result = await extractStreamUrl(showId, String(episode), mode);
@@ -132,17 +173,30 @@ export function Watch() {
         }));
       }
 
-      setProviderStatus((prev) => ({ ...prev, [prov]: sources.length > 0 ? "done" : "error" }));
-      return sources;
+      // H-6 FIX: apply bandwidthMode BEFORE computing provider status so the
+      // dots reflect what actually remains (direct-only + Koto-only = red dot).
+      const finalSources = applyBandwidthMode(sources, settings.bandwidthMode);
+      if (!isStale?.()) {
+        setProviderStatus((prev) => ({ ...prev, [prov]: finalSources.length > 0 ? "done" : "error" }));
+      }
+      return finalSources;
     } catch (err) {
       console.error(`[${prov}] failed:`, err);
-      setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
+      if (!isStale?.()) setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
       return [];
     }
   };
 
   useEffect(() => {
     if (!animeId) return;
+    // H-2 FIX: claim this run. Every async callback below checks isStale()
+    // before touching state/refs, so a superseded run (user switched
+    // episode/anime while providers were resolving) can no longer:
+    //   - merge its sources into the new episode's picker
+    //   - win the firstResolved race and play the OLD episode
+    //   - write a foreign AllAnime show id into the cache
+    const runId = ++runIdRef.current;
+    const isStale = () => runId !== runIdRef.current;
     setAutoPlayNext(false);
     // Reset resume position when episode changes — otherwise switching from
     // ep 1 (saved at 5:00) to ep 2 would carry over ep 1's resume point.
@@ -178,19 +232,26 @@ export function Watch() {
         // Restart from 0 instead. This avoids the annoying case where the
         // user lands 2 seconds before the credits and has to manually click
         // "next episode".
-        const history = getHistory();
-        const existing = history.find(
-          (e) => e.animeId === animeId && e.episode === episode,
-        );
-        if (existing && existing.timestamp > 5 && existing.duration > 0) {
-          const remaining = existing.duration - existing.timestamp;
-          const remainingPct = remaining / existing.duration;
-          // Within last 8% OR within last 45 seconds → treat as finished
-          const nearEnd = remainingPct < 0.08 || remaining < 45;
-          if (nearEnd) {
-            setResumeTime(undefined);
+        // M-19 FIX: the "Auto-resume from last position" toggle was a dead
+        // setting — this lookup ran unconditionally, so disabling it in
+        // Settings changed nothing. Honor it now.
+        if (settings.autoResume) {
+          const history = getHistory();
+          const existing = history.find(
+            (e) => e.animeId === animeId && e.episode === episode,
+          );
+          if (existing && existing.timestamp > 5 && existing.duration > 0) {
+            const remaining = existing.duration - existing.timestamp;
+            const remainingPct = remaining / existing.duration;
+            // Within last 8% OR within last 45 seconds → treat as finished
+            const nearEnd = remainingPct < 0.08 || remaining < 45;
+            if (nearEnd) {
+              setResumeTime(undefined);
+            } else {
+              setResumeTime(existing.timestamp);
+            }
           } else {
-            setResumeTime(existing.timestamp);
+            setResumeTime(undefined);
           }
         } else {
           setResumeTime(undefined);
@@ -226,7 +287,8 @@ export function Watch() {
           console.log(`[Watch] Pinned source "${settings.pinnedSource}" — loading all providers to find it`);
           let allCollectedSources: UnifiedSource[] = [];
           for (const prov of allProviders) {
-            const provSources = await loadFromProvider(prov, title);
+            const provSources = await loadFromProvider(prov, title, isStale);
+            if (isStale()) return;
             allCollectedSources = [...allCollectedSources, ...provSources];
           }
 
@@ -281,6 +343,8 @@ export function Watch() {
 
         providerPromises.forEach((promise) => {
           promise.then(({ prov, sources: provSources }) => {
+            // H-2 FIX: drop results from superseded runs
+            if (isStale()) return;
             if (provSources.length > 0) {
               console.log(`[Watch] ${prov} resolved with ${provSources.length} sources`);
               // Add to allSources for the server picker
@@ -319,6 +383,7 @@ export function Watch() {
 
         // If no provider resolved with sources, show error or demo fallback
         if (sources.length === 0 && !firstResolvedRef.current) {
+          if (isStale()) return;
           console.log("[Watch] All providers failed — adding demo stream fallback");
           const demoSource: UnifiedSource = {
             url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
@@ -330,13 +395,15 @@ export function Watch() {
           setAllSources([demoSource]);
           setStream(demoSource);
         }
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
-        setLoading(false);
+        if (!isStale()) {
+          setError(err instanceof Error ? err.message : "Unknown error");
+          setLoading(false);
+        }
       }
     })();
-  }, [animeId, episode, mode, provider]);
+  }, [animeId, episode, mode, provider, retryKey]);
 
   // Filter sources based on user's disabledSources + pinnedSource settings
   const filteredSources = useMemo(() => {
@@ -349,9 +416,55 @@ export function Watch() {
   }, [allSources, settings.disabledSources, settings.pinnedSource]);
 
   // Convert UnifiedSource to StreamResult for VideoPlayer
-  const streamForPlayer = stream
-    ? { url: stream.url, type: stream.type, quality: stream.quality, sourceName: stream.sourceName, provider: stream.provider }
-    : null;
+  // H-1 FIX: memoize by value. This used to be a fresh object literal on every
+  // render, and since VideoPlayer keyed its load effect on the stream object,
+  // any Watch re-render (background provider resolution, autoplay overlay
+  // state…) destroyed and recreated the HLS instance — restarting playback
+  // mid-episode. Now the object only changes when the actual source changes.
+  const streamForPlayer = useMemo(() => {
+    if (!stream) return null;
+    return { url: stream.url, type: stream.type, quality: stream.quality, sourceName: stream.sourceName, provider: stream.provider };
+  }, [stream?.url, stream?.type, stream?.quality, stream?.sourceName, stream?.provider]);
+
+  // M-16 FIX: episode-count-unknown handling. `anime.episodes` is null for
+  // most airing shows, which used to: hide the Next Episode page button on
+  // EP 1 (the `(anime?.episodes || episode > 1)` gate was false), disable the
+  // player's Next button + N key, and silence autoplay — all on the shows
+  // that need them most. When the total is unknown we now assume a next
+  // episode exists; a wrong guess lands on the (now retryable) error state.
+  const hasNextEpisode = anime ? (anime.episodes ? episode < anime.episodes : true) : false;
+
+  // L-13 FIX: these handlers used to be inline arrows passed to VideoPlayer,
+  // so its 9-listener effect tore down and re-attached on EVERY Watch
+  // re-render (background provider resolution, overlay state, …). useCallback
+  // keeps identities stable across renders that don't change them.
+  const handleProgress = useCallback(
+    (currentTime: number, duration: number) => {
+      if (anime && currentTime > 5 && duration > 0) {
+        addToHistory({
+          animeId,
+          title: getTitle(anime.title),
+          coverImage: anime.coverImage?.large ?? "",
+          episode,
+          timestamp: currentTime,
+          duration,
+        });
+      }
+    },
+    [anime, animeId, episode],
+  );
+  const handleEnded = useCallback(() => {
+    if (settings.autoplay && hasNextEpisode) {
+      setAutoPlayNext(true);
+    }
+  }, [settings.autoplay, hasNextEpisode]);
+  const handleNext = useCallback(() => {
+    if (hasNextEpisode) navigate(`/watch/${animeId}?ep=${episode + 1}`);
+  }, [hasNextEpisode, navigate, animeId, episode]);
+  const handlePrev = useCallback(() => {
+    if (episode > 1) navigate(`/watch/${animeId}?ep=${episode - 1}`);
+  }, [navigate, animeId, episode]);
+  const handleRetry = useCallback(() => setRetryKey((k) => k + 1), []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 space-y-6">
@@ -384,9 +497,24 @@ export function Watch() {
             <div className="aspect-video bg-black rounded-2xl flex flex-col items-center justify-center border border-xan-border p-6 text-center">
               <p className="font-semibold text-foreground text-lg mb-2">Stream Unavailable</p>
               <p className="text-sm text-muted-foreground max-w-md">{error}</p>
-              {/* Show provider status */}
+              {/* L-12 FIX: retry button — the only recovery used to be a full
+                  page reload (or manually picking another server). */}
+              <button
+                onClick={handleRetry}
+                className="mt-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-xan-crimson/20 border border-xan-crimson/40 text-sm font-medium text-foreground hover:bg-xan-crimson/30 transition-colors"
+              >
+                <RotateCw className="h-4 w-4" /> Retry
+              </button>
+              {/* Show provider status — L-4 FIX: render ALL providers.
+                  Previously this mapped over a hardcoded ["allanime"], so the
+                  koto/zen status dots (computed in providerStatus) were never
+                  shown while the user was staring at the error panel. */}
               <div className="mt-4 flex items-center gap-3 text-xs">
-                {((["allanime"] as const)).map((p) => (
+                {(([
+                  "koto",
+                  "allanime",
+                  "zen",
+                ] as const)).map((p) => (
                   <div key={p} className="flex items-center gap-1.5">
                     <span className={`w-2 h-2 rounded-full ${
                       providerStatus[p] === "done" ? "bg-green-500" :
@@ -473,18 +601,28 @@ export function Watch() {
                     allow="autoplay; fullscreen; picture-in-picture; encrypted-media; accelerometer; gyroscope; web-share"
                     referrerPolicy="no-referrer-when-downgrade"
                     onLoad={() => {
-                      // Save to history when iframe loads (iframe players don't
-                      // report progress, so we record at least that the user
-                      // started watching this episode)
+                      // H-5 FIX: iframe players don't report progress, so we
+                      // record a 0/0 "started watching" marker — BUT only when
+                      // no real progress exists for this episode yet.
+                      // addToHistory REPLACES the entry for the same
+                      // anime+episode, so an unconditional write here used to
+                      // wipe the resume position saved by the direct player
+                      // (watch 40 min on an AllAnime source, click the Koto
+                      // server → back to 0%).
                       if (anime) {
-                        addToHistory({
-                          animeId,
-                          title: getTitle(anime.title),
-                          coverImage: anime.coverImage?.large ?? "",
-                          episode,
-                          timestamp: 0,
-                          duration: 0,
-                        });
+                        const existing = getHistory().find(
+                          (e) => e.animeId === animeId && e.episode === episode,
+                        );
+                        if (!existing || existing.timestamp <= 5) {
+                          addToHistory({
+                            animeId,
+                            title: getTitle(anime.title),
+                            coverImage: anime.coverImage?.large ?? "",
+                            episode,
+                            timestamp: 0,
+                            duration: 0,
+                          });
+                        }
                       }
                     }}
                   />
@@ -499,43 +637,41 @@ export function Watch() {
                 episode={episode}
                 settings={settings}
                 resumeTime={resumeTime}
-                onProgress={(currentTime, duration) => {
-                  if (anime && currentTime > 5 && duration > 0) {
-                    addToHistory({
-                      animeId,
-                      title: getTitle(anime.title),
-                      coverImage: anime.coverImage?.large ?? "",
-                      episode,
-                      timestamp: currentTime,
-                      duration,
-                    });
-                  }
-                }}
-                onEnded={() => {
-                  if (settings.autoplay && anime?.episodes && episode < anime.episodes) {
-                    setAutoPlayNext(true);
-                  }
-                }}
-                onNext={
-                  anime?.episodes && episode < anime.episodes
-                    ? () => navigate(`/watch/${animeId}?ep=${episode + 1}`)
-                    : undefined
-                }
-                onPrev={
-                  episode > 1
-                    ? () => navigate(`/watch/${animeId}?ep=${episode - 1}`)
-                    : undefined
-                }
+                onProgress={handleProgress}
+                onEnded={handleEnded}
+                onNext={hasNextEpisode ? handleNext : undefined}
+                onPrev={episode > 1 ? handlePrev : undefined}
                 autoPlayNext={autoPlayNext}
                 onAutoPlayCancel={() => setAutoPlayNext(false)}
                 nextEpisodeLabel={
-                  anime && episode < (anime.episodes ?? 0)
+                  anime && hasNextEpisode
                     ? `${getTitle(anime.title)} — Episode ${episode + 1}`
                     : undefined
                 }
+                onRetry={handleRetry}
               />
             )
           ) : null}
+
+          {/* H-7 FIX: when every provider fails the page used to silently
+              play a public demo video (Big Buck Bunny) with only a tiny badge
+              in the player bar — users could mistake it for the episode. Make
+              the fallback explicit and offer a retry. */}
+          {stream?.sourceName === "Demo Stream" && !loading && !error && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/40 text-sm text-foreground">
+              <span>
+                <strong className="text-amber-500">Fallback stream:</strong> no
+                provider could resolve this episode, so a placeholder demo
+                video is shown instead of the real episode.
+              </span>
+              <button
+                onClick={handleRetry}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-xs font-medium hover:bg-amber-500/30 transition-colors"
+              >
+                <RotateCw className="h-3.5 w-3.5" /> Try again
+              </button>
+            </div>
+          )}
 
           {/* Title + episode info card */}
           {anime && (
@@ -562,7 +698,10 @@ export function Watch() {
               </div>
               {anime.description && (
                 <p
-                  className="text-sm text-muted-foreground line-clamp-3 leading-relaxed"
+                  className={`text-sm text-muted-foreground line-clamp-3 leading-relaxed ${
+                    // M-15b FIX: honor the "Hide spoilers" setting (blur until hover)
+                    settings.hideSpoilers ? "blur-sm hover:blur-none transition-all duration-200 select-none" : ""
+                  }`}
                   dangerouslySetInnerHTML={{
                     __html: anime.description.replace(/<br\s*\/?>/g, " ").replace(/<[^>]+>/g, ""),
                   }}
@@ -580,10 +719,11 @@ export function Watch() {
             </div>
           )}
 
-          {/* Navigation buttons — M-10 FIX: show even when episode count is
-              unknown (anime.episodes is null). Use nextAiringEpisode as fallback
-              for the "next" button visibility. */}
-          {(anime?.episodes || episode > 1) && (
+          {/* Navigation buttons — M-10/M-16 FIX: show even when episode count is
+              unknown (anime.episodes is null). The old gate `(anime?.episodes ||
+              episode > 1)` was ALSO false on EP 1 of an airing show, hiding the
+              whole row including the fallback Next button that could never render. */}
+          {(hasNextEpisode || episode > 1) && (
             <div className="flex items-center gap-3">
               {episode > 1 && (
                 <Link

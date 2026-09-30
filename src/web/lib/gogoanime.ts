@@ -127,9 +127,18 @@ export async function getGogoEpisodes(showId: string): Promise<GogoEpisode[]> {
     const episodes: GogoEpisode[] = [];
     for (const link of epLinks) {
       const href = link.getAttribute("href") || "";
-      const epNum = parseInt(link.getAttribute("data-episode") || link.textContent?.trim() || "0", 10);
+      // L-9 FIX: guard against NaN. `data-episode` is often absent on gogo's
+      // AJAX anchors, and the fallback text is human-readable like "Episode 1"
+      // — parseInt("Episode 1", 10) === NaN, which poisoned every entry:
+      // the sort comparator returned NaN and the `number === episode` lookup
+      // in extractGogoStream could never match. Parse the number out of the
+      // link text/href instead and skip entries with no parseable number.
+      const rawNum = link.getAttribute("data-episode")
+        ?? link.textContent?.trim()?.match(/(\d+)/)?.[1]
+        ?? href.match(/-episode-(\d+)/)?.[1];
+      const epNum = rawNum != null ? parseInt(rawNum, 10) : NaN;
       const title = link.querySelector(".name")?.textContent?.trim() || `Episode ${epNum}`;
-      if (href) {
+      if (href && Number.isFinite(epNum)) {
         episodes.push({
           episodeId: href.replace("/", "").replace(`${showId}-`, ""),
           number: epNum,
@@ -234,9 +243,14 @@ export async function extractGogoStream(
     return { sources: [], showId };
   }
 
-  // Step 4: Find the requested episode
-  const ep = episodes.find((e) => e.number === episode) || episodes[0];
+  // Step 4: Find the requested episode.
+  // L-9 FIX (part 2): NO silent fallback to episodes[0]. The old
+  // `find(...) || episodes[0]` meant requesting ep 50 of a 12-episode show
+  // (or any dub list shorter than the sub list) silently played EPISODE 1
+  // and reported success. Fail honestly when the episode isn't available.
+  const ep = episodes.find((e) => e.number === episode);
   if (!ep) {
+    console.warn(`[Gogoanime] episode ${episode} not found (${episodes.length} listed)`);
     return { sources: [], showId };
   }
 

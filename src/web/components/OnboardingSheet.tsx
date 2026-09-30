@@ -45,6 +45,14 @@ export function OnboardingSheet({ open, onComplete, onSkip }: Props) {
   const [mood, setMood] = useState<MoodPreference | null>(null);
   const [duration, setDuration] = useState<DurationPreference | null>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  // M-10 FIX: latest callbacks via refs — keying this effect on the inline
+  // `onSkip` identity re-ran lock/unlock + focus steal on every parent render.
+  const onSkipRef = useRef(onSkip);
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onSkipRef.current = onSkip;
+    onCompleteRef.current = onComplete;
+  });
 
   // Reset state when reopened + focus trap setup
   useEffect(() => {
@@ -54,7 +62,7 @@ export function OnboardingSheet({ open, onComplete, onSkip }: Props) {
     setMood(null);
     setDuration(null);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onSkip();
+      if (e.key === "Escape") onSkipRef.current();
     };
     document.addEventListener("keydown", onKey);
     lockBodyScroll();
@@ -63,7 +71,7 @@ export function OnboardingSheet({ open, onComplete, onSkip }: Props) {
       unlockBodyScroll();
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onSkip]);
+  }, [open]);
 
   if (!open) return null;
 

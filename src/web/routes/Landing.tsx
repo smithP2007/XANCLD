@@ -10,9 +10,18 @@ export function Landing() {
   // Press Enter to enter the app
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
-        window.location.href = "/home";
+      if (e.key !== "Enter") return;
+      // L-6 FIX: ignore Enter when an interactive element has focus. The
+      // global handler used to hijack Enter on the "Surprise Me" button —
+      // pressing Enter fired BOTH the button's surprise navigation and the
+      // window.location.href = "/home" here, so the surprise never happened.
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "BUTTON" || tag === "A" || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        return;
       }
+      if (el?.isContentEditable) return;
+      window.location.href = "/home";
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

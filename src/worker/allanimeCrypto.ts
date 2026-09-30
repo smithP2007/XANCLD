@@ -416,10 +416,12 @@ export async function fetchAllAnimeEpisodeDirect(
                 return { sources, cached: false, error: undefined };
               }
             }
-            if (retryData?.episode?.sourceUrls) {
-              const sources = retryData.episode.sourceUrls;
-              setCached(cacheKey, sources);
-              return { sources, cached: false, error: undefined };
+            // M-14 FIX: empty arrays are falsy-failures here — an empty
+            // sourceUrls list must NOT be cached as a 5-minute success.
+            const retrySources = retryData?.episode?.sourceUrls;
+            if (retrySources && retrySources.length > 0) {
+              setCached(cacheKey, retrySources);
+              return { sources: retrySources, cached: false, error: undefined };
             }
           }
         }
@@ -450,7 +452,9 @@ export async function fetchAllAnimeEpisodeDirect(
       return { sources, cached: false, error: undefined };
     }
 
-    if (data?.episode?.sourceUrls) {
+    // M-14 FIX: `[]` is truthy — require a non-empty list before treating
+    // the cleartext path as success (and before caching it for 5 minutes).
+    if (data?.episode?.sourceUrls && data.episode.sourceUrls.length > 0) {
       const sources = data.episode.sourceUrls;
       setCached(cacheKey, sources);
       return { sources, cached: false, error: undefined };

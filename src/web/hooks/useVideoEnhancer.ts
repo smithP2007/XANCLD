@@ -41,6 +41,7 @@ export const ENHANCER_PRESETS: Record<string, { label: string; values: Omit<Enha
   neon:           { label: "Neon",         values: { brightness: 108, contrast: 125, saturation: 170, hue: 15, blur: 0, sepia: 0, grayscale: 0, gamma: 1.0, sharpen: 35 } },
   pastel:         { label: "Pastel",       values: { brightness: 110, contrast: 95, saturation: 120, hue: 0, blur: 0.5, sepia: 0, grayscale: 0, gamma: 0.95, sharpen: 0 } },
   color_boost:    { label: "Color Boost",  values: { brightness: 105, contrast: 110, saturation: 150, hue: 0, blur: 0, sepia: 0, grayscale: 0, gamma: 1.0, sharpen: 15 } },
+  color_pop:      { label: "Color Pop",    values: { brightness: 100, contrast: 105, saturation: 140, hue: 0, blur: 0, sepia: 0, grayscale: 0, gamma: 1.0, sharpen: 10 } },
   bright_boost:   { label: "Bright Boost", values: { brightness: 130, contrast: 105, saturation: 110, hue: 0, blur: 0, sepia: 0, grayscale: 0, gamma: 1.05, sharpen: 10 } },
   contrast_boost: { label: "Contrast Boost", values: { brightness: 100, contrast: 140, saturation: 105, hue: 0, blur: 0, sepia: 0, grayscale: 0, gamma: 1.0, sharpen: 20 } },
   sharp_boost:    { label: "Sharp Boost",  values: { brightness: 100, contrast: 110, saturation: 110, hue: 0, blur: 0, sepia: 0, grayscale: 0, gamma: 1.0, sharpen: 75 } },
@@ -316,6 +317,13 @@ export function useVideoEnhancer() {
   const saveCustomPreset = useCallback((name: string): string | null => {
     const trimmed = name.trim();
     if (!trimmed) return null;
+    // L-10 FIX: compute the next list OUTSIDE the state updater. The old code
+    // assigned `savedId` inside the updater and returned it synchronously —
+    // but React may defer (or, under StrictMode, double-invoke) updaters, so
+    // the function frequently returned null even on success. Reading current
+    // state directly and setting the new array is safe here: `customPresets`
+    // is this hook's own state, so it can't be stale within one event handler.
+    if (customPresets.length >= MAX_CUSTOM_PRESETS) return null;
     const newPreset: CustomPreset = {
       id: `cp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       name: trimmed.slice(0, 24),
@@ -332,30 +340,21 @@ export function useVideoEnhancer() {
       },
       createdAt: Date.now(),
     };
-    let savedId: string | null = null;
-    setCustomPresets((prev) => {
-      if (prev.length >= MAX_CUSTOM_PRESETS) return prev;
-      const next = [...prev, newPreset];
-      writeCustomPresets(next);
-      savedId = newPreset.id;
-      return next;
-    });
-    return savedId;
-  }, [state]);
+    const next = [...customPresets, newPreset];
+    writeCustomPresets(next);
+    setCustomPresets(next);
+    return newPreset.id;
+  }, [state, customPresets]);
 
   const applyCustomPreset = useCallback((id: string) => {
-    setCustomPresets((prevList) => {
-      const found = prevList.find((p) => p.id === id);
-      if (found) {
-        setState((prev) => {
-          const next: EnhancerState = { ...found.values, enabled: true };
-          writeState(next);
-          return next;
-        });
-      }
-      return prevList;
-    });
-  }, []);
+    // L-10 (same class of bug): apply from current state directly instead of
+    // nesting a second setState call inside the first updater.
+    const found = customPresets.find((p) => p.id === id);
+    if (!found) return;
+    const next: EnhancerState = { ...found.values, enabled: true };
+    writeState(next);
+    setState(next);
+  }, [customPresets]);
 
   const deleteCustomPreset = useCallback((id: string) => {
     setCustomPresets((prev) => {

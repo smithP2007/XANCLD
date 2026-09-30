@@ -35,6 +35,7 @@ import { useRecentlyVisited } from "../../hooks/useRecentlyVisited";
 import { useBookmarks } from "../../hooks/useBookmarks";
 import { useWatchHistory } from "../../hooks/useSettings";
 import { useDebounce } from "../../hooks/useDebounce";
+import { lockBodyScroll, unlockBodyScroll } from "../../lib/bodyScrollLock";
 
 // ─── Custom event the Navbar dispatches to open the menu ────────
 export const OPEN_COMMAND_MENU_EVENT = "xan:open-command-menu";
@@ -295,6 +296,11 @@ export function CommandMenu() {
     if (q.length < 2) {
       setSearchResults([]);
       setSearching(false);
+      // M-9 FIX: reset the dedup guard when the query is cleared. Without
+      // this, searching "nar" → clearing the input → re-typing "nar" hit
+      // the `q === lastSearchedRef.current` early-return and showed an empty
+      // list with no "Searching…" indicator until another keystroke differed.
+      lastSearchedRef.current = "";
       return;
     }
     if (q === lastSearchedRef.current) return;
@@ -303,6 +309,9 @@ export function CommandMenu() {
     setSearching(true);
     searchAnime(q, 1, 8)
       .then((r) => { if (!cancelled) setSearchResults(r.media); })
+      // M-9 FIX: add the missing catch — a rejected request here was an
+      // unhandled promise rejection and left "Searching…" stuck.
+      .catch(() => { if (!cancelled) setSearchResults([]); })
       .finally(() => { if (!cancelled) setSearching(false); });
     return () => { cancelled = true; };
   }, [debouncedQuery]);
@@ -609,11 +618,15 @@ export function CommandMenu() {
     }
   };
 
+  // M-8 FIX: use the refcounted body-scroll lock instead of manually
+  // saving/restoring `document.body.style.overflow`. If ⌘K opened while a
+  // BottomSheet was open (prev = "hidden"), closing the sheet restored ""
+  // correctly, but closing THIS menu afterwards restored "hidden" — locking
+  // body scroll for the rest of the session.
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    lockBodyScroll();
+    return () => { unlockBodyScroll(); };
   }, [open]);
 
   return (

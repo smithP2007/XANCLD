@@ -105,6 +105,10 @@ function notify() {
   }
 }
 
+export function getXanSettings(): XanSettings {
+  return currentSettings;
+}
+
 export function applyRuntimeFlags(s: XanSettings): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -158,8 +162,13 @@ export function applyTheme(theme: "dark" | "light" | "system"): void {
     document.body.style.color = "var(--foreground)";
   }
   // Apply reduced-motion + tv-mode kill switches
-  root.classList.toggle("xan-reduce-motion", false); // toggled below via dedicated settings
-  root.classList.toggle("xan-tv-mode", false);
+  // M-20 FIX: this function used to FORCE-REMOVE both runtime-flag classes
+  // ("toggled below via dedicated settings" — but nothing re-applied them on
+  // every path). The prefers-color-scheme change listener calls ONLY this
+  // function, so a user with reduced-motion/TV-mode enabled + theme "system"
+  // silently lost both accessibility flags whenever the OS theme flipped.
+  // applyTheme now leaves the runtime flags alone — every caller that needs
+  // them set calls applyRuntimeFlags() itself.
 }
 
 export function useSettings(): [XanSettings, (updates: Partial<XanSettings>) => void] {
@@ -212,7 +221,12 @@ export function getHistory(): HistoryEntry[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
     if (raw) {
-      return JSON.parse(raw) as HistoryEntry[];
+      // L-8 backport: a valid-JSON-but-non-array payload ("null", "5", {…})
+      // flowed into render as-is and crashed ContinueWatching / History /
+      // MyLibrary with .filter/.for-of inside the ErrorBoundary. The storage
+      // repositories already guard with Array.isArray — do the same here.
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as HistoryEntry[]) : [];
     }
   } catch {
     // ignore

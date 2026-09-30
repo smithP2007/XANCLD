@@ -14,6 +14,14 @@ const COUNTDOWN_SECONDS = 10;
 export function AutoPlayOverlay({ open, onCancel, onPlayNow, nextEpisodeLabel }: Props) {
   const [remaining, setRemaining] = useState(COUNTDOWN_SECONDS);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // M-7 FIX (part 1): keep the latest onPlayNow in a ref so the countdown
+  // effect can depend on [open] alone. The old deps [open, onPlayNow] let any
+  // parent re-render (new inline callback identity) tear down and restart the
+  // interval — the countdown visibly reset from 10 and could fire late/never.
+  const onPlayNowRef = useRef(onPlayNow);
+  useEffect(() => {
+    onPlayNowRef.current = onPlayNow;
+  });
 
   useEffect(() => {
     if (!open) {
@@ -22,19 +30,25 @@ export function AutoPlayOverlay({ open, onCancel, onPlayNow, nextEpisodeLabel }:
     }
     setRemaining(COUNTDOWN_SECONDS);
     intervalRef.current = setInterval(() => {
-      setRemaining((r) => {
-        if (r <= 1) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          onPlayNow();
-          return 0;
-        }
-        return r - 1;
-      });
+      // M-7 FIX (part 2): count down by reading/writing a local value and
+      // call onPlayNow OUTSIDE the state updater. React may invoke updater
+      // functions twice (StrictMode / concurrent rendering) — calling a
+      // side-effecting callback inside one double-fired onNext().
+      setRemaining((r) => Math.max(0, r - 1));
     }, 1000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
     };
-  }, [open, onPlayNow]);
+  }, [open]);
+
+  // Fire the callback exactly once when the countdown reaches 0, from a
+  // dedicated effect — never from inside an updater or interval tick.
+  useEffect(() => {
+    if (open && remaining === 0) {
+      onPlayNowRef.current();
+    }
+  }, [open, remaining]);
 
   if (!open) return null;
 

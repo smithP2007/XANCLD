@@ -70,7 +70,15 @@ export function EpisodeGrid({
   );
 
   // Auto-scroll to top when page changes or search clears
+  // M-11 FIX: skip the first run. useEffect fires on mount, so merely loading
+  // an anime page used to smooth-scroll the viewport away from the hero /
+  // synopsis straight down to the Episodes section.
+  const firstAutoScrollRef = useRef(true);
   useEffect(() => {
+    if (firstAutoScrollRef.current) {
+      firstAutoScrollRef.current = false;
+      return;
+    }
     if (gridTopRef.current) {
       gridTopRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }

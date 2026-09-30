@@ -53,14 +53,19 @@ export function Home() {
         ]);
         setTrending(t);
         setPopular(p);
-        // Filter schedule to episodes airing today (by local day-of-week).
+        // Filter schedule to episodes airing TODAY (calendar-date equality).
+        // M-4 FIX: this used to compare only the day-of-WEEK, so any weekly
+        // episode airing within the next 7 days on the same weekday matched —
+        // e.g. a show whose latest episode aired this morning has its NEXT
+        // episode exactly 7 days out, same weekday → wrongly listed in
+        // "Airing Today" with a ~7-day countdown.
         // No artificial slice cap — show ALL shows airing today, sorted by
         // airing time. The SectionRow handles horizontal scrolling so a long
         // list is fine.
-        const today = new Date().getDay();
+        const todayStr = new Date().toDateString();
         setAiringToday(
           sched
-            .filter((a) => a.nextAiringEpisode && new Date(a.nextAiringEpisode.airingAt * 1000).getDay() === today)
+            .filter((a) => a.nextAiringEpisode && new Date(a.nextAiringEpisode.airingAt * 1000).toDateString() === todayStr)
             .sort((a, b) => (a.nextAiringEpisode!.airingAt - b.nextAiringEpisode!.airingAt)),
         );
       } catch (err) {

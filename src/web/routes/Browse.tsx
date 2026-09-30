@@ -13,7 +13,7 @@
 //  - Debounced search (400ms)
 //  - Loading skeletons (shimmer)
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import {
   Search as SearchIcon, X, Star, ChevronLeft, ChevronRight,
@@ -30,8 +30,16 @@ const SORT_OPTIONS: { value: NonNullable<SearchFilters["sort"]>; label: string }
   { value: "TRENDING_DESC", label: "Trending" },
   { value: "SCORE_DESC", label: "Score" },
   { value: "START_DATE_DESC", label: "Newest" },
-  { value: "FAVOURITES_DESC", label: "Oldest" }, // we'll flip below
-  { value: "SEARCH_MATCH", label: "Title A-Z" },
+  // H-5 FIX: this used to be FAVOURITES_DESC labeled "Oldest" with a comment
+  // promising "we'll flip below" — no flip existed anywhere, so selecting
+  // "Oldest" silently returned the most-FAVORITED anime. AniList's MediaSort
+  // enum has no "*_ASC" suffix: the plain START_DATE value IS oldest-first
+  // (verified live — "START_DATE_ASC" returns HTTP 400 from the API).
+  { value: "START_DATE", label: "Oldest" },
+  // L-16 FIX: this option was SEARCH_MATCH labeled "Title A-Z" — but
+  // SEARCH_MATCH is AniList's RELEVANCE sort, not alphabetical (and it
+  // misbehaves with an empty query). TITLE_ROMAJI is the real A-Z sort.
+  { value: "TITLE_ROMAJI", label: "Title A-Z" },
 ];
 
 const FORMAT_OPTIONS = [
@@ -65,6 +73,12 @@ export function Browse() {
   const [page, setPage] = useState(initialPage);
 
   const debouncedQuery = useDebounce(query, 400);
+  // H-4 FIX: tracks the query value we last wrote to (or read from) the URL.
+  // The URL legitimately lags behind live typing by up to the 400ms debounce,
+  // so comparing the URL against live state mistook in-flight typing for an
+  // external change and wiped the input. With this ref, URL→state syncing
+  // only fires on GENUINE external URL changes (e.g. Command Menu navigation).
+  const lastUrlQueryRef = useRef(initialQuery);
 
   // ─── Sync external URL changes → local state ─────────────────
   // When the user is already on /browse and another surface (e.g. the
@@ -75,6 +89,13 @@ export function Browse() {
   // watches searchParams and pushes external changes into local state
   // when they diverge. We avoid an infinite loop with the state→URL
   // effect below by only updating when values actually differ.
+  //
+  // H-4 FIX: compare the URL against `debouncedQuery`, NOT the live
+  // `query`. The state→URL effect below writes `debouncedQuery`, so for
+  // up to 400ms after a keystroke the URL legitimately holds the OLD
+  // query. Comparing against the live value made this effect "correct"
+  // the input back to the old text — visibly wiping what the user typed
+  // whenever anything else changed searchParams first (e.g. setPage(1)).
   useEffect(() => {
     const urlQuery = searchParams.get("q") ?? "";
     const urlGenres = searchParams.getAll("genre");
@@ -85,7 +106,10 @@ export function Browse() {
 
     // Compare each field; only update state when it actually changed.
     // This prevents a feedback loop with the state→URL effect below.
-    if (urlQuery !== query) setQuery(urlQuery);
+    if (urlQuery !== lastUrlQueryRef.current) {
+      lastUrlQueryRef.current = urlQuery;
+      setQuery(urlQuery);
+    }
     if (urlSort !== sort) setSort(urlSort);
     if (urlFormat !== format) setFormat(urlFormat);
     if (urlYear !== year) setYear(urlYear);
@@ -106,18 +130,26 @@ export function Browse() {
     if (format) next.set("format", format);
     if (year) next.set("year", String(year));
     if (page > 1) next.set("page", String(page));
+    // Record what we're about to write so the URL→state effect (which fires
+    // when searchParams changes) recognizes this as OUR write, not an
+    // external navigation, and doesn't clobber the input mid-typing.
+    lastUrlQueryRef.current = debouncedQuery;
     setSearchParams(next, { replace: true });
   }, [debouncedQuery, genres, sort, format, year, page, setSearchParams]);
 
   // ─── Fetch results ───
   const [results, setResults] = useState<AnimeCard[]>([]);
   const [total, setTotal] = useState(0);
-  const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(true);
+  // M-3 FIX: surface API failures (AniList down / rate-limited) as an error
+  // state instead of rendering a misleading "No results match your filters".
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     searchAnimeAdvanced(debouncedQuery, page, PER_PAGE, {
       sort,
       genres: genres.length > 0 ? genres : undefined,
@@ -128,13 +160,18 @@ export function Browse() {
         if (cancelled) return;
         setResults(r.media);
         setTotal(r.total);
-        setHasNext(r.hasNextPage);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setResults([]);
+        setTotal(0);
+        setLoadError(err instanceof Error ? err.message : "Failed to load results");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [debouncedQuery, genres, sort, format, year, page]);
+  }, [debouncedQuery, genres, sort, format, year, page, reloadKey]);
 
   // ─── Genre toggle (multi-select with order badges) ───
   const toggleGenre = useCallback((g: string) => {
@@ -301,6 +338,19 @@ export function Browse() {
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="aspect-[2/3] rounded-xl bg-xan-card/50 animate-pulse" />
           ))}
+        </div>
+      ) : loadError ? (
+        <div className="glass rounded-2xl p-10 text-center space-y-3">
+          <AlertCircle className="h-10 w-10 text-xan-crimson mx-auto" />
+          <p className="text-sm font-medium text-foreground">Couldn't load results</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-xan-crimson to-xan-violet text-white text-sm font-semibold shadow-md shadow-xan-crimson/30 hover:opacity-90 transition-opacity"
+          >
+            Retry
+          </button>
         </div>
       ) : results.length === 0 ? (
         <div className="glass rounded-2xl p-10 text-center space-y-3">

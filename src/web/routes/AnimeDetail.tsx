@@ -24,9 +24,10 @@ import {
   fetchAnimeDetail,
   getTitle,
   type AnimeDetail,
+  type AnimeCard,
 } from "../lib/anilist";
 import { useBookmarks } from "../hooks/useBookmarks";
-import { useWatchHistory } from "../hooks/useSettings";
+import { useWatchHistory, useSettings } from "../hooks/useSettings";
 import { useCountdownTick, formatCountdown } from "../hooks/useCountdownTick";
 import { getVibeLabel } from "../lib/vibes";
 import { AnimeStatusButton } from "../components/AnimeStatusButton";
@@ -46,6 +47,9 @@ export function AnimeDetail() {
   const [jumpTo, setJumpTo] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
+  // M-15b FIX: "Hide spoilers" was a dead setting — persisted but read
+  // nowhere. When enabled, the synopsis is blurred until hovered/clicked.
+  const [settings] = useSettings();
 
   const { isBookmarked, toggleBookmark } = useBookmarks();
   const history = useWatchHistory();
@@ -55,14 +59,20 @@ export function AnimeDetail() {
 
   useEffect(() => {
     if (!id) return;
+    // M-12 FIX: guard against stale responses — clicking a related/recommended
+    // anime while the previous detail request is in flight could let the OLD
+    // response settle last and render the wrong anime under the new URL.
+    let cancelled = false;
     (async () => {
       setLoading(true);
       setEpPage(1);
       setEpSearch("");
       const d = await fetchAnimeDetail(parseInt(id, 10));
+      if (cancelled) return;
       setAnime(d);
       setLoading(false);
     })();
+    return () => { cancelled = true; };
   }, [id]);
 
   // ─── All hooks MUST come before any early return (Rules of Hooks). ───
@@ -375,7 +385,7 @@ export function AnimeDetail() {
                   <p
                     className={`relative text-sm md:text-base text-muted-foreground leading-relaxed ${
                       synopsisExpanded ? "" : "line-clamp-4"
-                    }`}
+                    } ${settings.hideSpoilers ? "blur-sm hover:blur-none focus:blur-none transition-all duration-200 select-none" : ""}`}
                   >
                     {synopsisText}
                   </p>
@@ -706,7 +716,14 @@ export function AnimeDetail() {
                     return (
                       <Link
                         key={`r-${r.id}`}
-                        to={isAnime ? `/anime/${r.id}` : `https://anilist.co/${r.type?.toLowerCase() ?? "manga"}/${r.id}`}
+                        to={isAnime ? `/anime/${r.id}` : `https://anilist.co/${
+                          // L-17 FIX: NOVEL/ONE_SHOT live under /manga/ on
+                          // anilist.co — the raw type interpolation produced
+                          // /novel/<id> and /one_shot/<id> URLs that 404'd.
+                          r.type === "NOVEL" || r.type === "ONE_SHOT"
+                            ? "manga"
+                            : r.type?.toLowerCase() ?? "manga"
+                        }/${r.id}`}
                         {...(!isAnime ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                         className="group hover-lift"
                       >
@@ -755,7 +772,16 @@ export function AnimeDetail() {
                   <h2 className="text-xl font-bold font-display text-foreground">Recommended</h2>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {anime.recommendations.nodes.slice(0, 4).map((r) => (
+                  {/* H-3 FIX: AniList's mediaRecommendation is nullable — one
+                      null node here used to throw on `r.mediaRecommendation.id`
+                      and crash the whole detail route into the ErrorBoundary. */}
+                  {anime.recommendations.nodes
+                    .filter(
+                      (r): r is { mediaRecommendation: AnimeCard } =>
+                        !!r.mediaRecommendation,
+                    )
+                    .slice(0, 4)
+                    .map((r) => (
                     <Link key={`rec-${r.mediaRecommendation.id}`} to={`/anime/${r.mediaRecommendation.id}`} className="group hover-lift">
                       <div className="aspect-[2/3] rounded-xl overflow-hidden border border-xan-border group-hover:border-xan-crimson/50 transition-all relative shadow-lg">
                         <img

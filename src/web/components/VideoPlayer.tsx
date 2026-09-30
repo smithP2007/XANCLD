@@ -43,6 +43,8 @@ interface VideoPlayerProps {
   /** Called when user cancels auto-play countdown */
   onAutoPlayCancel?: () => void;
   nextEpisodeLabel?: string;
+  /** L-12: called when the user clicks Retry on the playback-error overlay */
+  onRetry?: () => void;
 }
 
 interface SeekRipple {
@@ -58,6 +60,17 @@ interface TapRipple {
   y: number;
 }
 
+// Intro window — single source of truth for the marker, the button
+// visibility window AND the skip target. M-5 FIX: the visibility check used
+// `currentTime < 90` while skipIntro() seeks to 85s, so the button hid on
+// click and then reappeared 250ms later (85 < 90) until the 90s mark.
+const INTRO_END = 85;
+
+// Outro window — the last N seconds of an episode in which the (optional)
+// "Skip Outro" button is shown. Clicking seeks to 1s before the end so the
+// natural 'ended' event (and the autoplay-next chain) still fires.
+const OUTRO_WINDOW = 90;
+
 export function VideoPlayer({
   stream,
   title,
@@ -71,6 +84,7 @@ export function VideoPlayer({
   autoPlayNext = false,
   onAutoPlayCancel,
   nextEpisodeLabel,
+  onRetry,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +94,11 @@ export function VideoPlayer({
   const resumeAppliedRef = useRef(false);
   const lastTapRef = useRef(0);
   const lastTapSideRef = useRef<"left" | "right" | null>(null);
+  // M-17: one-shot autoplay flag — set when a NEW stream starts loading,
+  // consumed on the first loadedmetadata. Avoids force-resuming playback on
+  // incidental metadata reloads (e.g. hls.js level switches) after the user
+  // deliberately paused.
+  const shouldAutoplayRef = useRef(false);
 
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -92,6 +111,7 @@ export function VideoPlayer({
   const [fullscreen, setFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [showSkipIntro, setShowSkipIntro] = useState(false);
+  const [showSkipOutro, setShowSkipOutro] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(settings.playbackRate);
   const [showSettings, setShowSettings] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
@@ -107,14 +127,39 @@ export function VideoPlayer({
   const [showEnhancer, setShowEnhancer] = useState(false);
   const enhancer = useVideoEnhancer();
 
+  // L-15 FIX: pending timers were never cleared on unmount — the controls
+  // auto-hide timer and the single-tap togglePlay timer could fire after the
+  // player was gone (e.g. mid navigation to the next episode).
+  useEffect(() => {
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+    };
+  }, []);
+
   // ─── Load stream ───
+  // H-1 FIX: depend on stream.url + stream.type (primitive identity), NOT the
+  // `stream` object itself. Watch.tsx re-renders during playback (background
+  // providers resolving → setAllSources) and used to hand us a NEW stream
+  // object each render, which re-ran this effect and destroyed/recreated the
+  // HLS instance — restarting playback mid-episode. Same URL ⇒ no reload.
   useEffect(() => {
     if (!videoRef.current) return;
     const video = videoRef.current;
     const url = stream.url;
     resumeAppliedRef.current = false;
+    // M-17 FIX: nothing outside the manual toggle ever called play(), so the
+    // "autoplay next episode" countdown AND the initial episode click both
+    // landed on a paused player with the big center play button. Arm the
+    // one-shot autoplay for this new stream.
+    shouldAutoplayRef.current = true;
     setLoading(true);
     setError(null);
+    // L-3 FIX: reset time/buffered state so the seekbar doesn't show the
+    // previous episode's position until the new metadata loads.
+    setCurrent(0);
+    setDuration(0);
+    setBuffered(0);
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -134,7 +179,13 @@ export function VideoPlayer({
         setQualityLevels(levels);
         setLoading(false);
       });
-      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setCurrentQuality(data.level));
+      // M-6 FIX: only mirror the actual playing level into UI state when the
+      // user has pinned a manual quality. In Auto mode (currentQuality === -1)
+      // overwriting it made the menu checkmark jump from "Auto" to "720p"
+      // even though auto-level selection was still active.
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => {
+        if (!hls.autoLevelEnabled) setCurrentQuality(data.level);
+      });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
           setError(`Playback error: ${data.details}`);
@@ -156,7 +207,7 @@ export function VideoPlayer({
         hlsRef.current = null;
       }
     };
-  }, [stream]);
+  }, [stream.url, stream.type]);
 
   // ─── Apply settings ───
   useEffect(() => {
@@ -191,13 +242,34 @@ export function VideoPlayer({
           resumeAppliedRef.current = true;
         } catch { /* ignore */ }
       }
+      // M-17 FIX: best-effort autoplay once per stream load. The user's
+      // click on the episode/server counts as sticky activation, so this
+      // normally succeeds; browser policy rejections are swallowed and the
+      // big play button remains as fallback.
+      if (shouldAutoplayRef.current) {
+        shouldAutoplayRef.current = false;
+        video.play().catch(() => { /* autoplay blocked — user can click play */ });
+      }
     };
     const onTime = () => {
       setCurrent(video.currentTime);
-      if (settings.skipIntro && video.currentTime > 5 && video.currentTime < 90) {
+      if (settings.skipIntro && video.currentTime > 5 && video.currentTime < INTRO_END) {
         setShowSkipIntro(true);
       } else {
         setShowSkipIntro(false);
+      }
+      // M-15 FIX: the "Show skip outro button" toggle was a dead setting —
+      // skipOutro was persisted but read nowhere. Show the button in the last
+      // OUTRO_WINDOW seconds (hidden in the final 2s — nothing left to skip).
+      if (
+        settings.skipOutro &&
+        video.duration > 0 &&
+        video.currentTime > video.duration - OUTRO_WINDOW &&
+        video.currentTime < video.duration - 2
+      ) {
+        setShowSkipOutro(true);
+      } else {
+        setShowSkipOutro(false);
       }
       if (video.buffered.length > 0) {
         setBuffered(video.buffered.end(video.buffered.length - 1));
@@ -334,8 +406,17 @@ export function VideoPlayer({
   const skipIntro = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    v.currentTime = 85;
+    v.currentTime = INTRO_END;
     setShowSkipIntro(false);
+  }, []);
+
+  // M-15 FIX: seek to 1s before the end — the natural 'ended' event fires
+  // right after, which keeps the onEnded → autoplay-next chain intact.
+  const skipOutro = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    v.currentTime = Math.max(0, v.duration - 1);
+    setShowSkipOutro(false);
   }, []);
 
   const toggleFullscreen = useCallback(() => {
@@ -360,7 +441,24 @@ export function VideoPlayer({
     }
   }, []);
 
+  // M-7 FIX: stable "play next now" handler. The inline arrow used before was
+  // a new identity on every parent render, which (a) restarted the
+  // AutoPlayOverlay countdown via its effect deps and (b) made the countdown
+  // fire through a state-updater side effect that double-ran in StrictMode.
+  const handleAutoPlayNow = useCallback(() => {
+    onAutoPlayCancel?.();
+    onNext?.();
+  }, [onAutoPlayCancel, onNext]);
+  const handleAutoPlayCancel = useCallback(() => {
+    onAutoPlayCancel?.();
+  }, [onAutoPlayCancel]);
+
   // ─── Mobile double-tap to seek ───
+  // L-2 FIX: the pending single-tap timer is now cancelled when a double-tap
+  // is detected. Previously the double-tap window (300ms) was longer than the
+  // single-tap delay (250ms), so a second tap landing 250–300ms after the
+  // first fired BOTH togglePlay (timer) and the ±10s seek.
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleVideoClick = useCallback(
     (e: React.MouseEvent<HTMLVideoElement>) => {
       const v = videoRef.current;
@@ -371,7 +469,11 @@ export function VideoPlayer({
       const now = Date.now();
       const sinceLast = now - lastTapRef.current;
       if (sinceLast < 300 && lastTapSideRef.current === side) {
-        // Double tap → seek ±10
+        // Double tap → seek ±10 (cancel the pending single-tap togglePlay)
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current);
+          singleTapTimerRef.current = null;
+        }
         fireTapRipple(side, x, e.clientY - rect.top);
         seekBy(side === "left" ? -10 : 10);
         lastTapRef.current = 0;
@@ -379,7 +481,8 @@ export function VideoPlayer({
         // Single tap → toggle play (after small delay so double-tap can override)
         lastTapRef.current = now;
         lastTapSideRef.current = side;
-        setTimeout(() => {
+        singleTapTimerRef.current = setTimeout(() => {
+          singleTapTimerRef.current = null;
           if (lastTapRef.current === now) {
             togglePlay();
           }
@@ -392,8 +495,20 @@ export function VideoPlayer({
   // ─── Keyboard shortcuts (extended) ───
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      // M-18 FIX: never hijack browser/OS shortcuts. Previously Ctrl/Cmd+F
+      // (find) toggled fullscreen and Ctrl+1…9 (tab switching) seeked the
+      // video, because the digit regex and letter cases ran unconditionally.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      // Space/Enter on a focused interactive element → let the browser
+      // activate it. Previously Space on a focused player button BOTH
+      // clicked the button and toggled playback (double action).
+      if (
+        (e.key === " " || e.key === "Enter") &&
+        (tag === "BUTTON" || tag === "A" || tag === "SUMMARY" || el?.getAttribute("role") === "button")
+      ) return;
 
       // 0–9 → seek to N×10%
       if (/^[0-9]$/.test(e.key)) {
@@ -452,8 +567,11 @@ export function VideoPlayer({
           onPrev?.();
           break;
         case "e":
+          // L-14 FIX: this used to toggle the enhancer's enabled state AND
+          // open/close the panel — two unrelated actions at once, while the
+          // on-screen controls separate them (eye = enable, sun = settings)
+          // and the tooltip promises only the panel. Match the tooltip.
           e.preventDefault();
-          enhancer.toggleEnabled();
           setShowEnhancer((v) => !v);
           break;
         case "?":
@@ -519,7 +637,6 @@ export function VideoPlayer({
         } : undefined}
         playsInline
         onClick={handleVideoClick}
-        crossOrigin="anonymous"
       />
 
       {/* Loading spinner — YouTube-style border spinner */}
@@ -535,6 +652,16 @@ export function VideoPlayer({
           <AlertCircle className="h-12 w-12 text-xan-crimson mb-3" />
           <p className="font-semibold text-white text-lg">Playback Error</p>
           <p className="text-sm text-white/60 mt-1 max-w-md">{error}</p>
+          {/* L-12 FIX: the overlay was message-only — the most failure-prone
+              screen in the app had no retry. */}
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="mt-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-sm font-medium text-white hover:bg-white/20 transition-colors"
+            >
+              <RotateCw className="h-4 w-4" /> Retry
+            </button>
+          )}
         </div>
       )}
 
@@ -585,6 +712,19 @@ export function VideoPlayer({
         </button>
       )}
 
+      {/* Skip Outro button (M-15) — stacked above Skip Intro so the two
+          never overlap on very short videos */}
+      {showSkipOutro && !loading && !error && !showSkipIntro && (
+        <button
+          onClick={skipOutro}
+          className="absolute bottom-24 right-4 z-20 px-4 py-2 rounded-lg bg-xan-crimson/90 backdrop-blur text-white text-sm font-medium shadow-lg flex items-center gap-1.5 animate-fade-in"
+        >
+          Skip Outro
+          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4 -ml-3" />
+        </button>
+      )}
+
       {/* ── Top gradient with title + badges ── */}
       <div
         className={`absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 pt-3 pb-8 ${controlsClass}`}
@@ -611,7 +751,7 @@ export function VideoPlayer({
               onClick={enhancer.toggleEnabled}
               className="relative p-1.5 rounded-md hover:bg-white/15 transition-colors flex items-center justify-center"
               aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
-              title={enhancer.state.enabled ? "Enhancer ON — click to turn off (E)" : "Enhancer OFF — click to turn on (E)"}
+              title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
             >
               <div className="relative w-4 h-4">
                 <Eye className={`absolute inset-0 h-4 w-4 transition-all duration-300 ${enhancer.state.enabled ? "opacity-100 scale-100 text-xan-crimson" : "opacity-0 scale-50 text-white/40"}`} />
@@ -679,10 +819,10 @@ export function VideoPlayer({
             style={{ width: `${pct}%` }}
           />
           {/* Skip intro marker */}
-          {settings.skipIntro && duration > 90 && (
+          {settings.skipIntro && duration > INTRO_END && (
             <div
               className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/70 rounded-full pointer-events-none"
-              style={{ left: `${(85 / duration) * 100}%` }}
+              style={{ left: `${(INTRO_END / duration) * 100}%` }}
               title="Intro"
             />
           )}
@@ -965,8 +1105,8 @@ export function VideoPlayer({
       <VideoEnhancerPanel open={showEnhancer} onClose={() => setShowEnhancer(false)} />
       <AutoPlayOverlay
         open={autoPlayNext}
-        onCancel={() => onAutoPlayCancel?.()}
-        onPlayNow={() => { onAutoPlayCancel?.(); onNext?.(); }}
+        onCancel={handleAutoPlayCancel}
+        onPlayNow={handleAutoPlayNow}
         nextEpisodeLabel={nextEpisodeLabel}
       />
     </div>

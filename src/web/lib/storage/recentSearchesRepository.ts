@@ -15,7 +15,13 @@ const MAX_ENTRIES = 10;
 function load(): LocalRecentSearch[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as LocalRecentSearch[];
+    if (raw) {
+      // L-8 FIX: try/catch only protects against INVALID JSON — a valid but
+      // non-array payload (corruption / foreign writer / future schema) used
+      // to pass through and crash consumers calling .filter()/.some() on it.
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as LocalRecentSearch[]) : [];
+    }
   } catch {
     // ignore
   }
@@ -53,5 +59,9 @@ export function clearRecentSearches(): void {
 }
 
 export function removeRecentSearch(query: string): void {
-  save(load().filter((e) => e.query !== query));
+  // L-7 FIX: addRecentSearch dedupes case-INSENSITIVELY, but remove compared
+  // case-sensitively — a stored "Naruto" could never be removed via
+  // removeRecentSearch("naruto"). Match the add-side behavior.
+  const target = query.trim().toLowerCase();
+  save(load().filter((e) => e.query.toLowerCase() !== target));
 }

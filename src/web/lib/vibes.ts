@@ -592,7 +592,12 @@ const RULES: VibeRule[] = [
     emoji: "🍳",
     genres: ["Gourmet", "Slice of Life", "Comedy"],
     tags: ["Cooking", "Food", "Restaurant", "Chef", "Cuisine", "Recipe"],
-    minMatches: 1,
+    // M-15 FIX: minMatches 1 violated the file's own design rule (lines
+    // 23-25: only SPECIFIC single genres like Mecha/Music/Sports/Horror may
+    // fire with 1 match). A bare "Slice of Life" or "Comedy" genre alone
+    // satisfied this rule, mislabeling every non-food SoL/comedy anime
+    // that didn't score ≥2 on another rule as "Cooking & food".
+    minMatches: 2,
   },
   {
     vibe: "travel-journey",

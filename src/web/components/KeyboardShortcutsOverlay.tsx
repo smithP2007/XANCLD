@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 interface Props {
@@ -24,17 +24,23 @@ const SHORTCUTS: { keys: string[]; action: string }[] = [
 ];
 
 export function KeyboardShortcutsOverlay({ open, onClose }: Props) {
+  // M-10 FIX: latest callback via ref — rebinds the keydown listener only on
+  // genuine open/close, not on every parent re-render's new inline identity.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" || e.key === "?") {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
