@@ -13,6 +13,7 @@ import {
   Maximize,
   List,
   RotateCw,
+  AlertTriangle,
 } from "lucide-react";
 import { fetchAnimeDetail, getTitle, type AnimeDetail } from "../lib/anilist";
 import {
@@ -23,6 +24,7 @@ import {
 // gogoanime removed
 import { getKotoSource } from "../lib/providers/koto";
 import { fetchZenSources } from "../lib/providers/zen";
+import { isZenEmbedUrl, buildZenEmbedUrl, useZenBridge } from "../lib/zenBridge";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
 import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
 import { VideoEnhancerPanel } from "../components/VideoEnhancerPanel";
@@ -466,6 +468,67 @@ export function Watch() {
   }, [navigate, animeId, episode]);
   const handleRetry = useCallback(() => setRetryKey((k) => k + 1), []);
 
+  // ─── Zen (FlixCloud) player bridge — reanime.to feature parity ───
+  // reanime decorates the SAME flixcloud embeds with player preferences
+  // (start_at resume, skI/skO auto skip, autoPlay, a=1 dub audio) and runs a
+  // postMessage bridge for progress/auto-next/fullscreen/error handling.
+  // Ported via useZenBridge — see src/web/lib/zenBridge.ts.
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [zenPlayerError, setZenPlayerError] = useState(false);
+
+  const isZenStream =
+    !!streamForPlayer &&
+    streamForPlayer.type === "iframe" &&
+    isZenEmbedUrl(streamForPlayer.url);
+
+  const iframeSrc = useMemo(() => {
+    if (!streamForPlayer || streamForPlayer.type !== "iframe") return "";
+    if (!isZenEmbedUrl(streamForPlayer.url)) return streamForPlayer.url;
+    return buildZenEmbedUrl(streamForPlayer.url, {
+      startAt: settings.autoResume ? (resumeTime ?? 0) : 0,
+      skipIntro: settings.skipIntro,
+      skipOutro: settings.skipOutro,
+      autoPlay: settings.autoplay,
+      dub: mode === "dub",
+    });
+  }, [
+    streamForPlayer,
+    settings.autoResume,
+    settings.skipIntro,
+    settings.skipOutro,
+    settings.autoplay,
+    mode,
+    resumeTime,
+  ]);
+
+  // Fresh stream → clear the error banner and reset bridge guards.
+  useEffect(() => {
+    setZenPlayerError(false);
+  }, [streamForPlayer?.url, episode]);
+
+  const handleZenEnded = useCallback(() => {
+    // Iframe players can't render XANCLD's autoplay overlay — mirror
+    // reanime: give it a beat, then navigate to the next episode.
+    if (settings.autoplay && hasNextEpisode) {
+      window.setTimeout(() => navigate(`/watch/${animeId}?ep=${episode + 1}`), 2000);
+    }
+  }, [settings.autoplay, hasNextEpisode, navigate, animeId, episode]);
+  const handleZenError = useCallback(() => setZenPlayerError(true), []);
+
+  useZenBridge({
+    enabled: isZenStream,
+    iframeRef,
+    streamKey: iframeSrc,
+    getFullscreenElement: () => document.getElementById("iframe-player-container"),
+    resumeSeconds: settings.autoResume ? (resumeTime ?? 0) : 0,
+    skipIntro: settings.skipIntro,
+    skipOutro: settings.skipOutro,
+    autoPlay: settings.autoplay,
+    onProgress: handleProgress,
+    onEnded: handleZenEnded,
+    onError: handleZenError,
+  });
+
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 space-y-6">
       {/* Back button */}
@@ -530,8 +593,20 @@ export function Watch() {
           ) : streamForPlayer ? (
             streamForPlayer.type === "iframe" ? (
               <div className="space-y-2">
-                {/* Dub hint for dual-audio iframe providers (Zen/Koto) */}
-                {mode === "dub" && (streamForPlayer.provider === "zen" || streamForPlayer.provider === "koto") && (
+                {/* Dub hint for dual-audio iframe providers — Zen auto-selects the
+                    English track via the a=1 embed param (reanime parity); Koto
+                    still needs the manual in-player switch. */}
+                {mode === "dub" && streamForPlayer.provider === "zen" && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-xan-crimson/10 border border-xan-crimson/30 text-sm text-foreground">
+                    <Volume2 className="h-4 w-4 text-xan-crimson flex-shrink-0" />
+                    <span>
+                      <strong className="text-xan-crimson">Dub selected:</strong> English audio is
+                      auto-selected in this player. If it still plays Japanese, switch tracks via
+                      the player's <strong>speaker icon</strong>.
+                    </span>
+                  </div>
+                )}
+                {mode === "dub" && streamForPlayer.provider === "koto" && (
                   <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-xan-crimson/10 border border-xan-crimson/30 text-sm text-foreground">
                     <Volume2 className="h-4 w-4 text-xan-crimson flex-shrink-0" />
                     <span>
@@ -539,6 +614,22 @@ export function Watch() {
                       This player has dual audio (sub + dub). Click the{" "}
                       <strong>speaker/language icon</strong> inside the player to switch to English dub.
                     </span>
+                  </div>
+                )}
+                {/* Zen player reported a fatal error (postMessage playerStatus:"Error") */}
+                {zenPlayerError && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-foreground">
+                    <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0" />
+                    <span className="flex-1">
+                      <strong>The Zen player reported an error.</strong> Pick another server below
+                      or retry.
+                    </span>
+                    <button
+                      onClick={handleRetry}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/20 border border-red-500/40 text-xs font-medium text-foreground hover:bg-red-500/30 transition-colors flex-shrink-0"
+                    >
+                      <RotateCw className="h-3 w-3" /> Retry
+                    </button>
                   </div>
                 )}
                 {/* Enhancer toggle + eye toggle + fullscreen for iframe */}
@@ -589,7 +680,8 @@ export function Watch() {
                 </div>
                 <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border" id="iframe-player-container">
                   <iframe
-                    src={streamForPlayer.url}
+                    ref={iframeRef}
+                    src={iframeSrc || streamForPlayer.url}
                     className="w-full h-full"
                     style={enhancer.active ? {
                       filter: enhancer.filterCss,
