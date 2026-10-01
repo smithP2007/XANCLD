@@ -236,8 +236,7 @@ export function useZenBridge(opts: ZenBridgeOptions): void {
       const last = lastProgressRef.current;
       const meaningful = typeof d === "number" && d > 0;
 
-      // First real time report → push preferences (+ resume seek as a
-      // belt-and-braces alongside the start_at URL param).
+      // First real time report → push preferences.
       if (meaningful && !prefsSentRef.current) {
         prefsSentRef.current = true;
         sendToPlayer({
@@ -248,11 +247,21 @@ export function useZenBridge(opts: ZenBridgeOptions): void {
             autoPlay: !!cbRef.current.autoPlay,
           },
         });
-        const resume = cbRef.current.resumeSeconds ?? 0;
-        if (resume > 5 && t !== undefined && t < resume - 2 && !resumeSentRef.current) {
-          resumeSentRef.current = true;
-          sendToPlayer({ command: "seek", value: Math.floor(resume) });
-        }
+      }
+      // Resume seek — belt-and-braces alongside the start_at URL param.
+      // L-22 FIX: this used to live INSIDE the prefs block, so a first
+      // report carrying duration but no currentTime marked prefs as sent
+      // and skipped the seek forever. It now has its own one-shot guard.
+      const resume = cbRef.current.resumeSeconds ?? 0;
+      if (
+        meaningful &&
+        resume > 5 &&
+        t !== undefined &&
+        t < resume - 2 &&
+        !resumeSentRef.current
+      ) {
+        resumeSentRef.current = true;
+        sendToPlayer({ command: "seek", value: Math.floor(resume) });
       }
 
       if (typeof t === "number" && meaningful) {

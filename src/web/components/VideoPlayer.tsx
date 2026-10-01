@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 import type { StreamResult } from "../lib/allanime";
-import type { XanSettings } from "../hooks/useSettings";
+import { updateSettings, type XanSettings } from "../hooks/useSettings";
 import { KeyboardShortcutsOverlay } from "./KeyboardShortcutsOverlay";
 import { AutoPlayOverlay } from "./AutoPlayOverlay";
 import { VideoEnhancerPanel } from "./VideoEnhancerPanel";
@@ -315,7 +315,11 @@ export function VideoPlayer({
       video.removeEventListener("error", onError);
       video.removeEventListener("volumechange", onVolumeChangeEvt);
     };
-  }, [resumeTime, settings.skipIntro, onProgress, onEnded]);
+  // L-19 FIX: settings.skipOutro is read inside onTime but was missing from
+  // these deps — a stale closure would have kept the OLD value if the
+  // setting ever changed while the player stayed mounted. (skipIntro was
+  // already here; skipOutro is the same class of dependency.)
+  }, [resumeTime, settings.skipIntro, settings.skipOutro, onProgress, onEnded]);
 
   // ─── Fullscreen ───
   useEffect(() => {
@@ -382,6 +386,11 @@ export function VideoPlayer({
     if (!v) return;
     v.volume = val;
     v.muted = val === 0;
+    // M-27 FIX: persist the player's volume — the settings-apply effect used
+    // to snap it back to settings.volume (default 80) on every episode or
+    // server change. The Settings-page slider already persisted; now the
+    // in-player slider and the ArrowUp/ArrowDown keys do too.
+    updateSettings({ volume: Math.round(val * 100) });
   }, []);
 
   const seek = useCallback((val: number) => {
@@ -546,13 +555,11 @@ export function VideoPlayer({
           break;
         case "ArrowUp":
           e.preventDefault();
-          if (videoRef.current)
-            videoRef.current.volume = Math.min(1, videoRef.current.volume + 0.1);
+          changeVolume(Math.min(1, (videoRef.current?.volume ?? 0) + 0.1));
           break;
         case "ArrowDown":
           e.preventDefault();
-          if (videoRef.current)
-            videoRef.current.volume = Math.max(0, videoRef.current.volume - 0.1);
+          changeVolume(Math.max(0, (videoRef.current?.volume ?? 0) - 0.1));
           break;
         case "m":
           toggleMute();
@@ -588,6 +595,7 @@ export function VideoPlayer({
     toggleMute,
     toggleFullscreen,
     seekBy,
+    changeVolume,
     onNext,
     onPrev,
     showControlsTemporarily,

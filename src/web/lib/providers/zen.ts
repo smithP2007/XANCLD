@@ -3,10 +3,11 @@
 // We proxy through /api/stream-zen to avoid CORS (flixcloud.cc is behind Cloudflare)
 //
 // NOTE: flixcloud.cc returns "dual" audio (both sub + dub in one player).
-// The player defaults to sub (default_audio_track:0). There is no URL
-// parameter to change the default audio track — the user must switch
-// audio inside the player's UI (speaker icon → audio track selector).
-// We label the source as "Dual Audio" so users know they can switch.
+// The player defaults to sub. In DUB mode the Watch page decorates the
+// embed with a=1 (see zenBridge.ts buildZenEmbedUrl — the same parameter
+// reanime.to uses), which auto-selects the English/dub audio track, so no
+// manual switching is needed. The source is labeled "Zen (Dual→Dub)" when
+// dub is requested; the player's speaker icon still allows manual switches.
 
 export interface ZenSource {
   url: string;

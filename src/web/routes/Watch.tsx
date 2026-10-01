@@ -32,7 +32,9 @@ import { VideoPlayer } from "../components/VideoPlayer";
 import { EpisodePickerSheet } from "../components/EpisodePickerSheet";
 import { EpisodePanel } from "../components/EpisodePanel";
 
-type Provider = "allanime" | "koto" | "zen";
+// L-21 FIX: "demo" is its own provider tier so the Big Buck Bunny fallback
+// no longer masquerades under the "AllAnime" group in the Servers panel.
+type Provider = "allanime" | "koto" | "zen" | "demo";
 
 interface UnifiedSource {
   url: string;
@@ -81,6 +83,11 @@ export function Watch() {
   // to a positive integer, defaulting to 1.
   const parsedEp = parseInt(searchParams.get("ep") || "1", 10);
   const episode = Number.isFinite(parsedEp) && parsedEp >= 1 ? parsedEp : 1;
+  // L-18 FIX: the command menu's continue-watching entries link with an
+  // explicit &t=<seconds> timestamp that Watch never parsed — such a click
+  // silently started from 0:00 (or from the autoResume lookup). Honor it.
+  const parsedT = parseFloat(searchParams.get("t") || "");
+  const resumeOverride = Number.isFinite(parsedT) && parsedT > 5 ? parsedT : undefined;
   const animeId = parseInt(id || "0", 10);
 
   const [settings] = useSettings();
@@ -113,20 +120,17 @@ export function Watch() {
     allanime: "idle",
     koto: "idle",
     zen: "idle",
+    demo: "idle",
   });
 
   // Cache AllAnime show ID to avoid re-searching on every episode change
   const allAnimeShowIdRef = useRef<string | null>(null);
-  // Guard ref for "first provider to resolve wins" — must live at the top
-  // level of the component (NOT inside the useEffect below) so the Rules
-  // of Hooks aren't violated. Reset to false at the start of each
-  // episode/mode change effect.
-  const firstResolvedRef = useRef(false);
   // H-2 FIX: per-run identity for the provider-loading effect. The effect
   // spawns async work that can outlive the run (user clicks episode 2 while
   // episode 1's providers are still resolving). Without a run guard, the OLD
   // run's callbacks fired after the new run reset firstResolvedRef, so the
   // old episode's sources won the race and played under the new episode URL.
+  // (The claim logic now uses a per-run local `claimed` flag instead.)
   const runIdRef = useRef(0);
 
   // Load stream from a specific provider
@@ -204,13 +208,12 @@ export function Watch() {
     // ep 1 (saved at 5:00) to ep 2 would carry over ep 1's resume point.
     setResumeTime(undefined);
     allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
-    firstResolvedRef.current = false; // Reset "first-resolved wins" guard
     (async () => {
       setLoading(true);
       setError(null);
       setStream(null);
       setAllSources([]);
-      setProviderStatus({ allanime: "idle", koto: "idle", zen: "idle" });
+      setProviderStatus({ allanime: "idle", koto: "idle", zen: "idle", demo: "idle" });
 
       try {
         const detail = await fetchAnimeDetail(animeId);
@@ -237,7 +240,12 @@ export function Watch() {
         // M-19 FIX: the "Auto-resume from last position" toggle was a dead
         // setting — this lookup ran unconditionally, so disabling it in
         // Settings changed nothing. Honor it now.
-        if (settings.autoResume) {
+        // L-18 FIX: an explicit &t= timestamp (command menu continue-watching)
+        // wins over the plain history lookup — the user clicked a specific
+        // "continue at" position, so honor it regardless of autoResume.
+        if (resumeOverride !== undefined) {
+          setResumeTime(resumeOverride);
+        } else if (settings.autoResume) {
           const history = getHistory();
           const existing = history.find(
             (e) => e.animeId === animeId && e.episode === episode,
@@ -319,62 +327,106 @@ export function Watch() {
           return;
         }
 
-        // ─── PARALLEL provider loading ───
-        // Load ALL providers at once via Promise.allSettled. This is much
-        // faster than sequential loading — Koto (instant) and Zen (fast
-        // CORS proxy) resolve first and the video starts playing immediately,
-        // while AllAnime (slowest — AES-GCM crypto + multiple API calls)
-        // finishes in the background and populates the server picker.
-        //
-        // We use Promise.allSettled (not Promise.all) so a failure in one
-        // provider doesn't reject the entire batch.
+        // ─── PRIORITY-AWARE parallel provider loading ───
+        // All providers still load in parallel for speed (Koto instant, Zen a
+        // fast CORS proxy, AllAnime the slowest — AES-GCM crypto + multiple
+        // API calls), but M-25 FIX: "first resolved wins" used to mean
+        // "FASTEST wins" — Koto builds its iframe URL synchronously, so it
+        // claimed playback in BOTH sub and dub mode and the dub ordering
+        // [allanime, zen, koto] plus the user's preferredProvider never
+        // mattered. Now a provider may only CLAIM playback once every
+        // higher-priority provider has either resolved (with or without
+        // usable sources) or run out of its head-start window. Once claimed,
+        // playback is never stolen — later higher-priority sources still
+        // populate the server picker. Promise.allSettled keeps one failed
+        // provider from rejecting the batch.
+        // 3000ms measured: Zen settles in ~0.9–1.2s typically (up to ~2.5s
+        // behind Cloudflare variance), AllAnime's failure path can take 2s+.
+        // Providers that fail fast unblock lower tiers instantly; the window
+        // only ever delays playback when the top-priority provider is still
+        // genuinely working — bounded at 3s worst case.
+        const PRIORITY_HEAD_START_MS = 3000;
+        const claimDeadline = Date.now() + PRIORITY_HEAD_START_MS;
+        const settledSources = new Map<Provider, UnifiedSource[]>();
+        let claimed = false;
+        let claimTimer: number | null = null;
+
+        const pickBest = (provSources: UnifiedSource[]): UnifiedSource | undefined => {
+          const directSources = provSources.filter((s) => s.type === "mp4" || s.type === "hls");
+          const iframeSources = provSources.filter((s) => s.type === "iframe");
+          return directSources[0] ?? iframeSources[0] ?? provSources[0];
+        };
+
+        const claimBestSource = () => {
+          if (claimed || isStale()) {
+            if (claimTimer !== null) {
+              clearTimeout(claimTimer);
+              claimTimer = null;
+            }
+            return;
+          }
+          for (const prov of finalOrderedProviders) {
+            const provSources = settledSources.get(prov);
+            if (!provSources || provSources.length === 0) {
+              // Resolved empty → no longer a contender, skip over. Still
+              // pending → it BLOCKS lower-priority tiers, but only inside
+              // the head-start window (after the window a slow provider
+              // must not hold playback hostage).
+              if (!settledSources.has(prov) && Date.now() < claimDeadline) return;
+              continue;
+            }
+            // Claim: clear the deadline timer, mark, start playback.
+            if (claimTimer !== null) {
+              clearTimeout(claimTimer);
+              claimTimer = null;
+            }
+            claimed = true;
+            const best = pickBest(provSources);
+            if (best) {
+              console.log(`[Watch] ${prov} claimed playback: ${best.sourceName}`);
+              setStream(best);
+              setLoading(false);
+            }
+            return;
+          }
+        };
+        claimTimer = window.setTimeout(claimBestSource, PRIORITY_HEAD_START_MS);
+
         const providerPromises = finalOrderedProviders.map((prov) =>
-          loadFromProvider(prov, title).then((provSources) => ({
+          // H-8 FIX: the parallel path used to omit isStale — a superseded
+          // run's late findShowByAniListId success then wrote its show ID
+          // into allAnimeShowIdRef unconditionally (the `!isStale?.()` guard
+          // is vacuously true for undefined), so navigating to another anime
+          // while a search was still in flight could stream the WRONG show.
+          // It also let stale runs scribble provider-status dots.
+          loadFromProvider(prov, title, isStale).then((provSources) => ({
             prov,
             sources: provSources.filter((s) => !settings.disabledSources.includes(s.sourceName)),
           })),
         );
 
-        // As each provider resolves, immediately update the UI with its sources.
-        // This means if Koto resolves first (instant), the video starts playing
-        // right away — we don't wait for AllAnime to finish.
-        let sources: UnifiedSource[] = [];
-        // NOTE: firstResolvedRef is declared at the top of the component
-        // (hooks can't be called inside useEffect/async). It's reset to
-        // false at the start of this effect.
-
+        // As each provider resolves, record its sources for the claim walk
+        // and populate the server picker immediately.
         providerPromises.forEach((promise) => {
           promise.then(({ prov, sources: provSources }) => {
             // H-2 FIX: drop results from superseded runs
             if (isStale()) return;
+            settledSources.set(prov, provSources);
             if (provSources.length > 0) {
               console.log(`[Watch] ${prov} resolved with ${provSources.length} sources`);
-              // Add to allSources for the server picker
               setAllSources((prev) => {
                 const existingUrls = new Set(prev.map((s) => s.url));
                 const newOnes = provSources.filter((s) => !existingUrls.has(s.url));
                 return [...prev, ...newOnes];
               });
-
-              // If this is the FIRST provider to resolve, immediately start
-              // playing its best source — don't wait for slower providers.
-              if (!firstResolvedRef.current) {
-                firstResolvedRef.current = true;
-                const directSources = provSources.filter((s) => s.type === "mp4" || s.type === "hls");
-                const iframeSources = provSources.filter((s) => s.type === "iframe");
-                const best = directSources[0] ?? iframeSources[0] ?? provSources[0];
-                if (best) {
-                  console.log(`[Watch] Starting playback from ${prov}: ${best.sourceName}`);
-                  setStream(best);
-                  setLoading(false);
-                }
-              }
             }
+            claimBestSource();
           });
         });
 
         // Wait for ALL providers to finish (for the server picker), but
-        // playback has already started from the first-resolved provider.
+        // playback has normally already been claimed by then.
+        let sources: UnifiedSource[] = [];
         const results = await Promise.allSettled(providerPromises);
         for (const result of results) {
           if (result.status === "fulfilled" && result.value.sources.length > 0) {
@@ -383,8 +435,10 @@ export function Watch() {
           }
         }
 
-        // If no provider resolved with sources, show error or demo fallback
-        if (sources.length === 0 && !firstResolvedRef.current) {
+        // If nothing claimed and no provider produced usable sources, show
+        // the explicit demo fallback (H-7) — L-21 FIX: now under its own
+        // "demo" provider instead of masquerading as AllAnime.
+        if (sources.length === 0 && !claimed) {
           if (isStale()) return;
           console.log("[Watch] All providers failed — adding demo stream fallback");
           const demoSource: UnifiedSource = {
@@ -392,7 +446,7 @@ export function Watch() {
             type: "hls" as const,
             quality: "Demo",
             sourceName: "Demo Stream",
-            provider: "allanime" as const,
+            provider: "demo" as const,
           };
           setAllSources([demoSource]);
           setStream(demoSource);
@@ -405,7 +459,7 @@ export function Watch() {
         }
       }
     })();
-  }, [animeId, episode, mode, provider, retryKey]);
+  }, [animeId, episode, mode, provider, retryKey, resumeOverride]);
 
   // Filter sources based on user's disabledSources + pinnedSource settings
   const filteredSources = useMemo(() => {
@@ -502,17 +556,38 @@ export function Watch() {
   ]);
 
   // Fresh stream → clear the error banner and reset bridge guards.
+  // M-26 FIX: retryKey is part of the identity — Retry re-resolves the SAME
+  // zen URL, and without it the stale "player reported an error" banner
+  // stayed visible above the freshly remounted iframe.
   useEffect(() => {
     setZenPlayerError(false);
-  }, [streamForPlayer?.url, episode]);
+  }, [streamForPlayer?.url, episode, retryKey]);
 
+  // M-28 FIX: the 2s auto-next timer is now tracked and cancelled — the bare
+  // setTimeout used to fire after the user left the watch page (or switched
+  // episodes) and navigate them to the next episode against their will.
+  const zenEndedTimerRef = useRef<number | null>(null);
   const handleZenEnded = useCallback(() => {
     // Iframe players can't render XANCLD's autoplay overlay — mirror
     // reanime: give it a beat, then navigate to the next episode.
     if (settings.autoplay && hasNextEpisode) {
-      window.setTimeout(() => navigate(`/watch/${animeId}?ep=${episode + 1}`), 2000);
+      if (zenEndedTimerRef.current !== null) window.clearTimeout(zenEndedTimerRef.current);
+      zenEndedTimerRef.current = window.setTimeout(() => {
+        zenEndedTimerRef.current = null;
+        navigate(`/watch/${animeId}?ep=${episode + 1}`);
+      }, 2000);
     }
   }, [settings.autoplay, hasNextEpisode, navigate, animeId, episode]);
+  // Cancel on unmount AND on anime/episode change — route param changes do
+  // NOT remount this component, so an unmount-only cleanup would miss it.
+  useEffect(() => {
+    return () => {
+      if (zenEndedTimerRef.current !== null) {
+        window.clearTimeout(zenEndedTimerRef.current);
+        zenEndedTimerRef.current = null;
+      }
+    };
+  }, [animeId, episode]);
   const handleZenError = useCallback(() => setZenPlayerError(true), []);
 
   useZenBridge({
@@ -923,12 +998,13 @@ export function Watch() {
               <div className="space-y-3 max-h-64 overflow-y-auto pr-1 no-scrollbar">
                 {/* Group by provider */}
                 {(() => {
-                  const providerOrder = ["allanime", "zen", "koto"];
+                  const providerOrder = ["allanime", "zen", "koto", "demo"];
                   const groups = providerOrder.map((p) => ({
                     providerId: p,
                     label: p === "allanime" ? "AllAnime"
                       : p === "zen" ? "Zen"
                       : p === "koto" ? "Koto"
+                      : p === "demo" ? "Demo"
                       : p.charAt(0).toUpperCase() + p.slice(1),
                     items: filteredSources
                       .map((s, idx) => ({ s, idx }))
