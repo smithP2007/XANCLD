@@ -11,7 +11,7 @@ const SYNC_EVENT = "xan-recent-searches-sync";
 
 /**
  * useRecentSearches — React hook over the recent-searches repository.
- * Mirrors the pub/sub pattern used by useBookmarks/useHiddenTitles.
+ * Mirrors the pub/sub pattern used by useBookmarks/useAnimeList.
  */
 export function useRecentSearches() {
   const [recent, setRecent] = useState<LocalRecentSearch[]>([]);

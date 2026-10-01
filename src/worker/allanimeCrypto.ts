@@ -1,5 +1,7 @@
 // AllAnime mkissa.to direct-crypto resolver — ported from XAN/cf-worker/worker.js
 //
+import { RT } from "./runtimeConfig";
+//
 // As of mid-2026, AllAnime migrated from allmanga.to to mkissa.to and now
 // requires a signed `aaReq` extension on every episode GraphQL query.
 // Without it, the server returns `AA_CRYPTO_MISSING` and zero sources.
@@ -32,9 +34,9 @@
 const MASK_HEX = "f5dc46e6f42968c5ed0eab602d6ae8f2107991006f02876947e64fcb75d53da6";
 const BUILD_ID = "13";
 const OLD_KEY_STR = "Xot36i3lK3:v1";
-const ALLANIME_API = "https://api.allanime.day/api";
+// B8: domains now come from runtimeConfig.ts (wrangler.toml [vars] overridable)
 const MKISSA_EPISODE_URL = (showId: string, ep: string, mode: string) =>
-  `https://mkissa.to/watch/${showId}/p-${ep}-${mode}`;
+  `${RT().mkissaWatchBase}/watch/${showId}/p-${ep}-${mode}`;
 
 export interface SourceUrl {
   sourceName: string;
@@ -121,7 +123,11 @@ async function fetchAaCrypto(
   translationType: string,
 ): Promise<{ epoch: string; partB: string }> {
   const url = MKISSA_EPISODE_URL(showId, episodeString, translationType);
+  // B3 FIX: this fetch (and its HTML body read) previously had no timeout —
+  // a hung mkissa.to would pin the request until Workers' own limits.
+  // 15s matches the /api/proxy-post budget; the caller retries once anyway.
   const res = await fetch(url, {
+    signal: AbortSignal.timeout(15_000),
     headers: {
       "User-Agent":
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -339,7 +345,7 @@ export async function fetchAllAnimeEpisodeDirect(
       },
     };
 
-    const res = await fetch(ALLANIME_API, {
+    const res = await fetch(RT().allanimeApi, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -378,7 +384,7 @@ export async function fetchAllAnimeEpisodeDirect(
         );
         const freshAaReq = await buildAaReq(queryHash, freshCrypto.aaCrypto.epoch, freshCrypto.aesKey);
 
-        const retryRes = await fetch(ALLANIME_API, {
+        const retryRes = await fetch(RT().allanimeApi, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

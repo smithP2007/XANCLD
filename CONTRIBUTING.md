@@ -24,7 +24,7 @@ Thanks for your interest in contributing! This guide will help you get started.
 ### Running both frontend and API locally
 
 The app has two parts:
-- **Frontend** (Vite dev server, port 5173) — the React SPA
+- **Frontend** (Vite dev server, port 3000) — the React SPA
 - **API** (Wrangler dev, port 3003) — the Hono CORS proxy
 
 Vite's dev config proxies `/api/*` requests to port 3003 automatically.
@@ -78,7 +78,7 @@ bun run deploy       # Build + deploy to Cloudflare Workers
 
 ## 🔌 Adding a New API Source
 
-1. Add the host to the `ALLOWED_HOSTS` array in `src/worker/index.ts`
+1. Add the host to the `PROXY_ALLOWED_HOSTS` array in `src/worker/index.ts`
 2. Add extraction logic in `src/web/lib/allanime.ts` if the source needs special handling
 
 ## 📦 Committing

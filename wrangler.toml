@@ -1,7 +1,16 @@
 name = "xancld"
 main = "src/worker/index.ts"
-compatibility_date = "2025-01-01"
+# B8: refreshed from 2025-01-01 so the worker runtime gets current fixes
+compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
+
+# B8: upstream provider domains are config now (see src/worker/runtimeConfig.ts).
+# When a provider rotates domains, change them here (or in the CF dashboard)
+# instead of editing code. Defaults live in runtimeConfig.ts.
+[vars]
+ALLANIME_API = "https://api.allanime.day/api"
+MKISSA_ORIGIN = "https://mkissa.to"
+ZEN_HOST = "https://flixcloud.cc"
 
 [assets]
 directory = "dist"

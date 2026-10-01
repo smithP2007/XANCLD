@@ -9,7 +9,6 @@
  *   - Genre overlap is included but tagged as a coarse signal (most Shounen
  *     share Action/Adventure/Comedy, so it's a weak discriminator alone).
  *   - Filters out COMPLETED titles (don't re-recommend finished shows).
- *   - Excludes hidden IDs with a large negative score (effectively exclude).
  *   - Suppresses titles the user already dismissed recently unless they're
  *     currently in-progress (avoid re-suggesting dismissed titles).
  *   - Trending is only a small tie-breaker, not a primary signal.
@@ -26,7 +25,7 @@
  * This module is pure TypeScript — no React, no localStorage access.
  */
 import type { AnimeCard } from "./anilist";
-import type { LocalHiddenTitle, LocalRecentlyViewed } from "./storage/storageTypes";
+import type { LocalRecentlyViewed } from "./storage/storageTypes";
 import type { BookmarkEntry } from "../hooks/useBookmarks";
 import type { ListEntry } from "../hooks/useAnimeList";
 
@@ -34,7 +33,6 @@ export interface RecommendationContext {
   bookmarks: BookmarkEntry[];
   animeList: ListEntry[];
   recentlyViewed: LocalRecentlyViewed[];
-  hidden: LocalHiddenTitle[];
   /**
    * Genres the user has demonstrated affinity for (e.g., genres of the
    * bookmarked anime currently being used as the recommendation seed).
@@ -69,10 +67,6 @@ const MOOD_GENRES: Record<Mood, string[]> = {
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-function hiddenSet(hidden: LocalHiddenTitle[]): Set<number> {
-  return new Set(hidden.map((h) => h.animeId));
-}
-
 function recentlyViewedSet(recent: LocalRecentlyViewed[]): Set<number> {
   return new Set(recent.map((r) => r.animeId));
 }
@@ -115,7 +109,6 @@ function genreOverlap(candidateGenres: string[] | undefined, signal: string[]): 
 // per candidate — creating hundreds of redundant Sets. Now pre-computed once
 // in recommendTopN and passed to scoreAnime.
 interface PrecomputedSets {
-  hidden: Set<number>;
   completed: Set<number>;
   inProgress: Set<number>;
   recentlyViewed: Set<number>;
@@ -128,15 +121,9 @@ export function scoreAnime(
   sets?: PrecomputedSets,
 ): { score: number; reason: string } {
   // Use pre-computed sets if provided, otherwise compute (backward compat)
-  const hiddenIds = sets?.hidden ?? hiddenSet(ctx.hidden);
   const completedIds = sets?.completed ?? completedSet(ctx.animeList);
   const inProgressIds = sets?.inProgress ?? inProgressSet(ctx.animeList);
   const recentlyViewedIds = sets?.recentlyViewed ?? recentlyViewedSet(ctx.recentlyViewed);
-
-  // Hard exclusion: hidden titles never appear in recommendations.
-  if (hiddenIds.has(candidate.id)) {
-    return { score: -1000, reason: "Hidden" };
-  }
 
   let score = 0;
   let topReason = "Trending pick";
@@ -196,7 +183,6 @@ export function recommendTopN(
 ): ScoredRecommendation[] {
   // M-4 FIX: Pre-compute sets ONCE instead of inside every scoreAnime() call.
   const sets: PrecomputedSets = {
-    hidden: hiddenSet(ctx.hidden),
     completed: completedSet(ctx.animeList),
     inProgress: inProgressSet(ctx.animeList),
     recentlyViewed: recentlyViewedSet(ctx.recentlyViewed),

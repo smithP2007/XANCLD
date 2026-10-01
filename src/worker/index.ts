@@ -12,10 +12,18 @@
 
 import { Hono } from "hono";
 import { fetchAllAnimeEpisodeDirect } from "./allanimeCrypto";
+import { initRuntimeConfig, RT, originAllowed } from "./runtimeConfig";
 
 // ─── Environment bindings ──────────────────────────────────────
 interface Env {
   ASSETS: Fetcher;
+  // B8: provider domains come from wrangler.toml [vars] (runtimeConfig.ts
+  // applies defaults, so these stay optional).
+  ALLANIME_API?: string;
+  MKISSA_ORIGIN?: string;
+  ZEN_HOST?: string;
+  // B3/B8: optional opt-in relay protection (comma-separated origins)
+  ALLOWED_ORIGINS?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -35,15 +43,21 @@ app.use("*", async (c, next) => {
   Object.entries(corsHeaders).forEach(([k, v]) => c.header(k, v));
 });
 
+// B8: snapshot provider domains from [vars] before any route runs.
+app.use("*", async (c, next) => {
+  initRuntimeConfig(c.env as unknown as Record<string, unknown>);
+  await next();
+});
+
 // ─── AllAnime constants ────────────────────────────────────────
 // As of mid-2026, AllAnime migrated from allmanga.to → mkissa.to.
 // The new mkissa.to requires a signed aaReq extension (handled in
 // /api/allanime/episode below). The legacy /api/proxy + /api/proxy-post
 // routes still use these headers for the search query (which doesn't need
 // the new crypto) and for embed-page HTML scraping.
-const ALLANIME_API = "https://api.allanime.day/api";
-const REFERER = "https://mkissa.to/";
-const ORIGIN = "https://mkissa.to";
+// B8: the domains moved to runtimeConfig.ts (wrangler.toml [vars]); the
+// previously-dead ALLANIME_API copy here was removed — allanimeCrypto.ts
+// owns the one real usage.
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0";
 
@@ -106,6 +120,11 @@ const PROXY_ALLOWED_HOSTS = [
 //
 // The browser does all the parsing/decryption. This worker just fetches.
 app.get("/api/proxy", async (c) => {
+  // B3/B8: opt-in relay protection (no-op unless ALLOWED_ORIGINS is set)
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
+
   const url = c.req.query("url");
   if (!url) {
     return c.json({ error: "Missing url parameter" }, 400);
@@ -136,15 +155,21 @@ app.get("/api/proxy", async (c) => {
       signal: controller.signal,
       headers: {
         "User-Agent": USER_AGENT,
-        Referer: REFERER,
-        Origin: ORIGIN,
+        Referer: RT().allanimeReferer,
+        Origin: RT().allanimeOrigin,
         Accept: "application/json, text/html, */*",
       },
     });
 
+    // B3 FIX: keep the abort timer armed through the BODY read. It used to
+    // be cleared right after the headers arrived, leaving `res.text()`
+    // unbounded — a slow/large upstream body could hang the request well
+    // past the 20s budget. /api/proxy only carries JSON/HTML (video streams
+    // have the dedicated Range-aware /api/stream route), so bounding the
+    // whole request at 20s is safe.
+    const body = await res.text();
     clearTimeout(timeout);
 
-    const body = await res.text();
     return new Response(body, {
       status: res.status,
       headers: {
@@ -164,6 +189,11 @@ app.get("/api/proxy", async (c) => {
 // ─── POST proxy: /api/proxy-post ───────────────────────────────
 // For AllAnime GraphQL search queries (POST with JSON body)
 app.post("/api/proxy-post", async (c) => {
+  // B3/B8: opt-in relay protection (no-op unless ALLOWED_ORIGINS is set)
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
+
   const body = await c.req.json().catch(() => null);
   if (!body?.url) {
     return c.json({ error: "Missing url in body" }, 400);
@@ -191,8 +221,8 @@ app.post("/api/proxy-post", async (c) => {
       headers: {
         "Content-Type": "application/json",
         "User-Agent": USER_AGENT,
-        Referer: REFERER,
-        Origin: ORIGIN,
+        Referer: RT().allanimeReferer,
+        Origin: RT().allanimeOrigin,
         Accept: "application/json",
       },
       body: JSON.stringify(body.body ?? {}),
@@ -225,6 +255,11 @@ app.post("/api/proxy-post", async (c) => {
 // The response body is streamed (not buffered) so large video files
 // don't exhaust worker memory. Supports Range requests for seeking.
 app.get("/api/stream", async (c) => {
+  // B3/B8: opt-in relay protection (no-op unless ALLOWED_ORIGINS is set)
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
+
   const url = c.req.query("url");
   if (!url) {
     return c.json({ error: "Missing url parameter" }, 400);
@@ -248,8 +283,8 @@ app.get("/api/stream", async (c) => {
   // Forward Range header for seeking
   const reqHeaders: Record<string, string> = {
     "User-Agent": USER_AGENT,
-    Referer: REFERER,
-    Origin: ORIGIN,
+    Referer: RT().allanimeReferer,
+    Origin: RT().allanimeOrigin,
     Accept: "*/*",
   };
   const range = c.req.header("Range");
@@ -340,6 +375,11 @@ app.get("/api/allanime/episode", async (c) => {
 // fetches. This route fetches server-side and returns the JSON response
 // with CORS headers so the client can read it.
 app.get("/api/stream-zen", async (c) => {
+  // B3/B8: opt-in relay protection (no-op unless ALLOWED_ORIGINS is set)
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
+
   const anilistId = c.req.query("anilistId");
   const episode = c.req.query("episode");
 
@@ -347,7 +387,7 @@ app.get("/api/stream-zen", async (c) => {
     return c.json({ error: "Missing anilistId or episode parameter" }, 400);
   }
 
-  const upstreamUrl = `https://flixcloud.cc/videos/raw?anilist_id=${encodeURIComponent(anilistId)}&episode=${encodeURIComponent(episode)}`;
+  const upstreamUrl = `${RT().zenHost}/videos/raw?anilist_id=${encodeURIComponent(anilistId)}&episode=${encodeURIComponent(episode)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
@@ -390,7 +430,7 @@ app.get("/api/health", (c) =>
 // This ensures /watch/1, /anime/5, /search?q=foo, etc. all return the
 // React SPA instead of 404. The browser's client-side router handles the
 // actual route rendering.
-app.get("*", (c) => {
+app.get("*", async (c) => {
   // C-5 FIX: Don't serve SPA HTML for /api/* routes — return proper 404 JSON.
   // Without this, a typo'd API route (e.g. /api/proxi) returns index.html
   // (200 OK with HTML), causing JSON.parse() errors in the client.
@@ -400,6 +440,7 @@ app.get("*", (c) => {
   // Try to serve from assets first (for /assets/*, /logo.svg, /placeholder.svg, etc.)
   // The ASSETS binding handles this automatically when not_found_handling is set,
   // but we need to explicitly fall back to index.html for SPA routes.
+  // (async for TS7: uniform Promise<Response> return type)
   return c.env.ASSETS.fetch(c.req.raw);
 });
 

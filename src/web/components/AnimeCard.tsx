@@ -1,8 +1,9 @@
+import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Star, Play, Clock, Bookmark } from "lucide-react";
 import type { AnimeCard as AnimeCardT } from "../lib/anilist";
 import { getTitle } from "../lib/anilist";
-import { useBookmarks } from "../hooks/useBookmarks";
+import { useIsBookmarked, useToggleBookmark } from "../hooks/useBookmarks";
 
 interface Props {
   anime: AnimeCardT;
@@ -10,15 +11,18 @@ interface Props {
   priority?: boolean;
 }
 
-export function AnimeCard({ anime, index = 0 }: Props) {
+// B7 FIX: memo'd + per-id bookmark selector. Previously every card instance
+// subscribed to the WHOLE bookmarks list, so toggling one bookmark
+// re-rendered every card in every visible grid. Now a card re-renders only
+// when its own bookmark flips or its `anime`/`index` props change.
+function AnimeCardBase({ anime, index = 0 }: Props) {
   const title = getTitle(anime.title);
   const image = anime.coverImage?.large ?? anime.coverImage?.extraLarge ?? "/placeholder.svg";
   const score = anime.averageScore ? `${Math.round(anime.averageScore)}%` : null;
   const episodes = anime.episodes ? `${anime.episodes} eps` : anime.status ?? "Ongoing";
   const color = anime.coverImage?.color ?? "var(--color-xan-crimson)";
-  const { isBookmarked, toggleBookmark } = useBookmarks();
-
-  const bookmarked = isBookmarked(anime.id);
+  const bookmarked = useIsBookmarked(anime.id);
+  const toggleBookmark = useToggleBookmark();
 
   return (
     <div
@@ -111,3 +115,5 @@ export function AnimeCard({ anime, index = 0 }: Props) {
     </div>
   );
 }
+
+export const AnimeCard = memo(AnimeCardBase);

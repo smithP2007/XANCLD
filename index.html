@@ -8,7 +8,40 @@
     <meta name="description" content="Stream anime without the noise. Built on Cloudflare Workers." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- B7: Inter dropped — it was a latent fallback behind Nunito in --font-sans
+         and never rendered when fonts loaded. One fewer family to block on. -->
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- B7: poster/poster-adjacent images all come from AniList's CDN. -->
+    <link rel="preconnect" href="https://s4.anilist.co" crossorigin />
+    <script>
+      // B7 companion to route-level code splitting: if a deploy swaps the
+      // hashed chunk files while a stale tab is open, its dynamic imports
+      // fail and it would previously render a blank screen. Detect those
+      // failures and offer a one-tap reload.
+      (function () {
+        var shown = false;
+        function banner() {
+          if (shown) return;
+          shown = true;
+          var b = document.createElement('div');
+          b.setAttribute('role', 'alert');
+          b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:9999;background:#dc2626;color:#fff;padding:10px 18px;border-radius:9999px;font-family:system-ui,sans-serif;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.35);cursor:pointer';
+          b.textContent = 'XAN was updated — tap to reload';
+          b.onclick = function () { location.reload(); };
+          (document.body || document.documentElement).appendChild(b);
+        }
+        var CHUNK_FAIL = /dynamically imported module|importing a module|Loading chunk|ChunkLoadError|error loading dynamically/i;
+        window.addEventListener('unhandledrejection', function (e) {
+          var m = (e && e.reason && (e.reason.message || String(e.reason))) || '';
+          if (CHUNK_FAIL.test(m)) banner();
+        });
+        window.addEventListener('error', function (e) {
+          var t = e && e.target;
+          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) { banner(); return; }
+          if (e && e.message && CHUNK_FAIL.test(e.message)) banner();
+        }, true);
+      })();
+    </script>
     <script>
       // Apply saved theme BEFORE React mounts to prevent flash of wrong theme
       (function() {

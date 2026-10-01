@@ -26,6 +26,7 @@ import { getKotoSource } from "../lib/providers/koto";
 import { fetchZenSources } from "../lib/providers/zen";
 import { isZenEmbedUrl, buildZenEmbedUrl, useZenBridge } from "../lib/zenBridge";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
+import { useAnimeList } from "../hooks/useAnimeList";
 import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
 import { VideoEnhancerPanel } from "../components/VideoEnhancerPanel";
 import { VideoPlayer } from "../components/VideoPlayer";
@@ -494,6 +495,21 @@ export function Watch() {
   // so its 9-listener effect tore down and re-attached on EVERY Watch
   // re-render (background provider resolution, overlay state, …). useCallback
   // keeps identities stable across renders that don't change them.
+  // A9 FIX: actually watching an episode never touched the library — the
+  // ONLY writer of list status was AnimeStatusButton, so bingeing 5 episodes
+  // still left the show absent from MyLibrary. Now ~60s of real playback
+  // auto-marks the show WATCHING — both for the <video> path and the Zen
+  // iframe path (useZenBridge routes its time reports through the same
+  // onProgress). Never overrides an explicit COMPLETED / ON_HOLD / DROPPED
+  // choice; PLANNING -> WATCHING is the tracker-standard promotion.
+  const { getStatus: getListStatus, setStatus: setListStatus } = useAnimeList();
+  // Keep the latest list API in a ref so handleProgress stays identity-stable
+  // (getStatus rebinds on every list change; rebinding here would re-attach
+  // VideoPlayer's 9-listener effect — the exact regression L-13 fixed).
+  const listApiRef = useRef({ getListStatus, setListStatus });
+  listApiRef.current = { getListStatus, setListStatus };
+  // One-shot per anime per mount (route param changes don't remount Watch).
+  const autoMarkedRef = useRef<number | null>(null);
   const handleProgress = useCallback(
     (currentTime: number, duration: number) => {
       if (anime && currentTime > 5 && duration > 0) {
@@ -505,6 +521,18 @@ export function Watch() {
           timestamp: currentTime,
           duration,
         });
+      }
+      if (anime && currentTime > 60 && autoMarkedRef.current !== animeId) {
+        const currentStatus = listApiRef.current.getListStatus(animeId);
+        if (currentStatus === null || currentStatus === "PLANNING") {
+          listApiRef.current.setListStatus(
+            animeId,
+            getTitle(anime.title),
+            anime.coverImage?.large ?? "",
+            "WATCHING",
+          );
+        }
+        autoMarkedRef.current = animeId;
       }
     },
     [anime, animeId, episode],

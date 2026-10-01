@@ -45,7 +45,7 @@ A modern, full-featured anime streaming web app built with **Hono + Vite + React
 - **AllAnime** — mkissa.to AES-GCM crypto resolver (server-side in worker): fetches `__aaCrypto`, derives AES key via `XOR(atob(partB), MASK)`, signs `aaReq` proof, decrypts `tobeparsed` response. Dead source filtering (skips `/apivtwo/clock`, `ss-hls`, `sl-mp4`, `streamsb.net`, `streamlare.com`)
 - **Koto** — megaplay.buzz iframe embed (trivial URL builder, always available)
 - **Zen** — flixcloud.cc iframe embed via `/api/stream-zen` CORS proxy (dual audio)
-- **Gogoanime** — gogoanime.fi HLS/MP4 scraping (disabled by default)
+- **Demo fallback** — Big Buck Bunny demo stream (own provider tier) shown with an amber banner when every provider fails
 - **Source filters** — Toggle individual sources on/off + pin a single source (only pinned source loads, no fallback)
 
 ### 🎨 Design System
@@ -171,7 +171,7 @@ XANCLD/
 │       ├── 📂 lib/
 │       │   ├── anilist.ts        # AniList GraphQL client (dynamic query building)
 │       │   ├── allanime.ts       # AllAnime extractor (crypto fallback + dead source filtering)
-│       │   ├── gogoanime.ts      # Gogoanime scraper (gogoanime.fi)
+│       │   ├── zenBridge.ts      # Zen iframe postMessage bridge (resume/skip/autoplay/errors)
 │       │   └── 📂 providers/
 │       │       ├── koto.ts       # Koto (megaplay.buzz) iframe provider
 │       │       └── zen.ts        # Zen (flixcloud.cc) iframe provider
@@ -285,8 +285,8 @@ All user settings are stored in `localStorage` under `xan:settings`:
   "reducedMotion": false,       // Disable animations
   "tvMode": false,              // Disable GPU-expensive effects
   "bandwidthMode": "auto",      // "auto" | "direct-only" | "proxy-only"
-  "preferredProvider": "allanime",  // "allanime" | "koto" | "zen" | "gogoanime"
-  "disabledSources": ["gogoanime"], // Source names to hide (gogoanime off by default)
+  "preferredProvider": "allanime",  // "allanime" | "koto" | "zen"
+  "disabledSources": [],          // Source names to hide (e.g. "Koto", "Zen (Dual→Dub)")
   "pinnedSource": null,         // When set, only this source loads (no fallback)
   "enhancerEnabled": false      // Video enhancer master toggle
 }

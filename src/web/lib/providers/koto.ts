@@ -2,6 +2,9 @@
 // Public iframe embed (no API call needed — direct iframe URL)
 // 0 Worker bandwidth (iframe loads directly from megaplay.buzz)
 
+// B8: env-overridable (baked at build time) with today's value as default
+const KOTO_BASE = import.meta.env.VITE_KOTO_BASE ?? "https://megaplay.buzz";
+
 export interface KotoSource {
   url: string;
   type: "iframe";
@@ -23,7 +26,7 @@ export function getKotoSource(
   mode: "sub" | "dub" = "sub",
 ): KotoSource {
   return {
-    url: `https://megaplay.buzz/stream/ani/${anilistId}/${episode}/${mode}`,
+    url: `${KOTO_BASE}/stream/ani/${anilistId}/${episode}/${mode}`,
     type: "iframe",
     quality: null,
     sourceName: "Koto",

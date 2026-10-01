@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 
 export interface BookmarkEntry {
   animeId: number;
@@ -45,6 +45,19 @@ function notify() {
   for (const sub of subscribers) sub(current);
 }
 
+// Module-level so useBookmarks() and useToggleBookmark() share ONE
+// identity-stable function (safe to pass into memo'd children).
+function toggleBookmark(entry: Omit<BookmarkEntry, "addedAt">): void {
+  const exists = current.some((b) => b.animeId === entry.animeId);
+  if (exists) {
+    current = current.filter((b) => b.animeId !== entry.animeId);
+  } else {
+    current = [{ ...entry, addedAt: Date.now() }, ...current];
+  }
+  save(current);
+  notify();
+}
+
 export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>(current);
 
@@ -62,17 +75,6 @@ export function useBookmarks() {
     (animeId: number) => bookmarks.some((b) => b.animeId === animeId),
     [bookmarks],
   );
-
-  const toggleBookmark = useCallback((entry: Omit<BookmarkEntry, "addedAt">) => {
-    const exists = current.some((b) => b.animeId === entry.animeId);
-    if (exists) {
-      current = current.filter((b) => b.animeId !== entry.animeId);
-    } else {
-      current = [{ ...entry, addedAt: Date.now() }, ...current];
-    }
-    save(current);
-    notify();
-  }, []);
 
   const removeBookmark = useCallback((animeId: number) => {
     current = current.filter((b) => b.animeId !== animeId);
@@ -93,4 +95,31 @@ export function useBookmarks() {
     removeBookmark,
     clearBookmarks,
   };
+}
+
+// ─── B7: per-card selector subscription ────────────────────────────────────
+// The old pattern (each AnimeCard calling useBookmarks().isBookmarked(id))
+// meant EVERY subscribed card re-rendered on ANY bookmark change — toggling
+// one bookmark re-rendered the whole 30-card grid. useSyncExternalStore with
+// a boolean selector re-renders a card only when ITS OWN bookmark state
+// flips. Pair with React.memo(AnimeCard) for prop-driven re-renders too.
+
+function subscribeBookmarks(onChange: () => void): () => void {
+  subscribers.add(onChange);
+  return () => {
+    subscribers.delete(onChange);
+  };
+}
+
+export function useIsBookmarked(animeId: number): boolean {
+  return useSyncExternalStore(
+    subscribeBookmarks,
+    () => current.some((b) => b.animeId === animeId),
+    () => false,
+  );
+}
+
+/** Stable (identity-never-changes) bookmark toggle for hot-path components. */
+export function useToggleBookmark(): (entry: Omit<BookmarkEntry, "addedAt">) => void {
+  return toggleBookmark;
 }

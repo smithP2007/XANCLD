@@ -10,8 +10,10 @@
 // The browser does all the heavy lifting: AES decryption, HTML parsing, etc.
 // This keeps the worker well within Cloudflare Free tier's 10ms CPU limit.
 
-const ALLANIME_API = "https://api.allanime.day/api";
-const ALLANIME_BASE = "https://allanime.day";
+// B8: domains are env-overridable (baked at build time) with today's values
+// as defaults — a provider rotation becomes a one-line .env change.
+const ALLANIME_API = import.meta.env.VITE_ALLANIME_API ?? "https://api.allanime.day/api";
+const ALLANIME_BASE = import.meta.env.VITE_ALLANIME_BASE ?? "https://allanime.day";
 const EPISODE_QUERY_HASH =
   "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec";
 
@@ -209,14 +211,17 @@ export async function getEpisodeSources(
   episodeStr: string,
   mode: "sub" | "dub" = "sub",
 ): Promise<SourceUrl[] | null> {
-  // As of mid-2026, AllAnime requires a signed aaReq extension (AES-GCM
-  // crypto) on every episode query. The browser can't do this directly
-  // because it requires fetching __aaCrypto from mkissa.to first, which
-  // is CORS-blocked. So we go through the worker's /api/allanime/episode
-  // route which implements the full crypto scheme server-side.
-  //
-  // We try the legacy direct query first (in case AllAnime ever reverts
-  // or for older cached responses), then fall back to the crypto route.
+  // B3 FIX: crypto route FIRST. As of mid-2026 AllAnime requires a signed
+  // aaReq extension (AES-GCM crypto) on every episode query, so the legacy
+  // unsigned query below nearly always fails with AA_CRYPTO_MISSING —
+  // trying it first wasted a full upstream round trip (~1s, 3x on retries)
+  // on EVERY episode before falling through. The crypto route is now the
+  // primary path; the legacy query is only a fallback for the unlikely case
+  // that the crypto route fails AND AllAnime reverts to unsigned queries.
+  const viaCrypto = await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+  if (viaCrypto && viaCrypto.length > 0) return viaCrypto;
+  console.warn("[AllAnime] crypto route returned no sources — trying legacy query");
+
   const url =
     `${ALLANIME_API}?` +
     new URLSearchParams({
@@ -249,15 +254,10 @@ export async function getEpisodeSources(
           continue;
         }
 
-        // AA_CRYPTO_MISSING → fall back to the worker's crypto route
-        if (errCode === "AA_CRYPTO_MISSING" || errCode.startsWith("AA_CRYPTO")) {
-          console.warn(`[AllAnime] ${errCode} — falling back to /api/allanime/episode`);
-          return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
-        }
-
-        console.warn("[AllAnime] episode query errors:", errMsg, `(${errCode})`);
-        // Try crypto route as a last-resort fallback for any other error too
-        return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+        // Crypto route already failed above — don't call it again for the
+        // same request. Report the legacy error and bail.
+        console.warn("[AllAnime] legacy episode query errors:", errMsg, `(${errCode})`);
+        return viaCrypto;
       }
 
       const data = json?.data as
@@ -278,24 +278,24 @@ export async function getEpisodeSources(
           | null;
         const sources = decrypted?.episode?.sourceUrls ?? null;
         if (sources && sources.length > 0) return sources;
-        // Decryption failed or empty → try crypto route
-        return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+        // Decryption failed or empty — crypto route already failed above
+        return viaCrypto;
       }
 
-      // Empty response → try crypto route
-      return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+      // Empty response — crypto route already failed above
+      return viaCrypto;
     } catch (err) {
       console.error("[AllAnime] getEpisodeSources attempt", attempt + 1, "failed:", err);
       if (attempt < 2) {
         await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
         continue;
       }
-      // Last attempt failed → try crypto route as fallback
-      return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+      // Last attempt failed — return the crypto route's result
+      return viaCrypto;
     }
   }
-  // All retries exhausted → try crypto route
-  return await fetchEpisodeViaCryptoRoute(showId, episodeStr, mode);
+  // All retries exhausted
+  return viaCrypto;
 }
 
 // ─── Crypto route fallback ─────────────────────────────────────
@@ -327,151 +327,6 @@ async function fetchEpisodeViaCryptoRoute(
   } catch (err) {
     console.warn("[AllAnime] crypto route failed:", err);
     return null;
-  }
-}
-
-// ─── Embed page HTML scraper (client-side via DOMParser) ───────
-async function scrapeEmbedPage(
-  embedUrl: string,
-  sourceName: string,
-): Promise<StreamResult[]> {
-  try {
-    const res = await proxiedFetch(embedUrl);
-    const html = await res.text();
-
-    const out: StreamResult[] = [];
-    const seen = new Set<string>();
-
-    const cleanUrl = (u: string) =>
-      u.replace(/\\\//g, "/").replace(/\\u002F/g, "/").replace(/&amp;/g, "&");
-
-    // Pattern 1: Direct .m3u8 URLs
-    const hlsMatches = html.matchAll(
-      /https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/g,
-    );
-    for (const m of hlsMatches) {
-      const url = cleanUrl(m[0]);
-      if (seen.has(url)) continue;
-      seen.add(url);
-      out.push({ url, type: "hls", quality: null, sourceName });
-    }
-
-    // Pattern 2: Direct .mp4 URLs
-    const mp4Matches = html.matchAll(
-      /https?:\/\/[^"'\s<>]+\.mp4(?:\?[^"'\s<>]*)?(?=["'\s<>]|$)/g,
-    );
-    for (const m of mp4Matches) {
-      const url = cleanUrl(m[0]);
-      if (seen.has(url)) continue;
-      seen.add(url);
-      out.push({ url, type: "mp4", quality: null, sourceName });
-    }
-
-    // Pattern 3: JSON sources in JS variables (streamsb, streamtape, etc.)
-    // Look for patterns like: sources: [{"file":"https://...","label":"720p"}]
-    // or: var sources = [{"file":"...","label":"..."}]
-    const jsonSourcePatterns = [
-      /sources\s*[:=]\s*(\[[\s\S]*?\])/g,
-      /\"file\"\s*:\s*\"(https?:\/\/[^\"]+)\"/g,
-      /\"src\"\s*:\s*\"(https?:\/\/[^\"]+)\"/g,
-      /player\.src\s*=\s*\"(https?:\/\/[^\"]+)\"/g,
-      /sources\s*=\s*\"(https?:\/\/[^\"]+)\"/g,
-    ];
-    for (const pattern of jsonSourcePatterns) {
-      for (const m of html.matchAll(pattern)) {
-        const url = cleanUrl(m[1]);
-        if (seen.has(url)) continue;
-        if (url.includes(".m3u8")) {
-          seen.add(url);
-          out.push({ url, type: "hls", quality: null, sourceName });
-        } else if (url.includes(".mp4")) {
-          seen.add(url);
-          out.push({ url, type: "mp4", quality: null, sourceName });
-        }
-      }
-    }
-
-    // Pattern 4: eval/packed JS (streamlare, streamsb use packed JS)
-    // Look for URLs in packed JavaScript
-    const packedUrlMatches = html.matchAll(
-      /https?:\/\/[^"'\s<>]{20,}(?:\/stream|\/download|\/dl|\/get)[^"'\s<>]*/gi,
-    );
-    for (const m of packedUrlMatches) {
-      const url = cleanUrl(m[0]);
-      if (seen.has(url)) continue;
-      if (url.includes(".mp4") || url.includes(".m3u8")) {
-        seen.add(url);
-        out.push({ url, type: url.includes(".m3u8") ? "hls" : "mp4", quality: null, sourceName });
-      }
-    }
-
-    return out;
-  } catch (err) {
-    console.warn(`[${sourceName}] scrape failed:`, err);
-    return [];
-  }
-}
-
-// ─── fetchClockJson: AllAnime's internal stream resolver ───────
-// Many AllAnime sources (Default, Sak, Wixmp, Luf-Mp4, S-Mp4, Uv-mp4)
-// return a relative path like "/apivtwo/clock?id=...". This function
-// fetches the full clock.json (with proper Referer/Origin) and extracts
-// direct stream URLs from the "links" array.
-async function fetchClockJson(path: string): Promise<StreamResult[]> {
-  const fullPath = path.replace("/clock", "/clock.json");
-  const fullUrl = fullPath.startsWith("http")
-    ? fullPath
-    : `${ALLANIME_BASE}${fullPath}`;
-
-  try {
-    const res = await proxiedFetch(fullUrl);
-    const text = await res.text();
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      console.warn("[AllAnime] clock.json response is not JSON");
-      return [];
-    }
-
-    const out: StreamResult[] = [];
-    const obj = json as Record<string, unknown>;
-    const links = (obj.links ?? obj.sources ?? []) as Array<Record<string, unknown>>;
-    if (Array.isArray(links)) {
-      for (const l of links) {
-        const url =
-          typeof l.link === "string"
-            ? l.link
-            : typeof l.src === "string"
-              ? l.src
-              : typeof l.url === "string"
-                ? l.url
-                : null;
-        if (!url) continue;
-        const isHls = url.includes(".m3u8") || l.hls === true || l.type === "hls";
-        out.push({
-          url,
-          type: isHls ? "hls" : "mp4",
-          quality:
-            typeof l.resolutionStr === "string"
-              ? l.resolutionStr
-              : typeof l.quality === "string"
-                ? l.quality
-                : typeof l.label === "string"
-                  ? l.label
-                  : null,
-          sourceName: "allanime-clock",
-        });
-      }
-    }
-    return out;
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      console.warn(`[AllAnime] clock.json timed out for ${fullUrl}`);
-    } else {
-      console.warn(`[AllAnime] clock.json failed for ${fullUrl}:`, err);
-    }
-    return [];
   }
 }
 

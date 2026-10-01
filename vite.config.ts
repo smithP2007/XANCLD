@@ -35,9 +35,20 @@ export default defineConfig({
         entryFileNames: "assets/index-[hash].js",
         chunkFileNames: "assets/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]",
-        manualChunks: {
-          "react-vendor": ["react", "react-dom", "react-router-dom"],
-          "video-vendor": ["hls.js"],
+        // B8: Vite 8 (rolldown) no longer accepts the object form of
+        // manualChunks — use the function form. Same grouping as before:
+        // react family → react-vendor, hls.js → video-vendor.
+        manualChunks(id) {
+          if (id.includes("node_modules/hls.js")) return "video-vendor";
+          if (
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/react-router") ||
+            id.includes("node_modules/scheduler")
+          ) {
+            return "react-vendor";
+          }
+          return undefined;
         },
       },
     },

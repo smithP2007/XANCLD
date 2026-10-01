@@ -120,7 +120,6 @@ export function Home() {
           bookmarks,
           animeList,
           recentlyViewed: [],
-          hidden: [],
           signalGenres: detail.genres,
           moodPreference:
             settings.moodPreference && settings.moodPreference !== "surprise"
@@ -229,7 +228,6 @@ export function Home() {
               bookmarks,
               animeList,
               recentlyViewed: [],
-              hidden: [],
               signalGenres,
               moodPreference:
                 settings.moodPreference && settings.moodPreference !== "surprise"
