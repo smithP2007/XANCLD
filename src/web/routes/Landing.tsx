@@ -2,8 +2,35 @@ import { Link } from "react-router-dom";
 import { Play, ArrowRight, Shuffle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchTrending } from "../lib/anilist";
-import { XaniMascot } from "../components/XaniMascot";
+import { Logo } from "../components/Logo";
 
+// v4 ROSA: centered editorial layout. Enter-to-enter and Surprise Me are
+// preserved.
+// v4.2.2 SIMPLIFIED: removed the numbered trending rows, the feature tiles,
+// the gradient CTA panel and the floating glass chips.
+// v4.2.3 (user request: "remove that big banner from title page"): the
+// framed showcase banner is gone too. No AniList request fires on load
+// anymore (only Surprise Me fetches on click).
+// v4.2.4 (user request: "remove footer in title page"): the footer strip is
+// gone — the SUNDEEP signature is now the final element. The plain XAN text
+// wordmark is replaced with the new "Guiding Light" logo (Logo.tsx).
+// v4.2.5 (user request: "change position of everything to center of the
+// page"): fully symmetric composition — the top bar is now a CENTERED brand
+// group (logo + CTA side by side on the page axis), the hero floats at the
+// vertical center of the viewport (flex-1 + justify-center instead of a
+// fixed top padding), and the SUNDEEP signature sits bottom-CENTER with
+// mirrored gradient hairlines on both sides.
+// v4.2.6 (user request: "SUNDEEP also centred, not at bottom most part"):
+// the signature is no longer pinned to the page bottom (mt-auto removed) —
+// it now lives INSIDE the centered hero flow, right after the Enter hint,
+// so the whole composition (brand bar → hero → signature) reads as one
+// centered group on the page axis.
+// v4.2.7 (user request: "XAN on top with start watching centred to center,
+// not at top most part"): the fixed top bar is GONE. The brand group
+// (XAN logo | divider | Start Watching) now LEADS the centered stack as its
+// first element, so it floats in the upper-center of the page instead of
+// hugging the top edge. Final composition, all on the page axis:
+// brand group → eyebrow → headline → copy → CTAs → Enter hint → SUNDEEP.
 export function Landing() {
   const [surpriseId, setSurpriseId] = useState<number | null>(null);
 
@@ -11,10 +38,7 @@ export function Landing() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Enter") return;
-      // L-6 FIX: ignore Enter when an interactive element has focus. The
-      // global handler used to hijack Enter on the "Surprise Me" button —
-      // pressing Enter fired BOTH the button's surprise navigation and the
-      // window.location.href = "/home" here, so the surprise never happened.
+      // Ignore Enter when an interactive element has focus.
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "BUTTON" || tag === "A" || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
@@ -28,7 +52,6 @@ export function Landing() {
   }, []);
 
   // "Surprise Me" — pick a random trending anime and navigate to its detail page.
-  // Uses the same AniList data Home/Trending already use.
   const handleSurprise = async () => {
     try {
       const trending = await fetchTrending(20);
@@ -45,82 +68,82 @@ export function Landing() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-      {/* Background gradient with animated blobs */}
-      <div className="absolute inset-0 bg-gradient-to-br from-xan-crimson/10 via-background to-xan-violet/10" />
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-xan-crimson/20 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "4s" }} />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-xan-violet/20 rounded-full blur-3xl animate-pulse" style={{ animationDuration: "6s", animationDelay: "1s" }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-xan-crimson/5 rounded-full blur-3xl" />
-      </div>
-
-      {/* Grid overlay */}
-      <div
-        className="absolute inset-0 opacity-[0.03]"
-        style={{
-          backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
-          backgroundSize: "60px 60px",
-        }}
-      />
-
-      {/* Xani mascot — subtle, peeking from the bottom-right (redesign plan §4:
-          "Show the Xani mascot once, subtly, near the button — not full-screen"). */}
-      <div className="hidden md:block absolute bottom-8 right-8 z-10 opacity-90">
-        <XaniMascot mood="curious" size={88} />
-      </div>
-
-      {/* Content */}
-      <div className="relative z-10 text-center px-4 max-w-2xl animate-fade-in-up">
-        <Link to="/home" className="inline-flex items-center gap-3 mb-8 group">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-xan-crimson to-xan-violet flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 shadow-2xl shadow-xan-crimson/40 pulse-glow">
-            <Play className="h-8 w-8 text-white fill-white" />
-          </div>
-          <span className="font-display font-extrabold text-5xl tracking-tight">XAN</span>
-        </Link>
-
-        <h1 className="text-4xl md:text-7xl font-bold font-display mb-6 leading-tight">
-          Stream anime
-          <br />
-          <span className="gradient-text">without the noise.</span>
-        </h1>
-
-        <p className="text-lg text-muted-foreground mb-10 max-w-md mx-auto leading-relaxed">
-          A modern anime streaming experience. Browse trending shows, search your
-          favorites, and watch in HD.
-        </p>
-
-        <div className="flex flex-wrap items-center justify-center gap-3 mb-2">
+    <div className="flex min-h-screen flex-col bg-xan-dark text-white">
+      {/* ─── One centered composition: brand group → hero → signature ─── */}
+      {/* items-center: as a flex column its children would otherwise
+          stretch full-width (the eyebrow chip did exactly that). */}
+      <section className="flex flex-1 flex-col items-center justify-center px-4 py-10 text-center md:py-12">
+        {/* Brand group — XAN logo | divider | Start Watching. Leads the
+            centered stack: floats in the upper-center of the page, NOT
+            glued to the top edge (the fixed bar is gone). */}
+        <div className="flex items-center justify-center gap-4 md:gap-5">
           <Link
             to="/home"
-            className="btn-premium inline-flex items-center gap-2 px-10 py-4 rounded-2xl bg-gradient-to-r from-xan-crimson to-xan-crimson-dark hover:from-xan-crimson-dark hover:to-xan-crimson font-semibold text-white transition-all shadow-2xl shadow-xan-crimson/40 hover:shadow-xan-crimson/60 hover:scale-105"
+            className="transition-opacity hover:opacity-85"
+            aria-label="XAN home"
           >
+            <Logo
+              markClassName="h-9 w-9 rounded-[11px] drop-shadow-[0_4px_18px_rgba(233,69,96,0.4)] md:h-10 md:w-10"
+              wordClassName="text-white"
+            />
+          </Link>
+          <span className="h-6 w-px bg-white/15 md:h-7" aria-hidden="true" />
+          <Link to="/home" className="btn-aurora flex h-10 items-center px-5 text-sm font-bold md:h-11 md:px-7">
             Start Watching
-            <ArrowRight className="h-5 w-5" />
+          </Link>
+        </div>
+
+        <span className="mt-14 inline-flex items-center gap-2 rounded-full border border-xan-violet/40 bg-xan-violet/10 px-4 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.22em] text-xan-cyan md:mt-16">
+          Anime, uninterrupted
+        </span>
+
+        <h1 className="mx-auto mt-6 max-w-4xl font-display text-5xl font-extrabold leading-[0.98] tracking-[-0.03em] sm:text-6xl md:text-7xl lg:text-[5.25rem]">
+          Unlimited anime.
+          <br />
+          <span className="gradient-text">Zero noise.</span>
+        </h1>
+
+        <p className="mx-auto mt-6 max-w-xl text-base font-medium leading-relaxed text-white/65 md:text-lg">
+          Trending shows, HD streams, and a home feed tuned to your taste — no ads,
+          no accounts, no clutter. Just press play.
+        </p>
+
+        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+          <Link to="/home" className="btn-aurora inline-flex h-12 items-center gap-2 px-8 text-base font-bold">
+            <Play className="h-5 w-5 fill-white" />
+            Start Watching
+            <ArrowRight className="h-4.5 w-4.5" />
           </Link>
           <button
             type="button"
             onClick={handleSurprise}
             disabled={surpriseId !== null}
-            className="btn-premium inline-flex items-center gap-2 px-6 py-4 rounded-2xl glass-strong border border-xan-border hover:border-xan-crimson/50 text-foreground font-semibold transition-all hover:scale-105 disabled:opacity-60"
+            className="glass inline-flex h-12 items-center gap-2 rounded-full px-6 text-base font-bold text-white transition-colors hover:bg-white/10 disabled:opacity-60"
           >
-            <Shuffle className="h-5 w-5" />
+            <Shuffle className="h-4.5 w-4.5" />
             Surprise Me
           </button>
         </div>
 
-        <p className="mt-10 text-xs text-muted-foreground">
-          Press <kbd className="px-2 py-0.5 rounded-md glass font-mono text-[10px]">Enter</kbd> to explore
+        <p className="mt-5 text-xs text-white/40">
+          Press{" "}
+          <kbd className="rounded-md border border-white/15 bg-white/10 px-2 py-0.5 font-mono text-[10px] text-white/70">
+            Enter
+          </kbd>{" "}
+          to explore
         </p>
 
-        {/* Feature pills */}
-        <div className="mt-12 flex flex-wrap items-center justify-center gap-3">
-          {["10k+ titles", "HD streaming", "Free forever"].map((f) => (
-            <span key={f} className="px-3 py-1 rounded-full glass text-xs text-muted-foreground">
-              {f}
-            </span>
-          ))}
+        {/* ─── Signature — SUNDEEP, part of the centered group ─── */}
+        {/* Lives inside the centered flow (NOT pinned to the page bottom);
+            mirrored gradient hairlines keep it symmetric on the axis. */}
+        <div className="mt-10 flex items-center justify-center gap-2.5 select-none md:mt-12" aria-hidden="true">
+          <span className="h-px w-10 bg-gradient-to-r from-transparent to-xan-crimson/50" />
+          <span className="font-display text-[11px] font-extrabold uppercase tracking-[0.38em] text-white/40">
+            SUNDEEP
+          </span>
+          <span className="h-px w-10 bg-gradient-to-l from-transparent to-xan-crimson/50" />
         </div>
-      </div>
+      </section>
     </div>
   );
 }

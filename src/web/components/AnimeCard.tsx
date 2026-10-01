@@ -15,12 +15,16 @@ interface Props {
 // subscribed to the WHOLE bookmarks list, so toggling one bookmark
 // re-rendered every card in every visible grid. Now a card re-renders only
 // when its own bookmark flips or its `anime`/`index` props change.
+//
+// v4 ROSA: NEW FORM — a framed card. The poster sits on top with rounded
+// corners and the title/meta moved BELOW the image onto the card surface
+// (was overlaid on the artwork). Score moved from the image overlay into
+// the info row. Hover lifts the whole card with a rose border.
 function AnimeCardBase({ anime, index = 0 }: Props) {
   const title = getTitle(anime.title);
   const image = anime.coverImage?.large ?? anime.coverImage?.extraLarge ?? "/placeholder.svg";
   const score = anime.averageScore ? `${Math.round(anime.averageScore)}%` : null;
   const episodes = anime.episodes ? `${anime.episodes} eps` : anime.status ?? "Ongoing";
-  const color = anime.coverImage?.color ?? "var(--color-xan-crimson)";
   const bookmarked = useIsBookmarked(anime.id);
   const toggleBookmark = useToggleBookmark();
 
@@ -30,86 +34,84 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
       style={{ "--card-index": index } as React.CSSProperties}
     >
       <Link to={`/anime/${anime.id}`} className="block">
-        <div className="relative aspect-[2/3] rounded-2xl overflow-hidden bg-xan-card border border-xan-border transition-all duration-500 group-hover:border-xan-crimson/50 group-hover:shadow-[0_12px_40px_rgba(0,0,0,0.5),0_0_0_1px_rgba(233,69,96,0.1)] group-hover:-translate-y-1">
-          <img
-            src={image}
-            alt={title}
-            loading="lazy"
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "/placeholder.svg";
-            }}
-          />
+        <div className="overflow-hidden rounded-[18px] border border-xan-border bg-xan-card transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-xan-crimson/50 group-hover:shadow-[0_20px_44px_rgba(0,0,0,0.45)]">
+          {/* Poster */}
+          <div className="relative aspect-[2/3] overflow-hidden bg-xan-surface">
+            <img
+              src={image}
+              alt={title}
+              loading="lazy"
+              className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/placeholder.svg";
+              }}
+            />
 
-          {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-80 group-hover:opacity-95 transition-opacity" />
+            {/* Soft bottom fade for chip legibility */}
+            <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/45 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
 
-          {/* Top badges (left side — bookmark lives top-right) */}
-          <div className="absolute top-2 left-2 flex items-start gap-2 pointer-events-none">
-            {score && (
-              <div className="flex items-center gap-1 bg-black/70 backdrop-blur-sm rounded-full px-2 py-0.5 text-xs font-semibold text-white">
-                <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />
-                {score}
-              </div>
-            )}
+            {/* Movie chip — top-left (repositioned) */}
             {anime.format === "MOVIE" && (
-              <div className="bg-black/70 backdrop-blur-sm rounded-full px-2 py-0.5 text-[10px] font-medium text-white/80 uppercase tracking-wider">
+              <div className="absolute left-2 top-2 rounded-full bg-gradient-to-r from-xan-crimson to-xan-violet px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white">
                 Movie
               </div>
             )}
-          </div>
 
-          {/* Bookmark button (top-right, hover-reveal on desktop) */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              toggleBookmark({
-                animeId: anime.id,
-                title,
-                coverImage: image,
-              });
-            }}
-            aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
-            className={`absolute top-1.5 right-1.5 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-              bookmarked
-                ? "bg-xan-crimson text-white opacity-100"
-                : "bg-black/60 text-white/80 hover:bg-black/80 opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-            }`}
-          >
-            <Bookmark className={`h-4 w-4 ${bookmarked ? "fill-white" : ""}`} />
-          </button>
+            {/* Bookmark button — top-right, hover-reveal on desktop */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleBookmark({
+                  animeId: anime.id,
+                  title,
+                  coverImage: image,
+                });
+              }}
+              aria-label={bookmarked ? "Remove bookmark" : "Add bookmark"}
+              className={`absolute right-1.5 top-1.5 z-20 flex h-8 w-8 items-center justify-center rounded-full border backdrop-blur transition-all ${
+                bookmarked
+                  ? "border-transparent bg-xan-crimson text-white opacity-100"
+                  : "border-white/10 bg-black/55 text-white/85 opacity-0 hover:bg-black/80 focus-within:opacity-100 group-hover:opacity-100"
+              }`}
+            >
+              <Bookmark className={`h-4 w-4 ${bookmarked ? "fill-white" : ""}`} />
+            </button>
 
-          {/* Hover play button */}
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="w-12 h-12 rounded-full bg-xan-crimson/90 backdrop-blur-sm flex items-center justify-center shadow-lg scale-90 group-hover:scale-100 transition-transform">
-              <Play className="h-5 w-5 text-white fill-white ml-0.5" />
+            {/* Hover play pill */}
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="flex h-11 w-11 scale-90 items-center justify-center rounded-full bg-gradient-to-br from-xan-crimson to-xan-violet shadow-[0_8px_24px_rgba(233,69,96,0.45)] transition-transform group-hover:scale-100">
+                <Play className="ml-0.5 h-4.5 w-4.5 fill-white text-white" />
+              </div>
             </div>
           </div>
 
-          {/* Bottom content */}
-          <div className="absolute bottom-0 left-0 right-0 p-3">
-            <h3 className="font-medium text-sm text-white line-clamp-2 leading-snug">{title}</h3>
-            <div className="flex items-center gap-2 mt-1.5 text-[11px] text-white/60">
+          {/* Info BELOW the poster on the card surface (new position) */}
+          <div className="p-2.5 md:p-3">
+            <h3 className="line-clamp-1 text-[13px] font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-xan-crimson">
+              {title}
+            </h3>
+            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+              {score && (
+                <span className="flex items-center gap-1 font-bold text-xan-crimson">
+                  <Star className="h-3 w-3 fill-xan-crimson" />
+                  {score}
+                </span>
+              )}
+              {score && <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/50" />}
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {episodes}
               </span>
               {anime.seasonYear && (
                 <>
-                  <span className="w-1 h-1 rounded-full bg-white/30" />
+                  <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/50" />
                   <span>{anime.seasonYear}</span>
                 </>
               )}
             </div>
           </div>
-
-          {/* Color accent line */}
-          <div
-            className="absolute bottom-0 left-0 right-0 h-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ background: color }}
-          />
         </div>
       </Link>
     </div>

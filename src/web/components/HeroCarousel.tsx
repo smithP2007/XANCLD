@@ -16,6 +16,20 @@ function sanitizeDescription(d: string | null | undefined): string {
   return d.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").trim();
 }
 
+// v4 ROSA: the hero was REPOSITIONED from a full-bleed 88vh backdrop with
+// bottom-left info into a CONTAINED rounded card (inset from the page edges).
+// Info is now vertically centered on the LEFT, the poster stands as a
+// floating rounded card on the RIGHT, nav arrows moved to a bottom-right
+// cluster, and progress segments sit bottom-left. Buttons are pills.
+// v4.2.4 (user request: "make hero banner in home page smaller"): card
+// height reduced 72vh→56vh desktop (max 700→560px) and 64vh→52vh mobile —
+// a compact banner that lets the rows below breathe above the fold.
+// v4.2.4b (user request: "width smaller of hero banner and with proper
+// alignment"): the section now sits in the SAME max-w-7xl centered container
+// as every row below it, with identical horizontal padding — the hero was
+// previously uncapped (full content width, visibly wider than the rows on
+// large screens). Card edges now align exactly with the content grid, and
+// the banner is narrower on wide displays.
 export function HeroCarousel({ anime, onActiveChange }: Props) {
   const [active, setActive] = useState(0);
   const [hoverPaused, setHoverPaused] = useState(false);
@@ -59,314 +73,189 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
     "/placeholder.svg";
   const poster = current.coverImage?.extraLarge || current.coverImage?.large || "/placeholder.svg";
 
+  // Meta as pill chips (new form — was hairline text row)
+  const metaChips = (
+    <div className="flex flex-wrap items-center gap-2">
+      {current.averageScore != null && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-xs font-bold text-white">
+          <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+          {current.averageScore}%
+        </span>
+      )}
+      {current.seasonYear && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-xs font-bold text-white/80">
+          <Calendar className="h-3 w-3" />
+          {current.season
+            ? `${current.season.charAt(0)}${current.season.slice(1).toLowerCase()} ${current.seasonYear}`
+            : current.seasonYear}
+        </span>
+      )}
+      {current.episodes != null && (
+        <span className="rounded-full border border-white/10 bg-white/[0.08] px-3 py-1 text-xs font-bold text-white/80">
+          {current.episodes} eps
+        </span>
+      )}
+      {current.format && (
+        <span className="rounded-full border border-xan-crimson/40 bg-xan-crimson/15 px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-xan-crimson">
+          {current.format}
+        </span>
+      )}
+    </div>
+  );
+
+  const actionButtons = (
+    <div className="flex flex-wrap items-center gap-3">
+      <Link
+        to={`/watch/${current.id}?ep=1`}
+        className="btn-aurora inline-flex h-11 items-center gap-2 px-7 text-[15px] font-bold"
+      >
+        <Play className="h-4.5 w-4.5 fill-white" />
+        Play
+      </Link>
+      <Link
+        to={`/anime/${current.id}`}
+        className="glass inline-flex h-11 items-center gap-2 rounded-full px-6 text-[15px] font-bold text-white transition-colors hover:bg-white/10"
+      >
+        <Info className="h-4.5 w-4.5" />
+        Details
+      </Link>
+    </div>
+  );
+
   return (
     <section
-      className="relative w-full h-[58vh] min-h-[420px] max-h-[560px] md:h-[78vh] md:min-h-[520px] md:max-h-[760px] overflow-hidden"
-      onMouseEnter={() => setHoverPaused(true)}
-      onMouseLeave={() => setHoverPaused(false)}
+      className="mx-auto w-full max-w-7xl px-4 pt-4 md:px-6 md:pt-6"
       aria-roledescription="carousel"
       aria-label="Featured anime"
     >
-      {/* Blurred background slide (crossfade via key + opacity transition) */}
       <div
-        key={current.id}
-        className="absolute inset-0 transition-opacity duration-500"
-        style={{ opacity: 1 }}
+        className="relative h-[52vh] min-h-[380px] overflow-hidden rounded-[24px] border border-xan-border md:h-[56vh] md:max-h-[560px] md:min-h-[430px] md:rounded-[32px]"
+        onMouseEnter={() => setHoverPaused(true)}
+        onMouseLeave={() => setHoverPaused(false)}
       >
-        <img
-          src={banner}
-          alt=""
-          aria-hidden
-          className="absolute inset-0 w-full h-full object-cover scale-125 blur-xl"
-        />
-      </div>
+        {/* Backdrop art — slow Ken Burns */}
+        <div key={current.id} className="absolute inset-0">
+          <img
+            src={banner}
+            alt=""
+            aria-hidden
+            className="absolute inset-0 h-full w-full object-cover animate-ken-burns"
+          />
+          {/* Sharper poster fallback on mobile where banners can crop badly */}
+          <img
+            src={poster}
+            alt=""
+            aria-hidden
+            className="absolute inset-0 h-full w-full object-cover animate-ken-burns md:hidden"
+            style={{ objectPosition: "center 22%" }}
+          />
+        </div>
 
-      {/* Color tint over blurred bg — uses the active slide's cover color */}
-      <div
-        className="absolute inset-0 opacity-30 mix-blend-soft-light"
-        style={{
-          background: `radial-gradient(circle at 30% 50%, ${current.coverImage?.color ?? "var(--color-xan-crimson)"} 0%, transparent 60%)`,
-        }}
-      />
+        {/* Scrims — left fade for text + soft bottom settle */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/50 to-black/15" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/20" />
 
-      {/* Theme-aware gradient overlays for legibility — fade to the active
-          theme's background color so the hero blends seamlessly into the
-          page regardless of which preset is active (Sakura plum, Ocean
-          teal-black, Royal indigo, etc.). */}
-      <div
-        className="absolute inset-0"
-        style={{ background: `linear-gradient(to top, var(--background) 0%, color-mix(in srgb, var(--background) 70%, transparent) 50%, color-mix(in srgb, var(--background) 40%, transparent) 100%)` }}
-      />
-      <div
-        className="absolute inset-0"
-        style={{ background: `linear-gradient(to right, color-mix(in srgb, var(--background) 95%, transparent) 0%, color-mix(in srgb, var(--background) 55%, transparent) 50%, color-mix(in srgb, var(--background) 70%, transparent) 100%)` }}
-      />
-      <div
-        className="absolute inset-0"
-        style={{ background: `linear-gradient(to bottom, color-mix(in srgb, var(--background) 50%, transparent) 0%, transparent 50%, transparent 100%)` }}
-      />
-
-      {/* Accent glow in the active theme's primary color — gives each preset
-          a distinctive ambient mood (Sakura pink glow, Ocean teal glow, etc.) */}
-      <div
-        className="absolute inset-0 opacity-20 pointer-events-none"
-        style={{
-          background: `radial-gradient(ellipse at 80% 30%, var(--color-xan-crimson) 0%, transparent 50%)`,
-          mixBlendMode: "soft-light",
-        }}
-      />
-      <div
-        className="absolute inset-0 opacity-15 pointer-events-none"
-        style={{
-          background: `radial-gradient(ellipse at 20% 70%, var(--color-xan-violet) 0%, transparent 50%)`,
-          mixBlendMode: "soft-light",
-        }}
-      />
-
-      {/* ─── MOBILE LAYOUT ─── */}
-      <div className="md:hidden relative h-full flex items-center justify-center px-14 pt-14 pb-12">
-        <div
-          key={`mobile-${current.id}`}
-          className="relative w-full max-w-[320px] aspect-[3/4] rounded-2xl overflow-hidden glass-strong p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)] animate-hero-info"
-        >
-          <div className="relative w-full h-full rounded-xl overflow-hidden group">
-            <img
-              src={poster}
-              alt={title}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            />
-            <div className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/80 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-t from-black/95 via-black/70 to-transparent" />
-
-            <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-              <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-wider uppercase glass-strong text-white">
-                #{active + 1} Trending
+        {/* ─── DESKTOP — info vertically centered left, poster right ─── */}
+        <div className="relative hidden h-full md:block">
+          <div
+            key={`d-${current.id}`}
+            className="absolute inset-0 flex items-center px-10 lg:px-14 xl:px-16 animate-hero-info"
+          >
+            <div className="max-w-xl space-y-4">
+              <span className="inline-flex items-center gap-2 rounded-full border border-xan-crimson/40 bg-xan-crimson/15 px-3.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.22em] text-xan-crimson">
+                <Play className="h-3 w-3 fill-xan-crimson" />
+                #{active + 1} Trending Now
               </span>
-              {current.averageScore != null && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold glass-strong text-white">
-                  <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />
-                  {current.averageScore}%
-                </span>
-              )}
-            </div>
 
-            <div className="absolute bottom-0 left-0 right-0 p-3.5 space-y-1.5">
-              <Link to={`/anime/${current.id}`}>
-                <h1 className="font-display font-bold text-[15px] leading-[1.15] text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)] line-clamp-2 hover:text-xan-crimson transition-colors">
-                  {title}
-                </h1>
-              </Link>
+              <h1 className="break-words font-display text-4xl font-extrabold leading-[1.02] tracking-[-0.02em] text-white drop-shadow-[0_4px_30px_rgba(0,0,0,0.65)] lg:text-5xl xl:text-[3.4rem]">
+                {title}
+              </h1>
 
-              <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-white/80">
-                {current.seasonYear && (
-                  <span className="flex items-center gap-0.5">
-                    <Calendar className="h-2.5 w-2.5" />
-                    {current.seasonYear}
-                  </span>
-                )}
-                {current.episodes != null && (
-                  <span className="text-white/60">{current.episodes} eps</span>
-                )}
-                {current.format && (
-                  <span className="px-1.5 py-0.5 rounded glass text-[8px] font-medium tracking-wider uppercase">
-                    {current.format}
-                  </span>
-                )}
-              </div>
+              {metaChips}
 
               {current.genres && current.genres.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {current.genres.slice(0, 3).map((g) => (
-                    <span
-                      key={g}
-                      className="px-1.5 py-0.5 rounded-full text-[8px] font-medium text-white/80 glass"
-                    >
-                      {g}
-                    </span>
-                  ))}
-                </div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-white/55">
+                  {current.genres.slice(0, 4).join(" · ")}
+                </p>
               )}
 
               {synopsis && (
-                <p className="text-[10px] text-white/65 line-clamp-2 leading-snug">{synopsis}</p>
+                <p className="max-w-lg text-sm leading-relaxed text-white/70 line-clamp-2 lg:text-[15px]">
+                  {synopsis}
+                </p>
               )}
 
-              <div className="flex items-center gap-1.5 pt-0.5">
-                <Link to={`/watch/${current.id}?ep=1`}>
-                  <span className="bg-gradient-to-r from-xan-crimson to-xan-violet text-white rounded-full px-3.5 h-8 text-[11px] font-semibold flex items-center shadow-[0_4px_20px_rgba(233,69,96,0.4)]">
-                    <Play className="h-3 w-3 fill-white mr-1" />
-                    Watch
-                  </span>
-                </Link>
-                <Link to={`/anime/${current.id}`}>
-                  <span className="glass-strong text-white border border-white/15 hover:bg-white/10 rounded-full px-3.5 h-8 text-[11px] font-semibold flex items-center">
-                    <Info className="h-3 w-3 mr-1" />
-                    Info
-                  </span>
-                </Link>
-              </div>
+              <div className="pt-1.5">{actionButtons}</div>
             </div>
+          </div>
+
+          {/* Floating poster card on the RIGHT (new position) */}
+          <div
+            key={`p-${current.id}`}
+            className="absolute right-10 top-1/2 hidden w-[200px] -translate-y-1/2 xl:block animate-hero-info"
+          >
+            <div className="overflow-hidden rounded-3xl border border-white/15 shadow-[0_32px_70px_rgba(0,0,0,0.6)] ring-1 ring-white/10">
+              <img src={poster} alt="" aria-hidden className="aspect-[2/3] w-full object-cover" />
+            </div>
+            {/* Glow bed under the poster */}
+            <div className="mx-auto mt-3 h-6 w-3/4 rounded-full bg-black/50 blur-xl" />
           </div>
         </div>
-      </div>
 
-      {/* ─── DESKTOP LAYOUT ─── */}
-      <div className="hidden md:flex relative h-full max-w-7xl mx-auto px-6 lg:pl-10 lg:pr-20 xl:pr-28 items-center">
-        <div className="w-full flex flex-row items-center gap-8 lg:gap-16 xl:gap-20">
-          {/* Info panel (left) */}
-          <div
-            key={`info-${current.id}`}
-            className="flex-1 max-w-2xl space-y-5 animate-hero-info"
-          >
-            <div className="flex items-center gap-2.5 text-xs font-semibold tracking-[0.2em] uppercase text-xan-crimson">
-              <span className="inline-block w-10 h-px bg-xan-crimson" />
-              #{active + 1} Trending Now
-            </div>
+        {/* ─── MOBILE — info stack at the bottom of the card ─── */}
+        <div
+          key={`m-${current.id}`}
+          className="relative flex h-full flex-col justify-end px-5 pb-14 animate-hero-info md:hidden"
+        >
+          <span className="mb-2.5 inline-flex w-fit items-center gap-1.5 rounded-full border border-xan-crimson/40 bg-xan-crimson/15 px-3 py-1 text-[9px] font-extrabold uppercase tracking-[0.2em] text-xan-crimson">
+            #{active + 1} Trending
+          </span>
+          <h1 className="line-clamp-2 font-display text-[26px] font-extrabold leading-[1.06] tracking-[-0.02em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
+            {title}
+          </h1>
 
-            <h1 className="font-display font-extrabold text-4xl md:text-5xl lg:text-6xl xl:text-7xl leading-[0.95] text-white drop-shadow-[0_4px_30px_rgba(0,0,0,0.6)] break-words">
-              {title}
-            </h1>
+          <div className="mt-3">{metaChips}</div>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm text-white/80">
-              {current.averageScore != null && (
-                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10">
-                  <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
-                  <span className="font-semibold">{current.averageScore}%</span>
-                </span>
-              )}
-              {current.seasonYear && (
-                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10">
-                  <Calendar className="h-3.5 w-3.5" />
-                  {current.season
-                    ? `${current.season.charAt(0)}${current.season.slice(1).toLowerCase()} ${current.seasonYear}`
-                    : current.seasonYear}
-                </span>
-              )}
-              {current.episodes != null && (
-                <span className="px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10">
-                  {current.episodes} eps
-                </span>
-              )}
-              {current.format && (
-                <span className="px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/10 text-[11px] font-medium tracking-wider uppercase">
-                  {current.format}
-                </span>
-              )}
-            </div>
+          {current.genres && current.genres.length > 0 && (
+            <p className="mt-2 text-[11px] font-bold uppercase tracking-[0.14em] text-white/55">
+              {current.genres.slice(0, 3).join(" · ")}
+            </p>
+          )}
 
-            {current.genres && current.genres.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {current.genres.slice(0, 4).map((g) => (
-                  <span
-                    key={g}
-                    className="px-2.5 py-1 rounded-full text-[11px] font-medium text-white/70 border border-white/10 bg-white/5"
-                  >
-                    {g}
-                  </span>
-                ))}
-              </div>
-            )}
+          <div className="mt-4">{actionButtons}</div>
+        </div>
 
-            {synopsis && (
-              <p
-                className="text-sm md:text-base text-white/65 line-clamp-2 max-w-xl leading-relaxed pl-4"
-                style={{ borderLeft: `2px solid color-mix(in srgb, var(--color-xan-crimson) 50%, transparent)` }}
-              >
-                {synopsis}
-              </p>
-            )}
-
-            <div className="flex items-center gap-3 pt-3">
-              <Link to={`/watch/${current.id}?ep=1`}>
-                <span className="bg-gradient-to-r from-xan-crimson to-xan-violet text-white rounded-full px-8 h-12 text-base font-semibold flex items-center shadow-[0_8px_30px_rgba(233,69,96,0.35)] hover:shadow-[0_8px_40px_rgba(233,69,96,0.5)] transition-all">
-                  <Play className="h-5 w-5 fill-white mr-1.5" />
-                  Watch Now
-                </span>
-              </Link>
-              <Link to={`/anime/${current.id}`}>
-                <span className="glass-strong text-white border border-white/15 hover:bg-white/10 hover:border-white/25 rounded-full px-7 h-12 text-base font-semibold flex items-center transition-all">
-                  <Info className="h-5 w-5 mr-1.5" />
-                  More Info
-                </span>
-              </Link>
-            </div>
-          </div>
-
-          {/* Poster card (right) */}
-          <div
-            key={`poster-${current.id}`}
-            className="flex-shrink-0 relative animate-hero-info"
-          >
-            <div
-              className="absolute -inset-6 rounded-3xl blur-2xl opacity-30 transition-colors duration-700"
-              style={{ background: current.coverImage?.color ?? "var(--color-xan-crimson)" }}
-              aria-hidden
+        {/* Progress segments — bottom-left inside the card (repositioned) */}
+        <div className="absolute bottom-6 left-6 z-20 flex items-center gap-1.5 md:bottom-7 md:left-8">
+          {slides.map((s, i) => (
+            <button
+              key={s.id}
+              onClick={() => goTo(i)}
+              aria-label={`Go to slide ${i + 1}`}
+              className={`h-1 rounded-full transition-all duration-500 ${
+                i === active ? "w-9 bg-gradient-to-r from-xan-crimson to-xan-violet" : "w-4 bg-white/25 hover:bg-white/50"
+              }`}
             />
-            <Link
-              to={`/anime/${current.id}`}
-              className="relative block w-[300px] lg:w-[340px] xl:w-[360px] aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_25px_70px_rgba(0,0,0,0.7)] transition-all duration-500 group ring-1 ring-white/10 hover:ring-2"
-              style={{ ["--hover-ring-color" as string]: "var(--color-xan-crimson)" }}
-            >
-              <img
-                src={poster}
-                alt={title}
-                className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-              />
-              <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-black/60 to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
-
-              {current.averageScore != null && (
-                <div className="absolute top-4 right-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold glass-strong text-white shadow-lg">
-                  <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
-                  {current.averageScore}%
-                </div>
-              )}
-
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <div className="w-16 h-16 rounded-full bg-xan-crimson/95 flex items-center justify-center shadow-2xl scale-75 group-hover:scale-100 transition-transform duration-300 backdrop-blur-sm">
-                  <Play className="h-7 w-7 text-white fill-white ml-1" />
-                </div>
-              </div>
-              <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <p className="text-sm font-bold text-white line-clamp-2 leading-tight">{title}</p>
-              </div>
-            </Link>
-          </div>
+          ))}
         </div>
-      </div>
 
-      {/* Side arrows */}
-      <div className="absolute top-1/2 -translate-y-1/2 left-2 md:left-4 z-20">
-        <button
-          onClick={() => go(-1)}
-          aria-label="Previous slide"
-          className="w-10 h-10 md:w-11 md:h-11 rounded-full glass-strong text-white hover:bg-white/15 flex items-center justify-center transition-colors"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-      </div>
-      <div className="absolute top-1/2 -translate-y-1/2 right-2 md:right-4 z-20">
-        <button
-          onClick={() => go(1)}
-          aria-label="Next slide"
-          className="w-10 h-10 md:w-11 md:h-11 rounded-full glass-strong text-white hover:bg-white/15 flex items-center justify-center transition-colors"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
-      </div>
-
-      {/* Dots */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 md:left-auto md:right-6 md:translate-x-0 flex items-center gap-2 z-20">
-        {slides.map((s, i) => (
+        {/* Arrow cluster — bottom-right inside the card (repositioned) */}
+        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 md:bottom-6 md:right-6">
           <button
-            key={s.id}
-            onClick={() => goTo(i)}
-            aria-label={`Go to slide ${i + 1}`}
-            className={`h-1.5 rounded-full transition-all duration-300 ${
-              i === active ? "w-8 bg-xan-crimson" : "w-2 bg-white/30 hover:bg-white/50"
-            }`}
-          />
-        ))}
+            onClick={() => go(-1)}
+            aria-label="Previous slide"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur transition-colors hover:bg-black/70 hover:text-white"
+          >
+            <ChevronLeft className="h-4.5 w-4.5" />
+          </button>
+          <button
+            onClick={() => go(1)}
+            aria-label="Next slide"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur transition-colors hover:bg-black/70 hover:text-white"
+          >
+            <ChevronRight className="h-4.5 w-4.5" />
+          </button>
+        </div>
       </div>
     </section>
   );

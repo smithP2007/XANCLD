@@ -8,12 +8,12 @@ export type MoodPreference = "action" | "cozy" | "funny" | "romance" | "mystery"
 export type DurationPreference = "short" | "medium" | "long" | "any";
 
 export const THEME_PRESETS: { id: ThemePreset; label: string; swatch: [string, string]; desc: string }[] = [
-  { id: "classic", label: "XAN Classic",   swatch: ["#e94560", "#7b2ff7"], desc: "Crimson + violet on near-black" },
-  { id: "sakura",  label: "Sakura Bloom",  swatch: ["#ff4d8d", "#c084fc"], desc: "Hot pink + lavender on deep plum" },
-  { id: "neon",    label: "Neon Shonen",   swatch: ["#4de8ff", "#8b5cf6"], desc: "Cyan + electric violet on near-black" },
-  { id: "sunset",  label: "Sunset Bloom",  swatch: ["#ff7849", "#fbbf24"], desc: "Coral + golden amber on deep wine" },
-  { id: "ocean",   label: "Ocean Abyss",   swatch: ["#2dd4bf", "#06b6d4"], desc: "Teal + aqua on deep oceanic black" },
-  { id: "royal",   label: "Royal Indigo",  swatch: ["#818cf8", "#fbbf24"], desc: "Indigo + gold on royal purple-black" },
+  { id: "classic", label: "Rosa",    swatch: ["#e94560", "#7b2ff7"], desc: "Signature rose + violet dusk" },
+  { id: "sakura",  label: "Blossom", swatch: ["#ec6a9c", "#f9c8dd"], desc: "Sakura pink on plum night" },
+  { id: "neon",    label: "Cyber",   swatch: ["#22d3ee", "#818cf8"], desc: "Electric cyan on deep space" },
+  { id: "sunset",  label: "Ember",   swatch: ["#f59e0b", "#fb923c"], desc: "Warm ember on charcoal" },
+  { id: "ocean",   label: "Lagoon",  swatch: ["#2dd4bf", "#38bdf8"], desc: "Teal lagoon on deep tide" },
+  { id: "royal",   label: "Iris",    swatch: ["#8b5cf6", "#fbbf24"], desc: "Amethyst + gold on royal night" },
 ];
 
 export interface XanSettings {

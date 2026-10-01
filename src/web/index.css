@@ -1,19 +1,52 @@
 @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Nunito:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
-/* ─── Design Tokens via @theme inline (matches XAN globals.css) ─── */
+/* ═══════════════════════════════════════════════════════════════════
+   XAN ROSA — Design System v4
+
+   User direction: REVERT the Netflix crimson/noir color scheme back to
+   the app's ORIGINAL brand identity, then redesign every aspect with
+   new positions and new forms.
+
+   Color scheme (REVERTED to original XANCLD brand):
+     • Rose    #e94560  — primary (original xan-crimson value)
+     • Violet  #7b2ff7  — secondary (original xan-violet value, restored
+                           as a REAL violet after 2 versions as an alias)
+     • Signature rose→violet gradient for select accents
+   Typography (REVERTED to original):
+     • Outfit display + Nunito body
+
+   New positions & forms (the v4 redesign):
+     • Desktop nav  → floating LEFT SIDEBAR RAIL (was full-width top bar)
+     • Mobile nav   → floating capsule dock, icon-only (was labeled bar)
+     • Home hero    → CONTAINED rounded card, info vertically centered,
+                      poster card on the RIGHT (was full-bleed, bottom-left)
+     • AnimeCard    → framed card, info BELOW the poster (was overlaid)
+     • Landing      → centered hero + framed showcase screen + numbered
+                      trending rows (was full-bleed Ken Burns, bottom-left)
+     • Forms        → pill buttons, 16px+ radii everywhere, diamond
+                      section markers, soft translucent surfaces
+
+   NOTE: token NAMES stay identical (xan-crimson, xan-violet, …) so every
+   untouched page (Detail/Search/Schedule/Watch/Library) re-skins at once.
+     xan-crimson → Rose    #e94560  (original brand value)
+     xan-violet  → Violet  #7b2ff7  (original brand value)
+     xan-cyan    → Periwinkle #b39dff (violet companion)
+   ═══════════════════════════════════════════════════════════════════ */
+
 @theme inline {
-  /* XAN brand colors */
-  --color-xan-crimson: #e94560;
-  --color-xan-crimson-dark: #c81e3a;
-  --color-xan-violet: #7b2ff7;
-  --color-xan-dark: #0a0a0a;
-  --color-xan-surface: hsl(240 10% 10%);
-  --color-xan-muted: #a1a1aa;
-  --color-xan-border: rgba(255, 255, 255, 0.08);
-  --color-xan-card: rgba(255, 255, 255, 0.04);
-  --color-xan-card-hover: rgba(255, 255, 255, 0.08);
-  --color-xan-landing-bg: #f0f0f0;
+  /* XAN Rosa brand colors — restored originals */
+  --color-xan-crimson: #e94560;      /* Brand rose (original) */
+  --color-xan-crimson-dark: #d63853;
+  --color-xan-violet: #7b2ff7;       /* Brand violet (original) */
+  --color-xan-cyan: #b39dff;         /* Periwinkle companion */
+  --color-xan-dark: #0b0a10;
+  --color-xan-surface: #14121d;
+  --color-xan-muted: #a09cb3;
+  --color-xan-border: rgba(255, 255, 255, 0.09);
+  --color-xan-card: #16141f;
+  --color-xan-card-hover: #1e1b2b;
+  --color-xan-landing-bg: #f5f2f7;
 
   /* shadcn-style token mapping */
   --color-background: var(--background);
@@ -35,194 +68,197 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
 
-  --font-sans: "Nunito", "Inter", system-ui, sans-serif;
-  --font-display: "Outfit", system-ui, sans-serif;
+  --font-sans: "Nunito", "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Outfit", "Nunito", system-ui, sans-serif;
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  /* v4 forms: generous radii (base 16px — was 8px in v3) */
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 4px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 1rem;
   color-scheme: dark;
-  /* Dark mode — primary XAN theme (default).
+  /* Rosa Dusk — default dark theme.
      Theme presets override these via [data-theme-preset="..."] below. */
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: rgba(255, 255, 255, 0.04);
-  --card-foreground: #fafafa;
-  --popover: #14141a;
-  --popover-foreground: #fafafa;
+  --background: #0b0a10;
+  --foreground: #f5f3fa;
+  --card: #16141f;
+  --card-foreground: #f5f3fa;
+  --popover: #14121d;
+  --popover-foreground: #f5f3fa;
   --primary: #e94560;
-  --primary-foreground: #fafafa;
-  --secondary: rgba(255, 255, 255, 0.08);
-  --secondary-foreground: #fafafa;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(255, 255, 255, 0.07);
+  --secondary-foreground: #f5f3fa;
   --muted: rgba(255, 255, 255, 0.06);
-  --muted-foreground: #a1a1aa;
-  --accent: rgba(255, 255, 255, 0.1);
-  --accent-foreground: #fafafa;
+  --muted-foreground: #a09cb3;
+  --accent: rgba(255, 255, 255, 0.09);
+  --accent-foreground: #f5f3fa;
   --destructive: #ff6568;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.11);
   --ring: #e94560;
 }
 
 /* ─── Theme Presets ──────────────────────────────────────────────
    Each preset redefines the brand colors AND the surface tokens so
-   every utility class (bg-xan-crimson, text-xan-violet, from-xan-crimson,
-   border-xan-border, bg-card, etc.) automatically reflects the active
-   theme — no component-level changes needed.
-
-   Presets only apply to DARK mode (the default). Light mode keeps the
-   XAN Classic palette since the video player UI hardcodes white-on-glass.
+   every utility class automatically reflects the active theme.
+   Presets only apply to DARK mode (the default). Light mode keeps
+   the Rosa Mist palette since the video player UI hardcodes
+   white-on-glass overlays.
    ───────────────────────────────────────────────────────────────── */
 
-/* XAN Classic — the existing palette. Explicit so it can be re-selected. */
+/* Rosa — the signature preset (default). Rose + violet on violet-dusk. */
 [data-theme-preset="classic"] {
   --color-xan-crimson: #e94560;
-  --color-xan-crimson-dark: #c81e3a;
+  --color-xan-crimson-dark: #d63853;
   --color-xan-violet: #7b2ff7;
-  --color-xan-dark: #0a0a0a;
-  --color-xan-surface: hsl(240 10% 10%);
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: rgba(255, 255, 255, 0.04);
-  --popover: #14141a;
+  --color-xan-cyan: #b39dff;
+  --color-xan-dark: #0b0a10;
+  --color-xan-surface: #14121d;
+  --background: #0b0a10;
+  --foreground: #f5f3fa;
+  --card: #16141f;
+  --popover: #14121d;
   --primary: #e94560;
   --ring: #e94560;
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.1);
-  --muted-foreground: #a1a1aa;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.11);
+  --muted-foreground: #a09cb3;
 }
 
-/* Sakura Bloom — vibrant magenta-pink + electric lavender on deep plum-navy.
-   More saturated + glowy than the previous Sakura Night — feels like
-   cherry blossoms under a neon streetlight. */
+/* Blossom — sakura pink on plum night. */
 [data-theme-preset="sakura"] {
-  --color-xan-crimson: #ff4d8d;      /* vibrant hot pink */
-  --color-xan-crimson-dark: #e63b73;
-  --color-xan-violet: #c084fc;       /* electric lavender */
-  --color-xan-dark: #1a0a1f;
-  --color-xan-surface: hsl(300 40% 12%);
-  --background: #1a0a1f;
-  --foreground: #fdf2f8;
-  --card: rgba(255, 77, 141, 0.05);
-  --popover: #2a1530;
-  --primary: #ff4d8d;
-  --ring: #ff4d8d;
-  --border: rgba(255, 77, 141, 0.15);
-  --input: rgba(255, 77, 141, 0.12);
-  --muted-foreground: #d4a5c0;
+  --color-xan-crimson: #ec6a9c;
+  --color-xan-crimson-dark: #d95388;
+  --color-xan-violet: #a855f7;
+  --color-xan-cyan: #f9c8dd;
+  --color-xan-dark: #0e0a10;
+  --color-xan-surface: #171017;
+  --background: #0e0a10;
+  --foreground: #f9f4f8;
+  --card: #181119;
+  --popover: #150f16;
+  --primary: #ec6a9c;
+  --ring: #ec6a9c;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.11);
+  --muted-foreground: #ab9ba7;
 }
 
-/* Neon Shonen — cyan + electric violet on near-black blue (UNCHANGED per request) */
+/* Cyber — electric cyan on deep space. */
 [data-theme-preset="neon"] {
-  --color-xan-crimson: #4de8ff;
-  --color-xan-crimson-dark: #21c8e8;
-  --color-xan-violet: #8b5cf6;
-  --color-xan-dark: #05070f;
-  --color-xan-surface: hsl(225 30% 9%);
-  --background: #05070f;
-  --foreground: #e6f9ff;
-  --card: rgba(77, 232, 255, 0.04);
-  --popover: #10131f;
-  --primary: #4de8ff;
-  --ring: #4de8ff;
-  --border: rgba(77, 232, 255, 0.12);
-  --input: rgba(77, 232, 255, 0.1);
-  --muted-foreground: #7a8aa8;
+  --color-xan-crimson: #22d3ee;
+  --color-xan-crimson-dark: #06b6d4;
+  --color-xan-violet: #818cf8;
+  --color-xan-cyan: #a5f3fc;
+  --color-xan-dark: #07090f;
+  --color-xan-surface: #0e131c;
+  --background: #07090f;
+  --foreground: #f1f5fd;
+  --card: #101623;
+  --popover: #0e131d;
+  --primary: #22d3ee;
+  --ring: #22d3ee;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.11);
+  --muted-foreground: #8b98a5;
 }
 
-/* Sunset Bloom — warm coral + golden amber on deep wine.
-   Inspired by golden-hour anime key art — warm, romantic, cinematic. */
+/* Ember — warm amber on charcoal. */
 [data-theme-preset="sunset"] {
-  --color-xan-crimson: #ff7849;      /* coral-orange */
-  --color-xan-crimson-dark: #e85d2e;
-  --color-xan-violet: #fbbf24;       /* golden amber replaces violet */
-  --color-xan-dark: #1f0a0e;
-  --color-xan-surface: hsl(350 40% 10%);
-  --background: #1f0a0e;
-  --foreground: #fff5ed;
-  --card: rgba(255, 120, 73, 0.05);
-  --popover: #2e1418;
-  --primary: #ff7849;
-  --ring: #ff7849;
-  --border: rgba(255, 120, 73, 0.14);
-  --input: rgba(255, 120, 73, 0.1);
-  --muted-foreground: #d4a89a;
+  --color-xan-crimson: #f59e0b;
+  --color-xan-crimson-dark: #d97706;
+  --color-xan-violet: #fb923c;
+  --color-xan-cyan: #fde68a;
+  --color-xan-dark: #0d0a06;
+  --color-xan-surface: #17120c;
+  --background: #0d0a06;
+  --foreground: #faf5ec;
+  --card: #191309;
+  --popover: #16110a;
+  --primary: #f59e0b;
+  --ring: #f59e0b;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.11);
+  --muted-foreground: #a89e8f;
 }
 
-/* Ocean Abyss — teal + aqua glow on deep oceanic black.
-   Inspired by deep-sea bioluminescence — cool, mysterious, immersive. */
+/* Lagoon — teal on deep tide. */
 [data-theme-preset="ocean"] {
-  --color-xan-crimson: #2dd4bf;      /* teal */
+  --color-xan-crimson: #2dd4bf;
   --color-xan-crimson-dark: #14b8a6;
-  --color-xan-violet: #06b6d4;       /* cyan-aqua */
-  --color-xan-dark: #02111a;
-  --color-xan-surface: hsl(190 45% 8%);
-  --background: #02111a;
-  --foreground: #ecfeff;
-  --card: rgba(45, 212, 191, 0.05);
-  --popover: #052030;
+  --color-xan-violet: #38bdf8;
+  --color-xan-cyan: #99f6e4;
+  --color-xan-dark: #060f0e;
+  --color-xan-surface: #0c1716;
+  --background: #060f0e;
+  --foreground: #effaf8;
+  --card: #0e1b1a;
+  --popover: #0c1817;
   --primary: #2dd4bf;
   --ring: #2dd4bf;
-  --border: rgba(45, 212, 191, 0.14);
-  --input: rgba(45, 212, 191, 0.1);
-  --muted-foreground: #7dc4c0;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.11);
+  --muted-foreground: #8aa39f;
 }
 
-/* Royal Indigo — indigo + gold on deep royal purple-black.
-   Inspired by royal/regal aesthetics — luxurious, premium, dramatic. */
+/* Iris — amethyst + gold on royal night. */
 [data-theme-preset="royal"] {
-  --color-xan-crimson: #818cf8;      /* indigo */
-  --color-xan-crimson-dark: #6366f1;
-  --color-xan-violet: #fbbf24;       /* royal gold */
-  --color-xan-dark: #0f0a1f;
-  --color-xan-surface: hsl(255 40% 10%);
-  --background: #0f0a1f;
-  --foreground: #f0ecff;
-  --card: rgba(129, 140, 248, 0.05);
-  --popover: #1a1230;
-  --primary: #818cf8;
-  --ring: #818cf8;
-  --border: rgba(129, 140, 248, 0.14);
-  --input: rgba(129, 140, 248, 0.1);
-  --muted-foreground: #a5a0d4;
+  --color-xan-crimson: #8b5cf6;
+  --color-xan-crimson-dark: #7c3aed;
+  --color-xan-violet: #fbbf24;
+  --color-xan-cyan: #c4b5fd;
+  --color-xan-dark: #0c0a14;
+  --color-xan-surface: #14111f;
+  --background: #0c0a14;
+  --foreground: #f4f1fb;
+  --card: #161223;
+  --popover: #141020;
+  --primary: #8b5cf6;
+  --ring: #8b5cf6;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.11);
+  --muted-foreground: #9d97b0;
 }
 
 /* Per-preset selection tint */
-[data-theme-preset="sakura"]  ::selection { background: rgba(255, 77, 141, 0.3); color: #fff; }
-[data-theme-preset="neon"]    ::selection { background: rgba(77, 232, 255, 0.3); color: #fff; }
-[data-theme-preset="sunset"]  ::selection { background: rgba(255, 120, 73, 0.3); color: #fff; }
-[data-theme-preset="ocean"]   ::selection { background: rgba(45, 212, 191, 0.3); color: #fff; }
-[data-theme-preset="royal"]   ::selection { background: rgba(129, 140, 248, 0.3); color: #fff; }
+[data-theme-preset="sakura"]  ::selection { background: rgba(236, 106, 156, 0.35); color: #fff; }
+[data-theme-preset="neon"]    ::selection { background: rgba(34, 211, 238, 0.35); color: #fff; }
+[data-theme-preset="sunset"]  ::selection { background: rgba(245, 158, 11, 0.35); color: #fff; }
+[data-theme-preset="ocean"]   ::selection { background: rgba(45, 212, 191, 0.35); color: #fff; }
+[data-theme-preset="royal"]   ::selection { background: rgba(139, 92, 246, 0.35); color: #fff; }
 
-/* Light theme overrides — when .dark is NOT on <html> */
+/* Light theme overrides — Rosa Mist */
 :root:not(.dark) {
   color-scheme: light;
-  --background: #fafafa;
-  --foreground: #0a0a0a;
-  --card: rgba(0, 0, 0, 0.025);
-  --card-foreground: #0a0a0a;
+  --background: #f6f4f8;
+  --foreground: #17141f;
+  --card: #ffffff;
+  --card-foreground: #17141f;
   --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
+  --popover-foreground: #17141f;
   --primary: #e94560;
-  --primary-foreground: #fafafa;
-  --secondary: rgba(0, 0, 0, 0.06);
-  --secondary-foreground: #0a0a0a;
-  --muted: rgba(0, 0, 0, 0.04);
-  --muted-foreground: #6b7280;
-  --accent: rgba(0, 0, 0, 0.05);
-  --accent-foreground: #0a0a0a;
+  --primary-foreground: #ffffff;
+  --secondary: rgba(23, 20, 31, 0.05);
+  --secondary-foreground: #17141f;
+  --muted: rgba(23, 20, 31, 0.045);
+  --muted-foreground: #5d5a6b;
+  --accent: rgba(23, 20, 31, 0.06);
+  --accent-foreground: #17141f;
   --destructive: #e40014;
-  --border: rgba(0, 0, 0, 0.1);
-  --input: rgba(0, 0, 0, 0.08);
+  --border: rgba(23, 20, 31, 0.1);
+  --input: rgba(23, 20, 31, 0.08);
   --ring: #e94560;
-  --color-xan-card: rgba(0, 0, 0, 0.03);
-  --color-xan-card-hover: rgba(0, 0, 0, 0.06);
-  --color-xan-border: rgba(0, 0, 0, 0.1);
+  --color-xan-crimson: #e94560;
+  --color-xan-crimson-dark: #d63853;
+  --color-xan-violet: #7b2ff7;
+  --color-xan-card: #ffffff;
+  --color-xan-card-hover: #f4f2f7;
+  --color-xan-border: rgba(23, 20, 31, 0.1);
 }
 
 * {
@@ -244,31 +280,31 @@ body {
 }
 
 :root:not(.dark) body {
-  background: #fafafa;
-  color: #0a0a0a;
+  background: #f6f4f8;
+  color: #17141f;
 }
 
-/* ─── Custom Scrollbar (thin, crimson-tinted) ─── */
+/* ─── Custom Scrollbar (thin, neutral) ─── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(155, 155, 155, 0.5) transparent;
+  scrollbar-color: rgba(140, 138, 165, 0.4) transparent;
 }
 *::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background-color: rgba(155, 155, 155, 0.5); border-radius: 20px; }
-*::-webkit-scrollbar-thumb:hover { background-color: rgba(155, 155, 155, 0.8); }
+*::-webkit-scrollbar-thumb { background-color: rgba(140, 138, 165, 0.4); border-radius: 20px; }
+*::-webkit-scrollbar-thumb:hover { background-color: rgba(140, 138, 165, 0.7); }
 
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
-/* ─── Utility classes (Tailwind v4 generates most via @theme inline, but keep
-       these aliases so existing JSX keeps working without rewriting every file) ─── */
+/* ─── Utility aliases (existing JSX keeps working) ─── */
 .bg-background { background-color: var(--background); }
 .bg-card { background-color: var(--card); }
 .bg-xan-card { background-color: var(--color-xan-card); }
 .bg-xan-card-hover { background-color: var(--color-xan-card-hover); }
 .bg-xan-crimson { background-color: var(--color-xan-crimson); }
 .bg-xan-violet { background-color: var(--color-xan-violet); }
+.bg-xan-cyan { background-color: var(--color-xan-cyan); }
 .bg-xan-dark { background-color: var(--color-xan-dark); }
 .bg-xan-surface { background-color: var(--color-xan-surface); }
 .bg-primary { background-color: var(--primary); }
@@ -283,6 +319,7 @@ body {
 .text-primary { color: var(--primary); }
 .text-xan-crimson { color: var(--color-xan-crimson); }
 .text-xan-violet { color: var(--color-xan-violet); }
+.text-xan-cyan { color: var(--color-xan-cyan); }
 .text-xan-dark { color: var(--color-xan-dark); }
 .text-white { color: #fff; }
 .text-destructive { color: var(--destructive); }
@@ -307,15 +344,244 @@ body {
 .rounded-lg { border-radius: var(--radius-lg); }
 .rounded-xl { border-radius: var(--radius-xl); }
 
-/* ─── Gradient Animation ─── */
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+/* ─── Signature brand gradient (rose → violet, restored identity) ─── */
+.gradient-text {
+  background: linear-gradient(100deg, var(--color-xan-crimson) 10%, var(--color-xan-violet) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient-shift 8s ease infinite;
+.gradient-text-soft {
+  background: linear-gradient(100deg, var(--color-xan-crimson) 0%, var(--color-xan-cyan) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
+.bg-aurora-gradient {
+  background: linear-gradient(120deg, var(--color-xan-crimson), var(--color-xan-violet));
+}
+
+/* ─── Ambient blobs — disabled in v4 (clean surfaces instead).
+   Classes kept so legacy markup renders harmlessly. ─── */
+.aurora-blob {
+  display: none;
+}
+
+/* Soft hairline top edge (footer / section dividers) */
+.aurora-hairline {
+  position: relative;
+}
+.aurora-hairline::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(233, 69, 96, 0.35), rgba(123, 47, 247, 0.35), transparent);
+}
+:root:not(.dark) .aurora-hairline::before {
+  background: linear-gradient(90deg, transparent, rgba(233, 69, 96, 0.3), rgba(123, 47, 247, 0.3), transparent);
+}
+
+/* ─── Soft translucent surfaces (light touch of blur, v4 forms) ─── */
+.glass {
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--border);
+}
+.glass-strong {
+  background: color-mix(in srgb, var(--popover) 92%, transparent);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border);
+}
+:root:not(.dark) .glass {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(23, 20, 31, 0.08);
+}
+:root:not(.dark) .glass-strong {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(23, 20, 31, 0.08);
+}
+
+/* ─── Mobile top bar (nav-pill repurposed; desktop uses the side rail) ─── */
+.nav-pill {
+  border-radius: 0;
+  background: color-mix(in srgb, var(--background) 72%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: none;
+  box-shadow: none;
+  transition: background 0.35s ease, box-shadow 0.35s ease, border-color 0.35s ease;
+}
+.nav-pill--scrolled {
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+:root:not(.dark) .nav-pill {
+  background: rgba(246, 244, 248, 0.75);
+}
+:root:not(.dark) .nav-pill--scrolled {
+  background: rgba(246, 244, 248, 0.94);
+  border-bottom: 1px solid rgba(23, 20, 31, 0.08);
+}
+
+/* ─── v4: Floating LEFT SIDEBAR RAIL (desktop navigation) ───
+   New position: nav moved from the top edge to a detached rail on
+   the left with generous rounding and soft depth.
+   v4.1 MINIMAL: rail is icon-only (68px). Each link is a 44px square
+   icon pill; the active one becomes the brand gradient. Labels are
+   exposed only through hover tooltips ([data-tip]) and aria-labels. */
+.side-rail {
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+:root:not(.dark) .side-rail {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 12px 40px rgba(23, 20, 31, 0.08);
+}
+
+.side-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 1rem;
+  color: var(--muted-foreground);
+  transition: color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease,
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.side-link:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+.side-link:active {
+  transform: scale(0.92);
+}
+.side-link--active,
+.side-link--active:hover {
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-xan-crimson), var(--color-xan-violet));
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--color-xan-crimson) 35%, transparent);
+}
+
+/* Icon-only rail tooltips — labels appear on hover, to the right of the
+   rail. Desktop-only (hover-capable pointers); the mobile dock keeps
+   aria-labels only. */
+@media (hover: hover) and (pointer: fine) {
+  .side-rail [data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: calc(100% + 14px);
+    top: 50%;
+    transform: translateY(-50%) translateX(-4px);
+    padding: 6px 10px;
+    border-radius: 0.625rem;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 94%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--foreground);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 60;
+  }
+  .side-rail [data-tip]:hover::after {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+  :root:not(.dark) .side-rail [data-tip]::after {
+    box-shadow: 0 8px 24px rgba(23, 20, 31, 0.12);
+  }
+}
+
+/* ─── v4: Mobile floating capsule dock (icon-only) ─── */
+.dock {
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+}
+:root:not(.dark) .dock {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(23, 20, 31, 0.08);
+  box-shadow: 0 12px 36px rgba(23, 20, 31, 0.12);
+}
+.dock-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  height: 44px;
+  border-radius: 9999px;
+  color: var(--muted-foreground);
+  transition: color 0.25s ease, background 0.25s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dock-item:active { transform: scale(0.92); }
+.dock-item--active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-xan-crimson), var(--color-xan-violet));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--color-xan-crimson) 40%, transparent);
+}
+
+/* ─── Feature tile (landing) ─── */
+.bento-cell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background: var(--color-xan-card);
+  border: 1px solid var(--border);
+  transition: border-color 0.35s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
+}
+.bento-cell:hover {
+  border-color: color-mix(in srgb, var(--color-xan-crimson) 45%, transparent);
+  transform: translateY(-3px);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.4);
+}
+:root:not(.dark) .bento-cell {
+  background: #ffffff;
+  border-color: rgba(23, 20, 31, 0.08);
+  box-shadow: 0 2px 12px rgba(23, 20, 31, 0.04);
+}
+:root:not(.dark) .bento-cell:hover {
+  border-color: color-mix(in srgb, var(--color-xan-crimson) 40%, transparent);
+}
+
+/* ─── Rose ring on hover (cards / posters) ─── */
+.ring-glow {
+  position: relative;
+}
+.ring-glow::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 2px solid var(--color-xan-crimson);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.ring-glow:hover::after { opacity: 1; }
 
 /* ─── YouTube-Style Player Animations ─── */
 @keyframes xan-seek-ripple {
@@ -365,7 +631,7 @@ body {
 .xan-seek:hover::-webkit-slider-thumb,
 .xan-seek:focus::-webkit-slider-thumb {
   transform: scale(1.25);
-  box-shadow: 0 0 0 6px rgba(233, 69, 96, 0.18);
+  box-shadow: 0 0 0 6px rgba(233, 69, 96, 0.2);
 }
 .xan-seek::-moz-range-thumb {
   width: 14px; height: 14px; border-radius: 50%;
@@ -419,9 +685,9 @@ body {
 :root:not(.dark) .skeleton {
   background: linear-gradient(
     90deg,
-    rgba(0, 0, 0, 0.04) 25%,
-    rgba(0, 0, 0, 0.08) 50%,
-    rgba(0, 0, 0, 0.04) 75%
+    rgba(23, 20, 31, 0.04) 25%,
+    rgba(23, 20, 31, 0.08) 50%,
+    rgba(23, 20, 31, 0.04) 75%
   );
   background-size: 200% 100%;
 }
@@ -431,32 +697,6 @@ body {
 .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .line-clamp-4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-
-/* ─── Glassmorphism utilities ─── */
-.glass {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-.glass-strong {
-  background: rgba(10, 10, 12, 0.55);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-:root:not(.dark) .glass {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-:root:not(.dark) .glass-strong {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
 
 /* ─── Right-edge mask fade (horizontal scrollers) ─── */
 .mask-fade-r {
@@ -468,13 +708,13 @@ body {
   mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.3) 5%, black 12%, black 88%, rgba(0,0,0,0.3) 95%, transparent 100%);
 }
 
-/* ─── Outlined text (Netflix-style ranking numbers) ─── */
+/* ─── Outlined text (big ranking numerals) ─── */
 .text-stroke {
-  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.22);
+  -webkit-text-stroke: 2px color-mix(in srgb, var(--color-xan-crimson) 55%, transparent);
   color: transparent;
 }
 .text-stroke-thin {
-  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.18);
+  -webkit-text-stroke: 1px color-mix(in srgb, var(--color-xan-crimson) 40%, transparent);
   color: transparent;
 }
 
@@ -491,12 +731,12 @@ body {
 }
 .animate-mesh-2 { animation: mesh-shift-2 28s ease-in-out infinite; }
 
-/* ─── Hero Ken-Burns slow zoom ─── */
+/* ─── Hero slow zoom (showcase frames) ─── */
 @keyframes ken-burns {
-  0% { transform: scale(1.05); }
-  100% { transform: scale(1.15); }
+  0% { transform: scale(1.02); }
+  100% { transform: scale(1.14); }
 }
-.animate-ken-burns { animation: ken-burns 14s ease-out forwards; }
+.animate-ken-burns { animation: ken-burns 20s ease-out forwards; }
 
 /* ─── Hero info panel slide-in ─── */
 @keyframes hero-info-in {
@@ -513,6 +753,19 @@ body {
 .card-enter {
   animation: card-enter 0.3s cubic-bezier(0.25, 0.4, 0.25, 1) both;
   animation-delay: calc(min(var(--card-index, 0), 10) * 25ms);
+}
+
+/* ─── Marquee strip (landing) ─── */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 32s linear infinite;
+}
+.marquee-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
 }
 
 /* ─── Reduced motion ─── */
@@ -569,11 +822,11 @@ body {
   transform: revert !important;
 }
 .xan-tv-mode .glass {
-  background: rgba(20, 20, 24, 0.95) !important;
+  background: rgba(22, 20, 31, 0.95) !important;
   border-color: rgba(255, 255, 255, 0.06) !important;
 }
 .xan-tv-mode .glass-strong {
-  background: rgba(10, 10, 12, 0.95) !important;
+  background: rgba(14, 12, 20, 0.95) !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 .xan-tv-mode [class*="shadow-"] {
@@ -597,25 +850,28 @@ body {
 }
 
 /* ─── Selection ─── */
-::selection { background: rgba(233, 69, 96, 0.3); color: #fff; }
-:root:not(.dark) ::selection { background: rgba(233, 69, 96, 0.2); color: #0a0a0a; }
+::selection { background: rgba(233, 69, 96, 0.4); color: #fff; }
+:root:not(.dark) ::selection { background: rgba(233, 69, 96, 0.15); color: #17141f; }
 
-/* ─── Glow effects ─── */
+/* ─── Shadows & glows (rose-tinted depth) ─── */
 .glow-crimson {
-  box-shadow: 0 0 24px rgba(233, 69, 96, 0.25), 0 0 48px rgba(233, 69, 96, 0.1);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--color-xan-crimson) 30%, transparent);
 }
 .glow-violet {
-  box-shadow: 0 0 24px rgba(123, 47, 247, 0.25), 0 0 48px rgba(123, 47, 247, 0.1);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--color-xan-violet) 30%, transparent);
 }
 .glow-soft {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.glow-aurora {
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--color-xan-violet) 28%, transparent);
 }
 
 /* ─── Premium button ─── */
 .btn-premium {
   position: relative;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .btn-premium::before {
   content: '';
@@ -629,9 +885,24 @@ body {
 .btn-premium:hover { transform: translateY(-1px); }
 .btn-premium:active { transform: translateY(0); }
 
+/* ─── Primary CTA: signature rose→violet gradient pill (v4 form) ─── */
+.btn-aurora {
+  background: linear-gradient(120deg, var(--color-xan-crimson) 0%, var(--color-xan-violet) 100%);
+  color: #fff;
+  border-radius: 9999px;
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--color-xan-crimson) 32%, transparent);
+  transition: filter 0.25s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
+}
+.btn-aurora:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-xan-crimson) 42%, transparent);
+}
+.btn-aurora:active { transform: translateY(0); }
+
 /* ─── Hover lift ─── */
 .hover-lift {
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
 }
 .hover-lift:hover { transform: translateY(-4px); }
 
@@ -646,41 +917,35 @@ body {
   from { opacity: 0.3; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-in-up { animation: fadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.animate-fade-in-up { animation: fadeInUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 @keyframes scaleIn {
   from { opacity: 0.3; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
 }
-.animate-scale-in { animation: scaleIn 0.2s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.animate-scale-in { animation: scaleIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(20px); }
   to { opacity: 1; transform: translateX(0); }
 }
-.animate-slide-in { animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1) both; }
+.animate-slide-in { animation: slideInRight 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 @keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 20px rgba(233, 69, 96, 0.2); }
-  50% { box-shadow: 0 0 30px rgba(233, 69, 96, 0.4); }
+  0%, 100% { box-shadow: 0 0 16px color-mix(in srgb, var(--color-xan-crimson) 18%, transparent); }
+  50% { box-shadow: 0 0 26px color-mix(in srgb, var(--color-xan-crimson) 32%, transparent); }
 }
 .pulse-glow { animation: pulseGlow 2s ease-in-out infinite; }
 
-/* Gradient text */
-.gradient-text {
-  background: linear-gradient(135deg, #e94560 0%, #7b2ff7 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
 /* Card hover glow */
-.card-glow { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.card-glow { transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
 .card-glow:hover {
-  box-shadow: 0 8px 32px rgba(233, 69, 96, 0.15), 0 0 0 1px rgba(233, 69, 96, 0.2);
+  box-shadow:
+    0 12px 36px rgba(0, 0, 0, 0.55),
+    0 0 0 1px color-mix(in srgb, var(--color-xan-crimson) 35%, transparent);
 }
 
-/* Toggle switch */
+/* Toggle switch — gradient when active (v4 form) */
 .toggle-switch {
   position: relative;
   width: 44px;
@@ -691,7 +956,7 @@ body {
   transition: background 0.3s;
 }
 .toggle-switch.active {
-  background: linear-gradient(135deg, #e94560, #7b2ff7);
+  background: linear-gradient(120deg, var(--color-xan-crimson), var(--color-xan-violet));
 }
 .toggle-switch::after {
   content: '';
@@ -702,12 +967,12 @@ body {
   height: 20px;
   background: white;
   border-radius: 50%;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .toggle-switch.active::after { transform: translateX(20px); }
 
 /* Focus ring */
 *:focus-visible {
-  outline: 2px solid rgba(233, 69, 96, 0.5);
+  outline: 2px solid color-mix(in srgb, var(--color-xan-crimson) 65%, transparent);
   outline-offset: 2px;
 }

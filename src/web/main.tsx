@@ -131,9 +131,12 @@ function AppShell() {
           <Route path="/" element={<Landing />} />
         </Routes>
       ) : (
-        <div className="min-h-screen flex flex-col">
+        // v4.1 MINIMAL layout: content shifts right of the icon-only sidebar
+        // rail (rail 68px + left 16px + gap 20px = 104px). Mobile keeps a slim
+        // top bar (h-14) plus bottom clearance for the capsule dock.
+        <div className="min-h-screen flex flex-col pb-24 md:pb-6 md:pl-[104px]">
           <Navbar />
-          <main className="flex-1 pt-16">
+          <main className="flex-1 pt-14 md:pt-0">
             <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="/home" element={<Home />} />

@@ -1,10 +1,8 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
 import {
-  Play,
   Search,
   Settings,
-  Menu,
   X,
   Home as HomeIcon,
   Compass,
@@ -14,8 +12,16 @@ import {
   Command,
 } from "lucide-react";
 import { openCommandMenu } from "./command/CommandMenu";
+import { LogoMark } from "./Logo";
 
-const NAV_LINKS = [
+// v4 ROSA: navigation REPOSITIONED from a full-width top bar to a floating
+// left sidebar rail on desktop. Mobile keeps a slim top bar for actions and
+// gains a floating icon-only capsule dock at the bottom.
+// v4.1 MINIMAL (user request): the desktop rail is now ICON-ONLY — no text
+// labels. Width shrinks 216px → 68px; labels live in hover tooltips +
+// aria-labels. The full-width search input is gone: the Search icon opens
+// the ⌘K Command Menu, which already has live AniList search built in.
+const RAIL_LINKS = [
   { label: "Home", to: "/home", icon: HomeIcon },
   { label: "Discover", to: "/trending", icon: Compass },
   { label: "Schedule", to: "/schedule", icon: Calendar },
@@ -23,24 +29,30 @@ const NAV_LINKS = [
   { label: "History", to: "/history", icon: HistoryIcon },
 ];
 
+const DOCK_LINKS = [
+  { label: "Home", to: "/home", icon: HomeIcon },
+  { label: "Discover", to: "/trending", icon: Compass },
+  { label: "Schedule", to: "/schedule", icon: Calendar },
+  { label: "Library", to: "/list", icon: Library },
+  { label: "Settings", to: "/settings", icon: Settings },
+];
+
 export function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [query, setQuery] = useState("");
   const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    const onScroll = () => setScrolled(window.scrollY > 12);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll, { passive: true } as never);
   }, []);
 
-  // Close mobile menus on route change
+  // Close mobile search on route change
   useEffect(() => {
-    setMobileOpen(false);
     setSearchOpen(false);
   }, [location.pathname]);
 
@@ -50,10 +62,8 @@ export function Navbar() {
     if (q) {
       navigate(`/search?q=${encodeURIComponent(q)}`);
       setSearchOpen(false);
-      setMobileOpen(false);
       setQuery("");
     } else {
-      // Empty submit — just close the mobile search panel
       setSearchOpen(false);
     }
   };
@@ -64,161 +74,143 @@ export function Navbar() {
   };
 
   return (
-    <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "bg-background/80 backdrop-blur-xl border-b border-xan-border"
-          : "bg-transparent border-transparent"
-      }`}
-    >
-      <nav className="max-w-7xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-4">
-        {/* Logo */}
-        <Link to="/home" className="flex items-center gap-2 group flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-xan-crimson to-xan-violet flex items-center justify-center group-hover:scale-105 transition-transform">
-            <Play className="h-4 w-4 text-white fill-white" />
-          </div>
-          <span className="font-display font-extrabold text-xl text-foreground">XAN</span>
+    <>
+      {/* ─── v4.1: Desktop MINIMAL icon-only sidebar rail (no labels) ─── */}
+      <aside className="side-rail fixed left-4 top-4 bottom-4 z-50 hidden w-[68px] flex-col items-center p-3 md:flex">
+        {/* "Guiding Light" mark (compact wordmark replacement) */}
+        <Link
+          to="/home"
+          className="mb-2 flex-shrink-0 transition-transform duration-300 hover:scale-105"
+          aria-label="XAN home"
+          title="XAN"
+        >
+          <LogoMark className="h-10 w-10 rounded-[13px] shadow-lg shadow-xan-crimson/30" />
         </Link>
 
-        {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-1">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.to}
-              to={link.to}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive(link.to)
-                  ? "text-foreground bg-xan-card-hover"
-                  : "text-muted-foreground hover:text-foreground hover:bg-xan-card"
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </div>
+        {/* Search — icon button that opens the ⌘K Command Menu (live search) */}
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          className="side-link"
+          data-tip="Search · ⌘K"
+          aria-label="Search anime (opens command menu)"
+          title="Search"
+        >
+          <Search className="h-5 w-5" strokeWidth={2} />
+        </button>
 
-        {/* Search + actions */}
-        <div className="flex items-center gap-2">
-          {/* Command button (desktop) — ⌘K palette */}
+        {/* Primary links — icon only, labels on hover */}
+        <nav className="flex flex-1 flex-col items-center gap-1 pt-1" aria-label="Primary">
+          {RAIL_LINKS.map((link) => {
+            const Icon = link.icon;
+            const active = isActive(link.to);
+            return (
+              <Link
+                key={link.to}
+                to={link.to}
+                className={`side-link ${active ? "side-link--active" : ""}`}
+                data-tip={link.label}
+                aria-label={link.label}
+                aria-current={active ? "page" : undefined}
+              >
+                <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 2} />
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Footer of the rail — command + settings (icon only) */}
+        <div className="mt-2 flex w-full flex-col items-center gap-1 border-t border-xan-border pt-3">
           <button
             type="button"
             onClick={openCommandMenu}
-            className="hidden md:flex items-center gap-2 h-9 px-3 rounded-lg border border-xan-border bg-xan-card text-muted-foreground hover:text-foreground hover:bg-xan-card-hover transition-colors"
+            className="side-link"
+            data-tip="Command · ⌘K"
             aria-label="Open command menu (⌘K)"
-            title="Open command menu (⌘K)"
-          >
-            <Command className="h-4 w-4" />
-            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-xan-border bg-background/60">⌘K</kbd>
-          </button>
-          {/* Command button (mobile) — icon only */}
-          <button
-            type="button"
-            onClick={openCommandMenu}
-            className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-xan-card transition-colors"
-            aria-label="Open command menu"
+            title="Command menu"
           >
             <Command className="h-5 w-5" />
           </button>
-
-          {/* Desktop search */}
-          <form onSubmit={onSubmit} className="hidden md:flex items-center relative">
-            <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search anime..."
-              className="pl-9 w-48 lg:w-64 rounded-lg bg-xan-card border border-xan-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-xan-crimson/50 focus:ring-2 focus:ring-xan-crimson/30 h-9"
-            />
-          </form>
-
-          {/* Settings (desktop) */}
           <Link
             to="/settings"
-            className={`hidden md:flex w-9 h-9 items-center justify-center rounded-lg transition-colors ${
-              location.pathname === "/settings"
-                ? "text-foreground bg-xan-card-hover"
-                : "text-muted-foreground hover:text-foreground hover:bg-xan-card"
-            }`}
+            className={`side-link ${isActive("/settings") ? "side-link--active" : ""}`}
+            data-tip="Settings"
             aria-label="Settings"
+            aria-current={isActive("/settings") ? "page" : undefined}
           >
-            <Settings className="h-5 w-5" />
+            <Settings className="h-5 w-5" strokeWidth={isActive("/settings") ? 2.4 : 2} />
+          </Link>
+        </div>
+      </aside>
+
+      {/* ─── Mobile slim top bar ─── */}
+      <header className={`nav-pill fixed left-0 right-0 top-0 z-50 pointer-events-none md:hidden ${scrolled ? "nav-pill--scrolled" : ""}`}>
+        <div className="pointer-events-auto flex h-14 items-center justify-between gap-2 px-4">
+          <Link to="/home" className="flex flex-shrink-0 items-center gap-2">
+            <LogoMark className="h-7 w-7 rounded-lg" />
+            <span className="font-display text-xl font-extrabold uppercase tracking-[-0.03em] text-foreground">
+              XAN
+            </span>
           </Link>
 
-          {/* Mobile search toggle */}
-          <button
-            type="button"
-            onClick={() => setSearchOpen((v) => !v)}
-            className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-xan-card transition-colors"
-            aria-label="Toggle search"
-          >
-            {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
-          </button>
-
-          {/* Mobile menu toggle */}
-          <button
-            type="button"
-            onClick={() => setMobileOpen((v) => !v)}
-            className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-xan-card transition-colors"
-            aria-label="Toggle menu"
-          >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-        </div>
-      </nav>
-
-      {/* Mobile search panel */}
-      {searchOpen && (
-        <div className="md:hidden overflow-hidden border-t border-xan-border bg-background animate-fade-in">
-          <form onSubmit={onSubmit} className="px-4 py-3 flex items-center relative">
-            <Search className="absolute left-7 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search anime..."
-              autoFocus
-              className="pl-9 w-full rounded-lg bg-xan-card border border-xan-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-xan-crimson/50 h-10"
-            />
-          </form>
-        </div>
-      )}
-
-      {/* Mobile menu panel */}
-      {mobileOpen && (
-        <div className="md:hidden overflow-hidden border-t border-xan-border bg-background animate-fade-in">
-          <div className="px-4 py-3 flex flex-col gap-1">
-            {NAV_LINKS.map((link) => {
-              const Icon = link.icon;
-              return (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  className={`px-3 py-2.5 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors ${
-                    isActive(link.to)
-                      ? "text-foreground bg-xan-card-hover"
-                      : "text-muted-foreground hover:text-foreground hover:bg-xan-card"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {link.label}
-                </Link>
-              );
-            })}
-            <Link
-              to="/settings"
-              className={`px-3 py-2.5 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors border-t border-xan-border mt-2 pt-3 ${
-                location.pathname === "/settings"
-                  ? "text-foreground bg-xan-card-hover"
-                  : "text-muted-foreground hover:text-foreground hover:bg-xan-card"
-              }`}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={openCommandMenu}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Open command menu"
             >
-              <Settings className="h-4 w-4" />
-              Settings
-            </Link>
+              <Command className="h-4.5 w-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchOpen((v) => !v)}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Toggle search"
+            >
+              {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
+            </button>
           </div>
         </div>
-      )}
-    </header>
+
+        {/* Mobile search panel */}
+        {searchOpen && (
+          <div className="pointer-events-auto px-4 pb-2 animate-fade-in md:hidden">
+            <form onSubmit={onSubmit} className="glass-strong relative flex items-center rounded-full">
+              <Search className="pointer-events-none absolute left-4 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search anime…"
+                autoFocus
+                className="h-11 w-full bg-transparent pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              />
+            </form>
+          </div>
+        )}
+      </header>
+
+      {/* ─── v4: Mobile floating capsule dock (icon-only, new form) ─── */}
+      <nav
+        className="dock fixed bottom-3 left-4 right-4 z-50 flex items-stretch md:hidden"
+        aria-label="Primary"
+      >
+        {DOCK_LINKS.map((link) => {
+          const Icon = link.icon;
+          const active = isActive(link.to);
+          return (
+            <Link
+              key={link.to}
+              to={link.to}
+              aria-label={link.label}
+              className={`dock-item ${active ? "dock-item--active" : ""}`}
+            >
+              <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 2} />
+            </Link>
+          );
+        })}
+      </nav>
+    </>
   );
 }

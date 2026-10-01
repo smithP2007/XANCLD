@@ -9,7 +9,6 @@ import {
   Sun,
   Moon,
   Monitor,
-  Cloud,
   Check,
   Sliders,
   Eye,
@@ -33,6 +32,7 @@ import {
 } from "lucide-react";
 import { useSettings, clearHistory, getHistory } from "../hooks/useSettings";
 import { ThemePicker } from "../components/ThemePicker";
+import { LogoMark } from "../components/Logo";
 import {
   useVideoEnhancer,
   ENHANCER_PRESETS as ENHANCER_PRESET_LIST,
@@ -178,8 +178,9 @@ export function Settings() {
         )}
       </div>
 
-      {/* Section nav chips (sticky) */}
-      <nav className="sticky top-16 z-20 -mx-4 px-4 py-2 bg-background/80 backdrop-blur-md border-b border-xan-border">
+      {/* Section nav chips (sticky) — v4: below the mobile top bar (h-14);
+          on desktop there is no top bar, align with the floating rail */}
+      <nav className="sticky top-14 md:top-6 z-20 -mx-4 px-4 py-2 bg-background/80 backdrop-blur-md border-b border-xan-border">
         <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
           {filteredSections.map((s) => (
             <button
@@ -719,9 +720,7 @@ export function Settings() {
         <Section id="about" icon={Info} title="About" desc="Information about this build">
           <div className="p-4 rounded-xl bg-gradient-to-br from-xan-crimson/10 to-xan-violet/10 border border-xan-crimson/20">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-xan-crimson to-xan-violet flex items-center justify-center">
-                <Cloud className="h-5 w-5 text-white" />
-              </div>
+              <LogoMark className="h-10 w-10 flex-shrink-0 rounded-xl shadow-lg shadow-xan-crimson/20" />
               <div>
                 <h3 className="font-bold font-display text-foreground">XAN</h3>
                 <p className="text-xs text-muted-foreground">Hono + Vite + React · Cloudflare Workers</p>

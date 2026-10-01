@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { Play, Heart } from "lucide-react";
+import { Heart } from "lucide-react";
+import { LogoMark } from "./Logo";
 
 // B8: lucide-react 1.x removed brand icons (Github/Twitter/etc.). Inline the
 // GitHub mark; the dead href="#" Twitter link is removed entirely.
@@ -11,119 +12,80 @@ function GithubIcon({ className }: { className?: string }) {
   );
 }
 
+const FOOTER_LINKS = [
+  { label: "Home", to: "/home" },
+  { label: "Discover", to: "/trending" },
+  { label: "Schedule", to: "/schedule" },
+  { label: "Search", to: "/search" },
+  { label: "History", to: "/history" },
+  { label: "My Library", to: "/list" },
+];
+
+// v4 ROSA: footer REPOSITIONED from a 3-column grid to a centered editorial
+// layout — brand block, pill-chip nav links, social chips, then the legal
+// row. Gradient hairline divider on top (signature rose→violet).
 export function Footer() {
   return (
-    <footer className="mt-auto border-t border-xan-border bg-background/50">
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-10">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Brand */}
-          <div className="space-y-3">
-            <Link to="/home" className="flex items-center gap-2 w-fit">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-xan-crimson to-xan-violet flex items-center justify-center">
-                <Play className="h-3.5 w-3.5 text-white fill-white" />
-              </div>
-              <span className="font-display font-extrabold text-lg text-foreground">XAN</span>
-            </Link>
-            <p className="text-sm text-muted-foreground max-w-xs">
-              Stream anime without the noise. Discover, search, and watch your favorite titles
-              powered by the AniList API.
-            </p>
-          </div>
-
-          {/* Links */}
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                Browse
-              </h4>
-              <ul className="space-y-2 text-sm">
-                <li>
-                  <Link to="/home" className="text-foreground/80 hover:text-foreground transition-colors">
-                    Home
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/trending" className="text-foreground/80 hover:text-foreground transition-colors">
-                    Discover
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/schedule" className="text-foreground/80 hover:text-foreground transition-colors">
-                    Schedule
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/search" className="text-foreground/80 hover:text-foreground transition-colors">
-                    Search
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/history" className="text-foreground/80 hover:text-foreground transition-colors">
-                    History
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/list" className="text-foreground/80 hover:text-foreground transition-colors">
-                    My Library
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            <div className="space-y-3">
-              <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-                About
-              </h4>
-              <ul className="space-y-2 text-sm">
-                <li>
-                  <a
-                    href="https://anilist.co"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground/80 hover:text-foreground transition-colors"
-                  >
-                    AniList API
-                  </a>
-                </li>
-                <li>
-                  <Link to="/trending" className="text-foreground/80 hover:text-foreground transition-colors">
-                    Discover
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/schedule" className="text-foreground/80 hover:text-foreground transition-colors">
-                    Schedule
-                  </Link>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Social */}
-          <div className="space-y-3">
-            <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
-              Connect
-            </h4>
-            <div className="flex items-center gap-2">
-              <a
-                href="https://github.com/smithP2007/XANCLD"
-                target="_blank"
-                rel="noreferrer"
-                aria-label="GitHub"
-                className="w-9 h-9 rounded-lg bg-xan-card hover:bg-xan-card-hover border border-xan-border flex items-center justify-center transition-colors"
-              >
-                <GithubIcon className="h-4 w-4 text-foreground/70" />
-              </a>
-            </div>
-          </div>
+    <footer className="aurora-hairline mt-auto border-t border-xan-border">
+      <div className="mx-auto flex max-w-5xl flex-col items-center gap-7 px-4 py-14 text-center md:px-6">
+        {/* Brand block */}
+        <div className="space-y-2.5">
+          <Link to="/home" className="inline-flex items-center gap-2.5">
+            <LogoMark className="h-9 w-9 rounded-[11px] shadow-lg shadow-xan-crimson/20" />
+            <span className="font-display text-3xl font-extrabold uppercase tracking-[-0.03em] text-foreground">
+              XAN
+            </span>
+          </Link>
+          <p className="mx-auto max-w-sm text-sm leading-relaxed text-muted-foreground">
+            Stream anime without the noise. Discover, search, and watch your favorite
+            titles powered by the AniList API.
+          </p>
         </div>
 
-        {/* Bottom */}
-        <div className="mt-8 pt-6 border-t border-xan-border flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
+        {/* Nav links as pill chips (new form) */}
+        <nav className="flex flex-wrap items-center justify-center gap-2" aria-label="Footer">
+          {FOOTER_LINKS.map((link) => (
+            <Link
+              key={link.to}
+              to={link.to}
+              className="flex h-9 items-center rounded-full border border-xan-border bg-xan-card px-4 text-[13px] font-bold text-foreground/75 transition-all hover:border-xan-crimson/50 hover:text-foreground"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+
+        {/* Social chips */}
+        <div className="flex items-center gap-2">
+          <a
+            href="https://github.com/smithP2007/XANCLD"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="GitHub"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-xan-border bg-xan-card text-foreground/70 transition-all hover:border-xan-crimson/50 hover:text-foreground"
+          >
+            <GithubIcon className="h-4.5 w-4.5" />
+          </a>
+          <a
+            href="https://anilist.co"
+            target="_blank"
+            rel="noreferrer"
+            className="flex h-10 items-center rounded-full border border-xan-border bg-xan-card px-4 text-[13px] font-bold text-foreground/70 transition-all hover:border-xan-crimson/50 hover:text-foreground"
+          >
+            AniList API
+          </a>
+        </div>
+
+        {/* Bottom row */}
+        <div className="flex w-full flex-col items-center justify-between gap-2 border-t border-xan-border pt-6 text-xs text-muted-foreground md:flex-row">
           <p>© {new Date().getFullYear()} XAN. All rights reserved.</p>
           <p className="flex items-center gap-1.5">
             Built with
-            <Heart className="h-3 w-3 text-xan-crimson fill-xan-crimson" />
+            <Heart className="h-3 w-3 fill-xan-crimson text-xan-crimson" />
             and the AniList API
+          </p>
+          <p className="font-display text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground/60">
+            XAN Rosa
           </p>
         </div>
       </div>

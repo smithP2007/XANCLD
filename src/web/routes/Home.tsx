@@ -19,6 +19,12 @@ import { useAnimeList } from "../hooks/useAnimeList";
 import { useSettings, useWatchHistory } from "../hooks/useSettings";
 import { recommendFromSeed, type ScoredRecommendation, type Mood, type DurationPref } from "../lib/recommend";
 
+// v4.2.1: all sections RESTORED per user request ("revert Removed
+// (unnecessary) from home page, but keep SUNDEEP") — the page is back to
+// its full form: Hero, Continue Watching, Airing Today, Because you saved,
+// Trending, Recommendations, Popular, More to Explore. The SUNDEEP
+// signature stays at the bottom-right corner.
+
 export function Home() {
   const [trending, setTrending] = useState<AnimeCardType[]>([]);
   const [popular, setPopular] = useState<AnimeCardType[]>([]);
@@ -272,20 +278,24 @@ export function Home() {
   if (loading && trending.length === 0) {
     return (
       <div className="relative">
-        <section className="relative w-full h-[58vh] min-h-[420px] max-h-[560px] md:h-[78vh] md:min-h-[520px] md:max-h-[760px] overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-xan-card via-xan-dark to-xan-dark animate-shimmer" />
-          <div className="relative h-full max-w-7xl mx-auto px-4 md:px-6 flex items-center pb-16 md:pb-20">
-            <div className="space-y-4 w-full max-w-2xl">
-              <div className="h-4 w-32 bg-white/10 rounded animate-shimmer" />
-              <div className="h-16 w-3/4 bg-white/10 rounded animate-shimmer" />
-              <div className="h-4 w-1/2 bg-white/5 rounded animate-shimmer" />
-              <div className="flex gap-3 pt-2">
-                <div className="h-12 w-36 bg-white/10 rounded-full animate-shimmer" />
-                <div className="h-12 w-32 bg-white/5 rounded-full animate-shimmer" />
+        {/* Skeleton hero — mirrors the real hero's container (max-w-7xl,
+            same padding/height/radius) so loading doesn't shift the page */}
+        <div className="mx-auto w-full max-w-7xl px-4 pt-4 md:px-6 md:pt-6">
+          <section className="relative h-[52vh] min-h-[380px] max-h-[560px] w-full overflow-hidden rounded-[24px] border border-xan-border md:h-[56vh] md:min-h-[430px] md:rounded-[32px]">
+            <div className="absolute inset-0 bg-gradient-to-br from-xan-card via-xan-dark to-xan-dark animate-shimmer" />
+            <div className="relative h-full px-6 flex items-center">
+              <div className="space-y-4 w-full max-w-2xl">
+                <div className="h-4 w-32 bg-white/10 rounded-full animate-shimmer" />
+                <div className="h-14 w-3/4 bg-white/10 rounded-2xl animate-shimmer" />
+                <div className="h-4 w-1/2 bg-white/5 rounded-full animate-shimmer" />
+                <div className="flex gap-3 pt-2">
+                  <div className="h-11 w-32 bg-white/10 rounded-full animate-shimmer" />
+                  <div className="h-11 w-28 bg-white/5 rounded-full animate-shimmer" />
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-10 space-y-10">
           <section className="space-y-4">
             <div className="h-8 w-40 bg-xan-card rounded animate-shimmer" />
@@ -311,8 +321,8 @@ export function Home() {
   }
 
   return (
-    <div className="relative -mt-16">
-      {/* Hero */}
+    <div className="relative">
+      {/* Hero — v4: contained card below the rail (no negative offset) */}
       {trending.length > 0 && <HeroCarousel anime={trending} />}
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-14 space-y-10 md:space-y-14">
@@ -421,17 +431,15 @@ export function Home() {
         {/* Top picks grid — flat grid of popular anime */}
         {popular.length > 6 && (
           <section className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-1 h-7 rounded-full bg-gradient-to-b from-xan-crimson to-xan-violet" />
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-xan-crimson/15 to-xan-violet/15 border border-xan-border flex items-center justify-center">
-                <Flame className="h-4 w-4 text-xan-crimson" />
-              </div>
-              <div>
-                <h2 className="text-base md:text-xl font-bold font-display text-foreground">
-                  More to Explore
-                </h2>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Discover something new</p>
-              </div>
+            <div>
+              <h2 className="flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-foreground md:text-2xl">
+                <span className="h-2.5 w-2.5 shrink-0 rotate-45 rounded-[4px] bg-gradient-to-br from-xan-crimson to-xan-violet" />
+                More to Explore
+              </h2>
+              <p className="mt-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground">
+                <Flame className="h-3.5 w-3.5 text-xan-crimson" />
+                Discover something new
+              </p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-4">
               {popular.slice(6).map((a, idx) => (
@@ -440,6 +448,18 @@ export function Home() {
             </div>
           </section>
         )}
+
+        {/* ─── Signature — SUNDEEP, bottom-right corner of the home page ─── */}
+        <div
+          className="flex items-center justify-end gap-2.5 pt-2 select-none"
+          aria-hidden="true"
+        >
+          <span className="h-px w-10 bg-gradient-to-l from-xan-crimson/50 to-transparent" />
+          <span className="font-display text-[11px] font-extrabold uppercase tracking-[0.38em] text-muted-foreground/70">
+            SUNDEEP
+          </span>
+          <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-xan-crimson to-xan-violet" />
+        </div>
       </div>
     </div>
   );

@@ -9,6 +9,10 @@ interface Props {
   badge?: string;
 }
 
+// v4 ROSA: header REPOSITIONED — the small uppercase eyebrow moved from
+// ABOVE the title to a subtitle line BELOW it, and the crimson vertical
+// bar was replaced by a rotated gradient diamond (new form). Arrows are
+// circular with rose hover accents.
 export function SectionRow({ title, subtitle, icon, children, badge }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -20,42 +24,39 @@ export function SectionRow({ title, subtitle, icon, children, badge }: Props) {
   };
 
   return (
-    <section className="group/section space-y-3">
-      {/* Header row with gradient accent */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {/* Gradient accent line */}
-          <div className="w-1 h-7 rounded-full bg-gradient-to-b from-xan-crimson to-xan-violet" />
-          {icon && (
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-xan-crimson/15 to-xan-violet/15 border border-xan-border flex items-center justify-center">
+    <section className="group/section space-y-4">
+      {/* Header row */}
+      <div className="flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-foreground md:text-2xl">
+            <span className="h-2.5 w-2.5 shrink-0 rotate-45 rounded-[4px] bg-gradient-to-br from-xan-crimson to-xan-violet" />
+            {title}
+            {badge && (
+              <span className="rounded-full border border-xan-crimson/40 bg-xan-crimson/10 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-xan-crimson">
+                {badge}
+              </span>
+            )}
+          </h2>
+          {subtitle && (
+            <p className="mt-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground">
               {icon}
-            </div>
+              <span className="truncate">{subtitle}</span>
+            </p>
           )}
-          <div>
-            <h2 className="text-base md:text-xl font-bold font-display text-foreground flex items-center gap-2">
-              {title}
-              {badge && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30">
-                  {badge}
-                </span>
-              )}
-            </h2>
-            {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
-          </div>
         </div>
         {/* Scroll arrows — appear on hover on desktop, always visible on mobile */}
-        <div className="flex items-center gap-1.5 opacity-60 group-hover/section:opacity-100 transition-opacity">
+        <div className="flex flex-shrink-0 items-center gap-1.5 opacity-60 transition-opacity group-hover/section:opacity-100">
           <button
             onClick={() => scrollBy("left")}
             aria-label="Scroll left"
-            className="rounded-full glass border border-xan-border hover:bg-xan-crimson/20 hover:border-xan-crimson/40 h-8 w-8 md:h-9 md:w-9 flex items-center justify-center transition-all"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-xan-border bg-xan-card transition-all hover:border-xan-crimson/50 hover:bg-xan-card-hover md:h-9 md:w-9"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             onClick={() => scrollBy("right")}
             aria-label="Scroll right"
-            className="rounded-full glass border border-xan-border hover:bg-xan-crimson/20 hover:border-xan-crimson/40 h-8 w-8 md:h-9 md:w-9 flex items-center justify-center transition-all"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-xan-border bg-xan-card transition-all hover:border-xan-crimson/50 hover:bg-xan-card-hover md:h-9 md:w-9"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
