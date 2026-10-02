@@ -34,6 +34,12 @@ const DOCK_LINKS = [
   { label: "Discover", to: "/trending", icon: Compass },
   { label: "Schedule", to: "/schedule", icon: Calendar },
   { label: "Library", to: "/list", icon: Library },
+  // v4.4.1 FIX (user report: "in mobile i cannot see any history button"):
+  // History was only on the desktop rail — the mobile dock skipped it.
+  // Added here in the same position as the rail (after Library), so mobile
+  // navigation is at feature parity. 6 icon-only items still fit the
+  // capsule comfortably (~60px per item on a 390px screen).
+  { label: "History", to: "/history", icon: HistoryIcon },
   { label: "Settings", to: "/settings", icon: Settings },
 ];
 
@@ -87,17 +93,21 @@ export function Navbar() {
           <LogoMark className="h-10 w-10 rounded-[13px] shadow-lg shadow-xan-crimson/30" />
         </Link>
 
-        {/* Search — icon button that opens the ⌘K Command Menu (live search) */}
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          className="side-link"
-          data-tip="Search · ⌘K"
-          aria-label="Search anime (opens command menu)"
+        {/* Search — links to the full Search page. v4.4.2 FIX (user report:
+            "search option in desktop doesnot open search it open command k"):
+            this icon used to open the ⌘K Command Menu — it now navigates to
+            /search like every other nav link. The Command Menu stays reachable
+            via the dedicated Command button in the rail footer (and ⌘K). */}
+        <Link
+          to="/search"
+          className={`side-link ${isActive("/search") ? "side-link--active" : ""}`}
+          data-tip="Search"
+          aria-label="Search anime"
+          aria-current={isActive("/search") ? "page" : undefined}
           title="Search"
         >
-          <Search className="h-5 w-5" strokeWidth={2} />
-        </button>
+          <Search className="h-5 w-5" strokeWidth={isActive("/search") ? 2.4 : 2} />
+        </Link>
 
         {/* Primary links — icon only, labels on hover */}
         <nav className="flex flex-1 flex-col items-center gap-1 pt-1" aria-label="Primary">

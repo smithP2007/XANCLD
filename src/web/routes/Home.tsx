@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Flame, TrendingUp, Sparkles, Heart, Calendar, History as HistoryIcon } from "lucide-react";
 import {
   fetchTrending,
@@ -13,6 +14,10 @@ import { AnimeCardSkeleton } from "../components/AnimeCardSkeleton";
 import { HeroCarousel } from "../components/HeroCarousel";
 import { ContinueWatching } from "../components/ContinueWatching";
 import { SectionRow } from "../components/SectionRow";
+import { HomeGreeting } from "../components/HomeGreeting";
+import { MoodChips } from "../components/MoodChips";
+import { EpisodeCountdown } from "../components/EpisodeCountdown";
+import { Reveal } from "../components/Reveal";
 import { ErrorState } from "../components/ErrorState";
 import { useBookmarks } from "../hooks/useBookmarks";
 import { useAnimeList } from "../hooks/useAnimeList";
@@ -24,6 +29,23 @@ import { recommendFromSeed, type ScoredRecommendation, type Mood, type DurationP
 // its full form: Hero, Continue Watching, Airing Today, Because you saved,
 // Trending, Recommendations, Popular, More to Explore. The SUNDEEP
 // signature stays at the bottom-right corner.
+// v4.3 LIVELY (user request: "make the home screen more lively"):
+//   • ambient gradient blobs drift slowly behind the whole feed (frozen
+//     under reduced-motion / TV mode)
+//   • the hero casts a soft glow in the ACTIVE slide's dominant color —
+//     HeroCarousel.onActiveChange is finally wired up
+//   • every section scroll-reveals via the new Reveal wrapper
+//   • Airing Today carries a LIVE badge with a pulsing dot; section
+//     diamonds breathe; hero progress segments fill in sync with the
+//     7s auto-advance (HeroCarousel + SectionRow + index.css v4.3 block)
+// v4.4 ENGAGING (user request: "make it more engaging home page"):
+//   • time-aware personal greeting ("Good evening.") with LIVE stats
+//     (in progress / saved / episodes watched) and a staggered rise-in
+//   • "Surprise Me" — dice rolls a random pick out of trending+popular
+//     and navigates to its detail page
+//   • MoodChips — one-tap genre chips deep-linking into /search?genres=…
+//   • Airing Today cards wear LIVE ticking countdown chips (shared 1s
+//     tick hook) that turn crimson within an hour of air
 
 export function Home() {
   const [trending, setTrending] = useState<AnimeCardType[]>([]);
@@ -43,6 +65,34 @@ export function Home() {
   const [historyRecsCount, setHistoryRecsCount] = useState(0);
   // "Airing Today" row (redesign plan §4) — reuses fetchSchedule.
   const [airingToday, setAiringToday] = useState<AiringAnime[]>([]);
+
+  // v4.3 LIVELY — dominant color of the active hero slide; drives the soft
+  // glow bleeding around the hero card (null until the first slide lands).
+  const [heroColor, setHeroColor] = useState<string | null>(null);
+  // Ambient motion is dropped entirely for reduced-motion / TV-mode users.
+  const ambientStill = settings.reducedMotion || settings.tvMode;
+
+  // v4.4 ENGAGING — "Surprise Me" rolls a random pick from trending+popular.
+  // The dice dances for ~0.55s before navigating so the micro-interaction
+  // reads; the timer ref is cleaned up if the user leaves mid-roll.
+  const [shuffling, setShuffling] = useState(false);
+  const surpriseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    return () => {
+      if (surpriseTimer.current) clearTimeout(surpriseTimer.current);
+    };
+  }, []);
+
+  const handleSurprise = () => {
+    if (shuffling) return;
+    const pool = [...trending, ...popular];
+    if (pool.length === 0) return;
+    setShuffling(true);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    surpriseTimer.current = setTimeout(() => navigate(`/anime/${pick.id}`), 550);
+  };
 
   useEffect(() => {
     (async () => {
@@ -322,35 +372,90 @@ export function Home() {
 
   return (
     <div className="relative">
-      {/* Hero — v4: contained card below the rail (no negative offset) */}
-      {trending.length > 0 && <HeroCarousel anime={trending} />}
+      {/* ─── v4.3 ambient layers (z-0) — every content wrapper sits z-[1] ─── */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[170vh] overflow-hidden">
+        {/* Drifting gradient blobs — frozen (no animate classes) under
+            reduced-motion / TV mode */}
+        <div
+          className={`xan-blob left-[-12%] top-[-4%] h-[460px] w-[560px] opacity-[0.13] ${ambientStill ? "" : "animate-mesh"}`}
+          style={{ background: "radial-gradient(closest-side, var(--color-xan-crimson), transparent)" }}
+        />
+        <div
+          className={`xan-blob right-[-14%] top-[22%] h-[520px] w-[620px] opacity-[0.12] ${ambientStill ? "" : "animate-mesh-2"}`}
+          style={{ background: "radial-gradient(closest-side, var(--color-xan-violet), transparent)" }}
+        />
+        <div
+          className={`xan-blob left-[6%] top-[56%] h-[420px] w-[480px] opacity-[0.08] ${ambientStill ? "" : "animate-mesh-2"}`}
+          style={{ background: "radial-gradient(closest-side, var(--color-xan-violet), transparent)" }}
+        />
+        {/* Hero glow — the active slide's dominant color bleeding around
+            the hero card; gently crossfades on each slide change */}
+        {heroColor && (
+          <div
+            key={heroColor}
+            className="animate-fade-in absolute left-1/2 top-0 h-[520px] w-[min(92vw,880px)] -translate-x-1/2 rounded-full opacity-20 blur-[110px]"
+            style={{ background: `radial-gradient(closest-side, ${heroColor}, transparent)` }}
+          />
+        )}
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-14 space-y-10 md:space-y-14">
+      <div className="relative z-[1]">
+        {/* Hero — v4: contained card below the rail (no negative offset) */}
+        {trending.length > 0 && <HeroCarousel anime={trending} onActiveChange={setHeroColor} />}
+      </div>
+
+      <div className="relative z-[1] max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-14 space-y-10 md:space-y-14">
+        {/* v4.4 — personal greeting + mood chips (one Reveal so they rise as
+            a single unit; internal elements stagger via greet-in delays) */}
+        <Reveal>
+          <HomeGreeting
+            inProgress={animeList.filter((e) => e.status === "WATCHING").length}
+            saved={bookmarks.length}
+            episodes={history.length}
+            onSurprise={handleSurprise}
+            shuffling={shuffling}
+          />
+          <MoodChips />
+        </Reveal>
+
         {/* Continue Watching (auto-hides if empty) */}
-        <ContinueWatching />
+        <Reveal>
+          <ContinueWatching />
+        </Reveal>
 
         {/* Airing Today (redesign plan §4: reuse Schedule's fetchSchedule).
             Hidden if no shows air today (e.g. late-night weekend). */}
         {airingToday.length > 0 && (
+          <Reveal>
           <SectionRow
             title="Airing Today"
             subtitle="New episodes dropping today"
+            badge="Live"
             icon={<Calendar className="h-4 w-4 text-xan-crimson" />}
           >
             {airingToday.map((a, idx) => (
               <div
                 key={a.id}
-                className="flex-shrink-0 w-[150px] sm:w-[170px] md:w-[180px] snap-start"
+                className="relative flex-shrink-0 w-[150px] sm:w-[170px] md:w-[180px] snap-start"
               >
+                {/* v4.4 — live ticking countdown chip over the poster */}
+                {a.nextAiringEpisode && (
+                  <EpisodeCountdown
+                    episode={a.nextAiringEpisode.episode}
+                    airingAt={a.nextAiringEpisode.airingAt}
+                  />
+                )}
                 <AnimeCard anime={a} index={idx} />
               </div>
             ))}
           </SectionRow>
+          </Reveal>
         )}
 
         {/* Because you saved — local recommendations row (redesign plan §4/§5).
             Hidden when there are no bookmarks or no scored recommendations. */}
         {recs.length > 0 && recsSeed && (
+          <Reveal>
           <SectionRow
             title="Because you saved"
             subtitle={`Based on "${recsSeed}" — scored locally from your bookmarks and lists`}
@@ -365,10 +470,12 @@ export function Home() {
               </div>
             ))}
           </SectionRow>
+          </Reveal>
         )}
 
         {/* Trending row */}
         {trending.length > 0 && (
+          <Reveal>
           <SectionRow
             title="Trending Now"
             subtitle="The hottest anime right now"
@@ -383,6 +490,7 @@ export function Home() {
               </div>
             ))}
           </SectionRow>
+          </Reveal>
         )}
 
         {/* Recommendations — collects top 5 unique anime from watch history,
@@ -390,6 +498,7 @@ export function Home() {
             re-scores into a single row. Hidden when there's no watch history
             or no scored recommendations. */}
         {historyRecs.length > 0 && (
+          <Reveal>
           <SectionRow
             title="Recommendations"
             subtitle={
@@ -408,10 +517,12 @@ export function Home() {
               </div>
             ))}
           </SectionRow>
+          </Reveal>
         )}
 
         {/* Popular row */}
         {popular.length > 0 && (
+          <Reveal>
           <SectionRow
             title="Popular Anime"
             subtitle="All-time most watched"
@@ -426,14 +537,16 @@ export function Home() {
               </div>
             ))}
           </SectionRow>
+          </Reveal>
         )}
 
         {/* Top picks grid — flat grid of popular anime */}
         {popular.length > 6 && (
+          <Reveal>
           <section className="space-y-4">
             <div>
               <h2 className="flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-foreground md:text-2xl">
-                <span className="h-2.5 w-2.5 shrink-0 rotate-45 rounded-[4px] bg-gradient-to-br from-xan-crimson to-xan-violet" />
+                <span className="section-diamond h-2.5 w-2.5 shrink-0 rotate-45 rounded-[4px] bg-gradient-to-br from-xan-crimson to-xan-violet" />
                 More to Explore
               </h2>
               <p className="mt-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-muted-foreground">
@@ -447,9 +560,11 @@ export function Home() {
               ))}
             </div>
           </section>
+          </Reveal>
         )}
 
         {/* ─── Signature — SUNDEEP, bottom-right corner of the home page ─── */}
+        <Reveal>
         <div
           className="flex items-center justify-end gap-2.5 pt-2 select-none"
           aria-hidden="true"
@@ -460,6 +575,7 @@ export function Home() {
           </span>
           <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-br from-xan-crimson to-xan-violet" />
         </div>
+        </Reveal>
       </div>
     </div>
   );

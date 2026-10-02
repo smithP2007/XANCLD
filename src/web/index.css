@@ -976,3 +976,88 @@ body {
   outline: 2px solid color-mix(in srgb, var(--color-xan-crimson) 65%, transparent);
   outline-offset: 2px;
 }
+
+/* ═══ v4.3 LIVELY: home screen ambience ═══ */
+
+/* Scroll-reveal (Reveal.tsx) — sections fade/slide in as they enter view.
+   Reduced-motion users: the global 0.001ms rule completes the fill instantly.
+   TV-mode kills animations entirely, so Reveal also skips the pending state
+   in JSX — this rule is the belt-and-braces fallback. */
+.reveal-pending { opacity: 0; transform: translateY(26px); }
+@keyframes reveal-up {
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-reveal { animation: reveal-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.xan-tv-mode .reveal-pending { opacity: 1; transform: none; }
+
+/* Ambient gradient blobs — the drifting background layer on Home.
+   Geometry via Tailwind, gradient via inline style (JS picks the token).
+   Reduced-motion/TV-mode: JS drops the animate classes, blobs sit still. */
+.xan-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  will-change: transform;
+}
+
+/* Hero progress segments fill in sync with the 7s auto-advance
+   (w-4 = 1rem → w-9 = 2.25rem; animation restarts on each slide change) */
+@keyframes seg-fill {
+  from { width: 1rem; }
+  to { width: 2.25rem; }
+}
+.animate-seg-fill { animation: seg-fill 7s linear forwards; }
+
+/* Section header diamond — gentle breathing glow. Animates box-shadow only
+   so it never fights the rotate-45 transform on the same element. */
+@keyframes diamond-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 14px 2px color-mix(in srgb, var(--color-xan-crimson) 40%, transparent); }
+}
+.section-diamond { animation: diamond-pulse 3.2s ease-in-out infinite; }
+
+/* ── v4.4 ENGAGING ───────────────────────────────────────────────────────
+   Personal greeting + mood chips + live episode countdowns.
+   All of this is motion-degradable: .xan-reduce-motion and .xan-tv-mode
+   (see the global rules above) already kill animations/transforms, so the
+   greeting/chips simply render in their final resting state there. */
+
+/* Greeting elements rise in with a slight stagger (animationDelay set
+   inline per element: 0 / 70 / 140 / 210ms). */
+@keyframes greet-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-greet-in { animation: greet-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Surprise Me dice — a quick wobble-shuffle while Home resolves the pick
+   (~0.55s) before navigating to the chosen anime. */
+@keyframes dice-shuffle {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-18deg) scale(1.18); }
+  50% { transform: rotate(16deg) scale(1.12); }
+  75% { transform: rotate(-10deg) scale(1.18); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+.animate-dice { animation: dice-shuffle 0.55s ease-in-out; }
+
+/* Mood chips — per-genre accent via the --chip custom property (set inline
+   in MoodChips.tsx). color-mix derives the tinted background, border and
+   hover glow from one hue so each chip is a single-variable component. */
+.mood-chip {
+  color: var(--chip);
+  border: 1px solid color-mix(in srgb, var(--chip) 32%, transparent);
+  background: color-mix(in srgb, var(--chip) 9%, transparent);
+  transition: background 0.25s ease, border-color 0.25s ease,
+    box-shadow 0.25s ease, transform 0.25s ease;
+}
+.mood-chip:hover {
+  background: color-mix(in srgb, var(--chip) 20%, transparent);
+  border-color: color-mix(in srgb, var(--chip) 65%, transparent);
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--chip) 30%, transparent);
+  transform: translateY(-2px);
+}
+.mood-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--chip) 70%, transparent);
+  outline-offset: 2px;
+}

@@ -13,6 +13,9 @@ interface Props {
 // ABOVE the title to a subtitle line BELOW it, and the crimson vertical
 // bar was replaced by a rotated gradient diamond (new form). Arrows are
 // circular with rose hover accents.
+// v4.3 LIVELY: the diamond breathes (gentle box-shadow pulse — transform is
+// untouched), and badges gain a live pulsing dot (used for "Live" on the
+// Airing Today row).
 export function SectionRow({ title, subtitle, icon, children, badge }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -29,10 +32,14 @@ export function SectionRow({ title, subtitle, icon, children, badge }: Props) {
       <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-foreground md:text-2xl">
-            <span className="h-2.5 w-2.5 shrink-0 rotate-45 rounded-[4px] bg-gradient-to-br from-xan-crimson to-xan-violet" />
+            <span className="section-diamond h-2.5 w-2.5 shrink-0 rotate-45 rounded-[4px] bg-gradient-to-br from-xan-crimson to-xan-violet" />
             {title}
             {badge && (
-              <span className="rounded-full border border-xan-crimson/40 bg-xan-crimson/10 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-xan-crimson">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-xan-crimson/40 bg-xan-crimson/10 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-xan-crimson">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-xan-crimson opacity-70" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-xan-crimson" />
+                </span>
                 {badge}
               </span>
             )}

@@ -167,9 +167,11 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
                 #{active + 1} Trending Now
               </span>
 
-              <h1 className="break-words font-display text-4xl font-extrabold leading-[1.02] tracking-[-0.02em] text-white drop-shadow-[0_4px_30px_rgba(0,0,0,0.65)] lg:text-5xl xl:text-[3.4rem]">
+              {/* h2 not h1 — the page's single h1 is the HomeGreeting heading;
+                  this is a per-slide content title and changes every 7s */}
+              <h2 className="break-words font-display text-4xl font-extrabold leading-[1.02] tracking-[-0.02em] text-white drop-shadow-[0_4px_30px_rgba(0,0,0,0.65)] lg:text-5xl xl:text-[3.4rem]">
                 {title}
-              </h1>
+              </h2>
 
               {metaChips}
 
@@ -210,9 +212,9 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
           <span className="mb-2.5 inline-flex w-fit items-center gap-1.5 rounded-full border border-xan-crimson/40 bg-xan-crimson/15 px-3 py-1 text-[9px] font-extrabold uppercase tracking-[0.2em] text-xan-crimson">
             #{active + 1} Trending
           </span>
-          <h1 className="line-clamp-2 font-display text-[26px] font-extrabold leading-[1.06] tracking-[-0.02em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
+          <h2 className="line-clamp-2 font-display text-[26px] font-extrabold leading-[1.06] tracking-[-0.02em] text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
             {title}
-          </h1>
+          </h2>
 
           <div className="mt-3">{metaChips}</div>
 
@@ -225,7 +227,11 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
           <div className="mt-4">{actionButtons}</div>
         </div>
 
-        {/* Progress segments — bottom-left inside the card (repositioned) */}
+        {/* Progress segments — bottom-left inside the card (repositioned).
+            v4.3 LIVELY: the active segment fills w-4→w-9 over exactly the
+            7s auto-advance window (animation restarts each slide change and
+            while unpaused — the timer resets on the same triggers, so they
+            stay in sync). Paused: static full bar reads as "held". */}
         <div className="absolute bottom-6 left-6 z-20 flex items-center gap-1.5 md:bottom-7 md:left-8">
           {slides.map((s, i) => (
             <button
@@ -233,7 +239,9 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
               onClick={() => goTo(i)}
               aria-label={`Go to slide ${i + 1}`}
               className={`h-1 rounded-full transition-all duration-500 ${
-                i === active ? "w-9 bg-gradient-to-r from-xan-crimson to-xan-violet" : "w-4 bg-white/25 hover:bg-white/50"
+                i === active
+                  ? `w-9 bg-gradient-to-r from-xan-crimson to-xan-violet ${!paused && slides.length > 1 ? "animate-seg-fill" : ""}`
+                  : "w-4 bg-white/25 hover:bg-white/50"
               }`}
             />
           ))}
