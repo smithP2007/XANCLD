@@ -11,6 +11,18 @@ interface Props {
   priority?: boolean;
 }
 
+// v4.4.3 ONE-LINE META: raw AniList status enums don't fit a 150px card in a
+// single line — "RELEASING" alone is ~64px at 11px font, and
+// "NOT_YET_RELEASED" even renders with raw underscores. Map to compact
+// human labels; unknown values get a title-cased fallback.
+const STATUS_LABEL: Record<string, string> = {
+  RELEASING: "Airing",
+  NOT_YET_RELEASED: "Upcoming",
+  FINISHED: "Completed",
+  CANCELLED: "Cancelled",
+  HIATUS: "Hiatus",
+};
+
 // B7 FIX: memo'd + per-id bookmark selector. Previously every card instance
 // subscribed to the WHOLE bookmarks list, so toggling one bookmark
 // re-rendered every card in every visible grid. Now a card re-renders only
@@ -24,7 +36,12 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
   const title = getTitle(anime.title);
   const image = anime.coverImage?.large ?? anime.coverImage?.extraLarge ?? "/placeholder.svg";
   const score = anime.averageScore ? `${Math.round(anime.averageScore)}%` : null;
-  const episodes = anime.episodes ? `${anime.episodes} eps` : anime.status ?? "Ongoing";
+  const episodes = anime.episodes
+    ? `${anime.episodes} ${anime.episodes === 1 ? "ep" : "eps"}`
+    : anime.status
+      ? (STATUS_LABEL[anime.status] ??
+        anime.status.charAt(0) + anime.status.slice(1).toLowerCase().replace(/_/g, " "))
+      : "Ongoing";
   const bookmarked = useIsBookmarked(anime.id);
   const toggleBookmark = useToggleBookmark();
 
@@ -92,35 +109,33 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
             <h3 className="line-clamp-1 text-[13px] font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-xan-crimson">
               {title}
             </h3>
-            {/* v4.4.3 META-SHRED FIX: on narrow cards (w-[150px] → ~130px
-                content) this row used to shrink items below their text width
-                and wrap MID-UNIT — "25" / "eps" / "2012" shredded across 3
-                ragged lines. Now every logical unit (score / clock+episodes /
-                dot+year) is `whitespace-nowrap`, so text can never split
-                internally; the row itself is `flex-wrap` so it breaks cleanly
-                BETWEEN units instead. Separator dots live INSIDE the unit
-                they precede, so a wrapped line never ends with a dangling
-                dot. gap-x matches the old gap-1.5 rhythm exactly. */}
-            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-semibold leading-tight text-muted-foreground">
+            {/* v4.4.3 ONE-LINE META — always exactly one row, on every card
+                size. Three measures make 128px of content fit the row that
+                used to need 146px (and used to shred mid-text when it
+                couldn't):
+                1. `whitespace-nowrap` + no flex-wrap — the row can never
+                   break or shrink items below one line.
+                2. text-[10px] on the narrowest cards (w-[150px]), 11px from
+                   sm up where cards widen to 170/180px.
+                3. The 2px separator dots are gone — spacing alone separates
+                   the units. Measured: with dots the row needs 164px at md
+                   (overflows even the 180px card); without, 146px fits with
+                   room to spare. Status enums are shortened ("Airing" not
+                   "RELEASING") — see STATUS_LABEL above.
+                Icons are shrink-0 so they never squish; items-center keeps
+                every unit on the same optical axis. */}
+            <div className="mt-1 flex items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:gap-1.5 sm:text-[11px]">
               {score && (
-                <span className="flex items-center gap-1 whitespace-nowrap font-bold text-xan-crimson">
-                  <Star className="h-3 w-3 shrink-0 fill-xan-crimson" />
+                <span className="flex items-center gap-1 font-bold text-xan-crimson">
+                  <Star className="h-2.5 w-2.5 shrink-0 fill-xan-crimson sm:h-3 sm:w-3" />
                   {score}
                 </span>
               )}
-              <span className="flex items-center gap-1.5 whitespace-nowrap">
-                {score && (
-                  <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-muted-foreground/50" />
-                )}
-                <Clock className="h-3 w-3 shrink-0" />
+              <span className="flex items-center gap-1">
+                <Clock className="h-2.5 w-2.5 shrink-0 sm:h-3 sm:w-3" />
                 {episodes}
               </span>
-              {anime.seasonYear && (
-                <span className="flex items-center gap-1.5 whitespace-nowrap">
-                  <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-muted-foreground/50" />
-                  {anime.seasonYear}
-                </span>
-              )}
+              {anime.seasonYear && <span>{anime.seasonYear}</span>}
             </div>
           </div>
         </div>
