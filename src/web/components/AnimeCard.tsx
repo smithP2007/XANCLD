@@ -36,9 +36,10 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
   const title = getTitle(anime.title);
   const image = anime.coverImage?.large ?? anime.coverImage?.extraLarge ?? "/placeholder.svg";
   const score = anime.averageScore ? `${Math.round(anime.averageScore)}%` : null;
-  // v4.4.4: the episode COUNT moved to a colored badge on the poster (top-left,
-  // number only). The meta line below the title keeps score · status · year —
-  // status text only shows when AniList gives no episode count (Airing etc.).
+  // v4.4.4: the episode COUNT moved to a badge on the poster (top-left,
+  // number only; v4.4.5 made it a translucent glass pill). The meta line
+  // below the title keeps score · status · year — status text only shows
+  // when AniList gives no episode count (Airing etc.).
   const status = anime.episodes
     ? null
     : anime.status
@@ -70,17 +71,20 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
             {/* Soft bottom fade for chip legibility */}
             <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/45 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
 
-            {/* Top-left chip — v4.4.4: series show their EPISODE COUNT here
-                as a colored badge, number ONLY (no "eps" suffix, per user
-                request); movies keep the "Movie" badge. The two never stack:
-                MOVIE wins, and movies rarely have a meaningful count (they
-                would read "1"). */}
+            {/* Top-left chip — v4.4.4: series show their EPISODE COUNT here,
+                number ONLY (no "eps" suffix, per user request); movies keep
+                the "Movie" badge. MOVIE wins, and movies rarely have a
+                meaningful count (they would read "1").
+                v4.4.5: restyled from solid crimson→violet gradient to a
+                TRANSLUCENT glass pill (blurred dark fill + hairline light
+                border) per user reference — stays legible on any poster and
+                lets the artwork show through. */}
             {anime.format === "MOVIE" ? (
-              <div className="absolute left-2 top-2 rounded-full bg-gradient-to-r from-xan-crimson to-xan-violet px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white">
+              <div className="absolute left-2 top-2 rounded-full border border-white/15 bg-black/55 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white backdrop-blur-md">
                 Movie
               </div>
             ) : anime.episodes ? (
-              <div className="absolute left-2 top-2 rounded-full bg-gradient-to-r from-xan-crimson to-xan-violet px-2 py-0.5 text-[10px] font-extrabold leading-4 tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
+              <div className="absolute left-2 top-2 rounded-full border border-white/15 bg-black/55 px-2 py-0.5 text-[10px] font-extrabold leading-4 tabular-nums text-white backdrop-blur-md">
                 {anime.episodes}
               </div>
             ) : null}
