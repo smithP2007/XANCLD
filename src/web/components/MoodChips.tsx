@@ -39,15 +39,20 @@ const MOODS: Mood[] = [
 
 export function MoodChips() {
   return (
-    // v4.4.1 HOVER-CLIP FIX — same padding-box rule as the card rows:
-    // `overflow-x-auto` computes overflow-y to auto, so the hover lift
-    // (-2px) and glow ring were clipped top & bottom. pt-2/pb-2 give the
-    // box 8px of breathing room; mt-3+pt-2 (12+8=20) and pb-2-mb-1 (8-4=4)
-    // reproduce the old mt-5/pb-1 spacing exactly — zero layout shift.
-    // mask-fade-r-desktop-none kills the right-edge fade at md+, where the
-    // row wraps and nothing scrolls (the fade was dimming "Sci-Fi").
+    // v4.4.3 GLOW-CLIP FIX — the hover glow is a COLORED box-shadow
+    // (`0 6px 22px` in .mood-chip:hover): it paints ~17px below the chip
+    // (6px y-offset + 11px blur radius) and ~7px above (5px blur tail +
+    // 2px hover lift). A scroll container (`overflow-x: auto` → computed
+    // `overflow-y: auto`) clips at its PADDING box, so the old pt-2/pb-2
+    // (8px) sheared the bottom of the glow off with a hard horizontal
+    // line (visible on <md where the row scrolls). pt-3 (12px) covers the
+    // top with margin; pb-5 (20px) covers the full 17px bottom extent.
+    // Spacing parity, zero layout shift: mt-2+pt-3 = 20px = old mt-5;
+    // pb-5−mb-4 = 4px = old pb-1. mask-fade-r-desktop-none kills the
+    // right-edge fade at md+, where the row wraps and nothing scrolls
+    // (the fade was dimming "Sci-Fi").
     <div
-      className="no-scrollbar -mx-4 mt-3 -mb-1 flex gap-2 overflow-x-auto px-4 pt-2 pb-2 mask-fade-r mask-fade-r-desktop-none md:mx-0 md:flex-wrap md:px-0"
+      className="no-scrollbar -mx-4 mt-2 -mb-4 flex gap-2 overflow-x-auto px-4 pt-3 pb-5 mask-fade-r mask-fade-r-desktop-none md:mx-0 md:flex-wrap md:px-0"
       role="navigation"
       aria-label="Browse by mood"
     >
