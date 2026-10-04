@@ -92,23 +92,34 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
             <h3 className="line-clamp-1 text-[13px] font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-xan-crimson">
               {title}
             </h3>
-            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+            {/* v4.4.3 META-SHRED FIX: on narrow cards (w-[150px] → ~130px
+                content) this row used to shrink items below their text width
+                and wrap MID-UNIT — "25" / "eps" / "2012" shredded across 3
+                ragged lines. Now every logical unit (score / clock+episodes /
+                dot+year) is `whitespace-nowrap`, so text can never split
+                internally; the row itself is `flex-wrap` so it breaks cleanly
+                BETWEEN units instead. Separator dots live INSIDE the unit
+                they precede, so a wrapped line never ends with a dangling
+                dot. gap-x matches the old gap-1.5 rhythm exactly. */}
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-semibold leading-tight text-muted-foreground">
               {score && (
-                <span className="flex items-center gap-1 font-bold text-xan-crimson">
-                  <Star className="h-3 w-3 fill-xan-crimson" />
+                <span className="flex items-center gap-1 whitespace-nowrap font-bold text-xan-crimson">
+                  <Star className="h-3 w-3 shrink-0 fill-xan-crimson" />
                   {score}
                 </span>
               )}
-              {score && <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/50" />}
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
+              <span className="flex items-center gap-1.5 whitespace-nowrap">
+                {score && (
+                  <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                )}
+                <Clock className="h-3 w-3 shrink-0" />
                 {episodes}
               </span>
               {anime.seasonYear && (
-                <>
-                  <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground/50" />
-                  <span>{anime.seasonYear}</span>
-                </>
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                  {anime.seasonYear}
+                </span>
               )}
             </div>
           </div>
