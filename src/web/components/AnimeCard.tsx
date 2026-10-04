@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
-import { Star, Play, Clock, Bookmark } from "lucide-react";
+import { Star, Play, Bookmark } from "lucide-react";
 import type { AnimeCard as AnimeCardT } from "../lib/anilist";
 import { getTitle } from "../lib/anilist";
 import { useIsBookmarked, useToggleBookmark } from "../hooks/useBookmarks";
@@ -36,8 +36,11 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
   const title = getTitle(anime.title);
   const image = anime.coverImage?.large ?? anime.coverImage?.extraLarge ?? "/placeholder.svg";
   const score = anime.averageScore ? `${Math.round(anime.averageScore)}%` : null;
-  const episodes = anime.episodes
-    ? `${anime.episodes} ${anime.episodes === 1 ? "ep" : "eps"}`
+  // v4.4.4: the episode COUNT moved to a colored badge on the poster (top-left,
+  // number only). The meta line below the title keeps score · status · year —
+  // status text only shows when AniList gives no episode count (Airing etc.).
+  const status = anime.episodes
+    ? null
     : anime.status
       ? (STATUS_LABEL[anime.status] ??
         anime.status.charAt(0) + anime.status.slice(1).toLowerCase().replace(/_/g, " "))
@@ -67,12 +70,20 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
             {/* Soft bottom fade for chip legibility */}
             <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/45 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
 
-            {/* Movie chip — top-left (repositioned) */}
-            {anime.format === "MOVIE" && (
+            {/* Top-left chip — v4.4.4: series show their EPISODE COUNT here
+                as a colored badge, number ONLY (no "eps" suffix, per user
+                request); movies keep the "Movie" badge. The two never stack:
+                MOVIE wins, and movies rarely have a meaningful count (they
+                would read "1"). */}
+            {anime.format === "MOVIE" ? (
               <div className="absolute left-2 top-2 rounded-full bg-gradient-to-r from-xan-crimson to-xan-violet px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-white">
                 Movie
               </div>
-            )}
+            ) : anime.episodes ? (
+              <div className="absolute left-2 top-2 rounded-full bg-gradient-to-r from-xan-crimson to-xan-violet px-2 py-0.5 text-[10px] font-extrabold leading-4 tabular-nums text-white shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
+                {anime.episodes}
+              </div>
+            ) : null}
 
             {/* Bookmark button — top-right, hover-reveal on desktop */}
             <button
@@ -109,32 +120,19 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
             <h3 className="line-clamp-1 text-[13px] font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-xan-crimson">
               {title}
             </h3>
-            {/* v4.4.3 ONE-LINE META — always exactly one row, on every card
-                size. Three measures make 128px of content fit the row that
-                used to need 146px (and used to shred mid-text when it
-                couldn't):
-                1. `whitespace-nowrap` + no flex-wrap — the row can never
-                   break or shrink items below one line.
-                2. text-[10px] on the narrowest cards (w-[150px]), 11px from
-                   sm up where cards widen to 170/180px.
-                3. The 2px separator dots are gone — spacing alone separates
-                   the units. Measured: with dots the row needs 164px at md
-                   (overflows even the 180px card); without, 146px fits with
-                   room to spare. Status enums are shortened ("Airing" not
-                   "RELEASING") — see STATUS_LABEL above.
-                Icons are shrink-0 so they never squish; items-center keeps
-                every unit on the same optical axis. */}
-            <div className="mt-1 flex items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:gap-1.5 sm:text-[11px]">
+            {/* v4.4.4 META — score · status · year, one line. The episode
+                count no longer lives here (moved to the poster badge above),
+                so the Clock icon is gone too. Still whitespace-nowrap and
+                size-tuned so the shortest possible row stays on one line
+                with room to spare on every card width. */}
+            <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
               {score && (
                 <span className="flex items-center gap-1 font-bold text-xan-crimson">
                   <Star className="h-2.5 w-2.5 shrink-0 fill-xan-crimson sm:h-3 sm:w-3" />
                   {score}
                 </span>
               )}
-              <span className="flex items-center gap-1">
-                <Clock className="h-2.5 w-2.5 shrink-0 sm:h-3 sm:w-3" />
-                {episodes}
-              </span>
+              {status && <span>{status}</span>}
               {anime.seasonYear && <span>{anime.seasonYear}</span>}
             </div>
           </div>
