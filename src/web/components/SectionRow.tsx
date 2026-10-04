@@ -69,10 +69,22 @@ export function SectionRow({ title, subtitle, icon, children, badge }: Props) {
           </button>
         </div>
       </div>
-      {/* Horizontal scroller with scroll-snap */}
+      {/* Horizontal scroller with scroll-snap.
+          v4.4.1 HOVER-CLIP FIX: `overflow-x: auto` makes this a scroll
+          container, and per CSS Overflow L3 the untouched `overflow-y`
+          then computes to `auto` — so the padding box clips anything
+          painted above it. Cards lift -6px on hover (AnimeCard
+          `-translate-y-1.5` + ~2px shadow bleed above), but the card top
+          sat FLUSH with this box (headroom 0px), so every hover shaved
+          the top off. `pt-2` gives the padding box 8px of vertical
+          headroom; `-mt-2` compensates so the cards keep their exact
+          original position relative to the header (net layout shift: 0).
+          Scroll containers clip at the PADDING box edge, so 8px is enough;
+          upward overhang is never scrollable overflow, so no vertical
+          scrollbar can appear and horizontal snap/scroll is untouched. */}
       <div
         ref={scrollRef}
-        className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2 mask-fade-r snap-x snap-mandatory scroll-pl-4"
+        className="-mt-2 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2 mask-fade-r snap-x snap-mandatory scroll-pl-4"
       >
         {children}
       </div>

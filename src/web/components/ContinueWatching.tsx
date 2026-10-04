@@ -89,9 +89,14 @@ export function ContinueWatching() {
         </div>
       </div>
 
+      {/* v4.4.1 HOVER-CLIP FIX — same pattern as SectionRow: `overflow-x:
+          auto` forces computed `overflow-y: auto`, clipping at the padding
+          box. Cards lift -4px on hover (`-translate-y-1`) with ~2px shadow
+          bleed above, so the box needs top headroom. `pt-2` provides it,
+          `-mt-2` keeps the cards' visual position unchanged (net shift 0). */}
       <div
         ref={scrollRef}
-        className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2 mask-fade-r"
+        className="-mt-2 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2 mask-fade-r"
       >
         {grouped.map((entry, idx) => {
           // Real progress from saved timestamp/duration.

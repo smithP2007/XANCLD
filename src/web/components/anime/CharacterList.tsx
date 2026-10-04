@@ -95,10 +95,15 @@ export function CharacterList({
         </div>
       </div>
 
-      {/* ─── Horizontal scroller of glass cards ─── */}
+      {/* ─── Horizontal scroller of glass cards ───
+          v4.4.1 HOVER-CLIP FIX: same padding-box rule as SectionRow —
+          `overflow-x: auto` computes overflow-y to auto, clipping at the
+          padding box. Cards lift -4px on hover (`hover:-translate-y-1`)
+          with a soft shadow bleeding above, so `pt-2` gives the box top
+          headroom and `-mt-2` keeps the resting layout identical. */}
       <div
         ref={scrollRef}
-        className="flex gap-3 overflow-x-auto no-scrollbar pb-3 -mx-2 px-2 mask-fade-edges snap-x snap-mandatory"
+        className="-mt-2 flex gap-3 overflow-x-auto no-scrollbar -mx-2 px-2 pt-2 pb-3 mask-fade-edges snap-x snap-mandatory"
       >
         {characters.map((c) => {
           const va = voiceActors?.[c.id];
