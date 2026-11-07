@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
-  Play,
   SkipForward,
   Star,
   Tv,
@@ -24,6 +23,14 @@ import {
 // gogoanime removed
 import { getKotoSource } from "../lib/providers/koto";
 import { fetchZenSources } from "../lib/providers/zen";
+import {
+  resolveAnimexShow,
+  fetchAnimexServers,
+  fetchAnimexSources,
+  animexProviderDisplayName,
+  type AnimexServerInfo,
+  type AnimexSource,
+} from "../lib/providers/animex";
 import { isZenEmbedUrl, buildZenEmbedUrl, useZenBridge } from "../lib/zenBridge";
 import { useSettings, addToHistory, getHistory } from "../hooks/useSettings";
 import { useAnimeList } from "../hooks/useAnimeList";
@@ -32,10 +39,14 @@ import { VideoEnhancerPanel } from "../components/VideoEnhancerPanel";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { EpisodePickerSheet } from "../components/EpisodePickerSheet";
 import { EpisodePanel } from "../components/EpisodePanel";
+import { ProviderSelector, type ProviderChip, type SourceChip } from "../components/ProviderSelector";
 
 // L-21 FIX: "demo" is its own provider tier so the Big Buck Bunny fallback
 // no longer masquerades under the "AllAnime" group in the Servers panel.
-type Provider = "allanime" | "koto" | "zen" | "demo";
+// "animex" is the per-episode provider family modeled on animex.one
+// (Zoro / Yuki / Loli / Sora — direct HLS from pp.animex.one). Each chip is
+// one server inside that family; the selected one lives in animexProviderId.
+type Provider = "allanime" | "koto" | "zen" | "animex" | "demo";
 
 interface UnifiedSource {
   url: string;
@@ -43,6 +54,11 @@ interface UnifiedSource {
   quality: string | null;
   sourceName: string;
   provider: Provider;
+  // AnimeX per-episode sources carry their raw provider id ("yuki") so the
+  // chip grid can highlight the active server within the animex family.
+  providerId?: string;
+  // Soft-subtitle tracks (proxied VTT) — only AnimeX sources ship these.
+  tracks?: { url: string; label: string; lang: string; isDefault?: boolean }[];
 }
 
 // H-6 FIX: bandwidthMode was a dead setting — persisted by Settings but read
@@ -66,12 +82,34 @@ function applyBandwidthMode(
   return sources;
 }
 
+// Token-insensitive stream identity for dedup. The AnimeX servers sign every
+// /sources response with a FRESH rotating token in the stream URL's query, so
+// the same Yuki/Sora stream resolves to two different URLs when both the main
+// provider path and the servers-effect aggregation fetch it — a raw URL Set
+// kept BOTH copies as duplicate chips. Identity for animex sources is the
+// server id + URL path (token-independent); everything else uses the raw url.
+function streamIdentity(s: UnifiedSource): string {
+  if (s.provider === "animex" && s.providerId) {
+    let path = s.url;
+    try {
+      const wrapped = new URL(s.url, "http://x");
+      const real = wrapped.searchParams.get("url") ?? "";
+      path = real ? new URL(real).pathname : s.url;
+    } catch {
+      // fall through with the raw url
+    }
+    return `animex:${s.providerId}:${path}`;
+  }
+  return s.url;
+}
+
 // Check if ALL source names from a provider are disabled — if so, skip loading that provider entirely
 function isProviderFullyDisabled(prov: Provider, disabledSources: string[]): boolean {
   if (prov === "koto") return disabledSources.includes("Koto");
   if (prov === "zen") return disabledSources.includes("Zen") && disabledSources.includes("Zen (Dual→Dub)");
   // gogoanime removed
   // allanime: source names are dynamic (Mp4, Ok, etc.) — can't know in advance, so still load it
+  // animex: per-episode servers are dynamic too (Yuki/Loli/Sora/Zoro) — same reasoning
   return false;
 }
 
@@ -100,6 +138,19 @@ export function Watch() {
   const [mode, setMode] = useState<"sub" | "dub">(settings.defaultMode);
   const [resumeTime, setResumeTime] = useState<number | undefined>(undefined);
   const [provider, setProvider] = useState<Provider>(settings.preferredProvider);
+  // AnimeX per-episode provider family (Zoro / Yuki / Loli / Sora):
+  // slug = animex.one's internal show id, resolved once per anime; servers =
+  // per-episode availability list for the CURRENT audio mode;
+  // animexProviderId = which per-episode server the "animex" provider loads.
+  const [animexSlug, setAnimexSlug] = useState<string | null>(null);
+  const [animexServers, setAnimexServers] = useState<AnimexServerInfo[]>([]);
+  const [animexServersLoading, setAnimexServersLoading] = useState(false);
+  const [animexProviderId, setAnimexProviderId] = useState<string>("yuki");
+  // Per-server load outcome for THIS episode ("yuki": "done", "loli": "error")
+  // — drives the individual status dots on the per-episode server chips, so a
+  // dead upstream server (pp.animex.one 500s for Loli these days) is visible
+  // at a glance while the working servers stay clickable.
+  const [animexServerStatus, setAnimexServerStatus] = useState<Record<string, "done" | "error">>({});
 
   // H-4 FIX: Sync provider state with settings — if the user changes their
   // preferred provider in Settings mid-session, the Watch page should pick
@@ -121,6 +172,7 @@ export function Watch() {
     allanime: "idle",
     koto: "idle",
     zen: "idle",
+    animex: "idle",
     demo: "idle",
   });
 
@@ -178,6 +230,45 @@ export function Watch() {
           sourceName: s.sourceName,
           provider: "zen" as const,
         }));
+      } else if (prov === "animex") {
+        // AnimeX per-episode server (Zoro / Yuki / Loli / Sora / Nero …). The
+        // slug normally arrives before this runs (the servers effect below),
+        // but resolve on demand as a fallback so a direct chip click on a
+        // fresh page still works.
+        let slug = animexSlug;
+        if (!slug) {
+          slug = await resolveAnimexShow(animeId, episode);
+          if (!slug) {
+            if (!isStale?.()) setProviderStatus((prev) => ({ ...prev, [prov]: "error" }));
+            return [];
+          }
+          if (!isStale?.()) setAnimexSlug(slug);
+        }
+        // Selected server only — this drives the playback claim race. The
+        // OTHER per-episode servers are aggregated by the servers effect
+        // (without restarting playback) so the Sources row lists every
+        // working stream.
+        const got = await fetchAnimexSources(slug, episode, mode, animexProviderId);
+        if (!isStale?.()) {
+          setAnimexServerStatus((prev) => ({
+            ...prev,
+            [animexProviderId]: got.length > 0 ? "done" : "error",
+          }));
+        }
+        sources = got.map((s) => ({
+          url: s.url,
+          type: s.type,
+          quality: s.quality,
+          sourceName: s.sourceName,
+          provider: "animex" as const,
+          providerId: s.providerId,
+          tracks: s.tracks.map((t) => ({
+            url: t.url,
+            label: t.label,
+            lang: t.lang,
+            isDefault: t.isDefault,
+          })),
+        }));
       }
 
       // H-6 FIX: apply bandwidthMode BEFORE computing provider status so the
@@ -214,7 +305,8 @@ export function Watch() {
       setError(null);
       setStream(null);
       setAllSources([]);
-      setProviderStatus({ allanime: "idle", koto: "idle", zen: "idle", demo: "idle" });
+      setProviderStatus({ allanime: "idle", koto: "idle", zen: "idle", animex: "idle", demo: "idle" });
+      setAnimexServerStatus({});
 
       try {
         const detail = await fetchAnimeDetail(animeId);
@@ -271,9 +363,11 @@ export function Watch() {
         // Try providers in priority order — Koto first (instant, no API call) so
         // the user sees something immediately, then AllAnime (fastest real sources)
         // in the background. When dub is selected, prefer AllAnime first.
+        // "animex" (Zoro/Yuki/Loli/Sora direct HLS) sits after AllAnime: real
+        // streams, slightly slower resolve (slug + sources round-trips).
         const allProviders: Provider[] = mode === "dub"
-          ? ["allanime", "zen", "koto"]
-          : ["koto", "allanime", "zen"];
+          ? ["allanime", "animex", "zen", "koto"]
+          : ["koto", "allanime", "animex", "zen"];
 
         // Filter out providers whose sources are ALL disabled — don't even load them
         const activeProviders = allProviders.filter((prov) => !isProviderFullyDisabled(prov, settings.disabledSources));
@@ -289,18 +383,28 @@ export function Watch() {
           return;
         }
 
-        // When a source is pinned, we need to try ALL providers to find it —
-        // the pinned source might come from a different provider than the one
-        // that returns results first (e.g. "Koto" comes from the koto provider,
-        // not AllAnime). So we load ALL providers, collect all sources, then
-        // filter for the pinned one.
+        // When a source is pinned, we need to find it. BUG 7 FIX: the old
+        // loop walked EVERY provider sequentially — including providers the
+        // user explicitly disabled in Settings > Source filters — and kept
+        // querying the remaining providers even after the pinned source was
+        // already in hand. Now: disabled providers are skipped up-front, and
+        // the loop breaks the moment the pinned source is found.
         if (settings.pinnedSource) {
-          console.log(`[Watch] Pinned source "${settings.pinnedSource}" — loading all providers to find it`);
+          console.log(`[Watch] Pinned source "${settings.pinnedSource}" — searching providers for it`);
           let allCollectedSources: UnifiedSource[] = [];
+          let pinnedFound = false;
           for (const prov of allProviders) {
+            // BUG 7 FIX (a): never query a provider whose sources are all disabled
+            if (isProviderFullyDisabled(prov, settings.disabledSources)) continue;
             const provSources = await loadFromProvider(prov, title, isStale);
             if (isStale()) return;
             allCollectedSources = [...allCollectedSources, ...provSources];
+            // BUG 7 FIX (b): stop the moment the pinned source is available —
+            // no over-fetching of the remaining providers
+            if (provSources.some((s) => s.sourceName === settings.pinnedSource)) {
+              pinnedFound = true;
+              break;
+            }
           }
 
           // Deduplicate by URL
@@ -316,7 +420,7 @@ export function Watch() {
           // Filter for the pinned source
           const pinnedSources = allCollectedSources.filter((s) => s.sourceName === settings.pinnedSource);
           if (pinnedSources.length === 0) {
-            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available from any provider`);
+            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available from any enabled provider (found=${pinnedFound})`);
             setError(`Pinned source "${settings.pinnedSource}" is not available for this episode. Unpin it in Settings to use other sources.`);
             setLoading(false);
             return;
@@ -416,8 +520,10 @@ export function Watch() {
             if (provSources.length > 0) {
               console.log(`[Watch] ${prov} resolved with ${provSources.length} sources`);
               setAllSources((prev) => {
-                const existingUrls = new Set(prev.map((s) => s.url));
-                const newOnes = provSources.filter((s) => !existingUrls.has(s.url));
+                const existing = new Set(prev.map(streamIdentity));
+                const newOnes = provSources.filter(
+                  (s) => !existing.has(streamIdentity(s)),
+                );
                 return [...prev, ...newOnes];
               });
             }
@@ -460,7 +566,96 @@ export function Watch() {
         }
       }
     })();
-  }, [animeId, episode, mode, provider, retryKey, resumeOverride]);
+  }, [animeId, episode, mode, provider, animexProviderId, retryKey, resumeOverride]);
+
+  // ─── AnimeX per-episode servers (chips under the player) ───
+  // Resolves the animex.one slug once per anime, then fetches the per-episode
+  // server list for the current audio mode. The list drives the chip grid —
+  // exactly like animex.one, availability differs per episode AND per mode.
+  useEffect(() => {
+    if (!animeId) return;
+    let cancelled = false;
+    (async () => {
+      setAnimexServersLoading(true);
+      setAnimexServers([]);
+      try {
+        let slug = animexSlug;
+        if (!slug) {
+          slug = await resolveAnimexShow(animeId, episode);
+          if (!slug || cancelled) return;
+          setAnimexSlug(slug);
+        }
+        const servers = await fetchAnimexServers(slug, episode);
+        if (cancelled) return;
+        const list = mode === "dub" ? servers?.dubProviders : servers?.subProviders;
+        setAnimexServers(list ?? []);
+        setAnimexServerStatus({});
+        // Default the per-episode selection to the server animex.one marks
+        // default (usually yuki). Only when nothing is selected yet.
+        if (list && list.length > 0) {
+          const def = list.find((s) => s.default) ?? list[0];
+          setAnimexProviderId((cur) =>
+            list.some((s) => s.id === cur) ? cur : def.id,
+          );
+        }
+        // AGGREGATED per-server load — every server this episode offers is
+        // fetched in parallel right here (NOT in the main load effect, which
+        // would restart playback); all working streams merge into the
+        // Sources row at once and each server chip gets its own status dot.
+        // A dead upstream server (Loli 500s sitewide right now) simply
+        // contributes nothing and shows a red dot — the others still play.
+        if (list && list.length > 0) {
+          (async () => {
+            const perServer = await Promise.allSettled(
+              list.map((s) =>
+                fetchAnimexSources(slug, episode, mode, s.id).then((r) => ({
+                  id: s.id,
+                  r,
+                })),
+              ),
+            );
+            if (cancelled) return;
+            const statusRecord: Record<string, "done" | "error"> = {};
+            const collected: AnimexSource[] = [];
+            perServer.forEach((res, i) => {
+              const id = list[i].id;
+              const got = res.status === "fulfilled" ? res.value.r : [];
+              statusRecord[id] = got.length > 0 ? "done" : "error";
+              collected.push(...got);
+            });
+            setAnimexServerStatus((prev) => ({ ...prev, ...statusRecord }));
+            const fresh = collected
+              .filter((s) => s.url)
+              .map((s) => ({
+                url: s.url,
+                type: s.type,
+                quality: s.quality,
+                sourceName: s.sourceName,
+                provider: "animex" as const,
+                providerId: s.providerId,
+                tracks: s.tracks.map((t) => ({
+                  url: t.url,
+                  label: t.label,
+                  lang: t.lang,
+                  isDefault: t.isDefault,
+                })),
+              }));
+            if (fresh.length > 0) {
+              setAllSources((prev) => {
+                const seen = new Set(prev.map(streamIdentity));
+                return [...prev, ...fresh.filter((x) => !seen.has(streamIdentity(x)))];
+              });
+            }
+          })();
+        }
+      } finally {
+        if (!cancelled) setAnimexServersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [animeId, episode, mode, animexSlug]);
 
   // Filter sources based on user's disabledSources + pinnedSource settings
   const filteredSources = useMemo(() => {
@@ -480,8 +675,16 @@ export function Watch() {
   // mid-episode. Now the object only changes when the actual source changes.
   const streamForPlayer = useMemo(() => {
     if (!stream) return null;
-    return { url: stream.url, type: stream.type, quality: stream.quality, sourceName: stream.sourceName, provider: stream.provider };
-  }, [stream?.url, stream?.type, stream?.quality, stream?.sourceName, stream?.provider]);
+    return {
+      url: stream.url,
+      type: stream.type,
+      quality: stream.quality,
+      sourceName: stream.sourceName,
+      provider: stream.provider,
+      // Soft-subtitle tracks ride along for AnimeX sources
+      ...(stream.tracks && stream.tracks.length > 0 ? { tracks: stream.tracks } : {}),
+    };
+  }, [stream?.url, stream?.type, stream?.quality, stream?.sourceName, stream?.provider, stream?.tracks]);
 
   // M-16 FIX: episode-count-unknown handling. `anime.episodes` is null for
   // most airing shows, which used to: hide the Next Episode page button on
@@ -490,6 +693,97 @@ export function Watch() {
   // that need them most. When the total is unknown we now assume a next
   // episode exists; a wrong guess lands on the (now retryable) error state.
   const hasNextEpisode = anime ? (anime.episodes ? episode < anime.episodes : true) : false;
+
+  // ─── Provider chips for the animex.one-style selector under the player ───
+  // Unified players first (ANMX = AllAnime, ZEN, KOTO — always available),
+  // then the per-episode servers reported by pp.animex.one for the current
+  // audio mode. Status dots on the per-episode chips mirror providerStatus.
+  const providerChips = useMemo<ProviderChip[]>(() => {
+    const unified: ProviderChip[] = [
+      { key: "allanime", label: "ANMX" },
+      { key: "zen", label: "ZEN" },
+      { key: "koto", label: "KOTO" },
+    ];
+    const familyAttempted = provider === "animex" || providerStatus.animex !== "idle";
+    const perEpisode: ProviderChip[] = animexServers.map((s) => ({
+      key: s.id,
+      label: animexProviderDisplayName(s.id),
+      tip: s.tip,
+      // Per-server dot: what THIS server's aggregated load returned. Falls
+      // back to the family-level status until per-server results exist.
+      status: animexServerStatus[s.id] ?? (familyAttempted ? providerStatus.animex : "idle"),
+    }));
+    return [...unified, ...perEpisode];
+  }, [animexServers, provider, providerStatus.animex, animexServerStatus]);
+
+  const activeChipKey = provider === "animex" ? animexProviderId : provider;
+
+  // ─── Source chips — every resolved stream, in the same Sources panel ───
+  // The old sidebar "Servers" panel lived here as a separate portion; the
+  // sources now ride in the ProviderSelector under the player instead.
+  // Deduped by streamIdentity — raw URL dedup kept TWO chips for the same
+  // AnimeX stream because every /sources call returns a freshly-signed token.
+  const sourceChips = useMemo<SourceChip[]>(() => {
+    const seen = new Set<string>();
+    const out: SourceChip[] = [];
+    for (const s of filteredSources) {
+      const id = streamIdentity(s);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const providerLabel =
+        s.provider === "allanime" ? "ANMX"
+        : s.provider === "animex" ? "AnimeX"
+        : s.provider === "demo" ? "Demo"
+        : s.provider.charAt(0).toUpperCase() + s.provider.slice(1);
+      const label = s.quality && s.quality !== "auto"
+        ? `${s.sourceName} (${s.quality})`
+        : s.sourceName;
+      out.push({
+        key: id,
+        label,
+        providerLabel,
+        type: s.type,
+        tip: `${providerLabel} — ${s.sourceName}${s.quality ? ` (${s.quality})` : ""} · ${s.type}`,
+      });
+    }
+    return out;
+  }, [filteredSources]);
+
+  const activeSourceKey = stream ? streamIdentity(stream) : null;
+
+  const handleSourceSelect = useCallback(
+    (key: string) => {
+      const source = filteredSources.find((s) => streamIdentity(s) === key);
+      if (source) setStream(source);
+    },
+    [filteredSources],
+  );
+
+  // Chip click — unified providers switch the provider (full reload via the
+  // load effect); per-episode servers switch inside the animex family and
+  // shortcut to an already-resolved source when one is cached.
+  const handleChipSelect = useCallback(
+    (key: string) => {
+      if (key === "allanime" || key === "zen" || key === "koto") {
+        if (provider !== key) setProvider(key as Provider);
+        return;
+      }
+      // Per-episode server — switch into the animex family (the provider
+      // change is what re-runs the load effect), then shortcut to an
+      // already-resolved source when one is cached.
+      const cached = allSources.find(
+        (s) => s.provider === "animex" && s.providerId === key,
+      );
+      setAnimexProviderId(key);
+      if (provider !== "animex") {
+        setProvider("animex");
+      } else if (cached) {
+        // Already playing this family — just swap the stream, no reload
+        setStream(cached);
+      }
+    },
+    [provider, allSources],
+  );
 
   // L-13 FIX: these handlers used to be inline arrows passed to VideoPlayer,
   // so its 9-listener effect tore down and re-attached on EVERY Watch
@@ -679,6 +973,7 @@ export function Watch() {
                 {(([
                   "koto",
                   "allanime",
+                  "animex",
                   "zen",
                 ] as const)).map((p) => (
                   <div key={p} className="flex items-center gap-1.5">
@@ -688,7 +983,9 @@ export function Watch() {
                       providerStatus[p] === "loading" ? "bg-yellow-500 animate-pulse" :
                       "bg-zinc-600"
                     }`} />
-                    <span className="text-muted-foreground">{p}</span>
+                    <span className="text-muted-foreground">
+                      {p === "allanime" ? "ANMX" : p === "animex" ? "AnimeX servers" : p}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -848,6 +1145,22 @@ export function Watch() {
             )
           ) : null}
 
+          {/* AnimeX-style Sub/Dub + server chips — sits right under the
+              player like on animex.one. Always rendered (even while loading)
+              so a stuck stream can be fixed by switching servers without a
+              page reload. */}
+          <ProviderSelector
+            mode={mode}
+            onModeChange={setMode}
+            chips={providerChips}
+            activeKey={activeChipKey}
+            onSelect={handleChipSelect}
+            serversLoading={animexServersLoading}
+            sourceChips={sourceChips}
+            activeSourceKey={activeSourceKey}
+            onSelectSource={handleSourceSelect}
+          />
+
           {/* H-7 FIX: when every provider fails the page used to silently
               play a public demo video (Big Buck Bunny) with only a tiny badge
               in the player bar — users could mistake it for the episode. Make
@@ -992,96 +1305,13 @@ export function Watch() {
             />
           </div>
 
-          {/* Audio mode selector — polished */}
-          <div className="glass rounded-2xl p-4">
-            <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-              <Volume2 className="h-4 w-4 text-xan-crimson" />
-              Audio
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {(["sub", "dub"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold uppercase transition-all border ${
-                    mode === m
-                      ? "bg-gradient-to-br from-xan-crimson to-xan-violet text-white shadow-md shadow-xan-crimson/30 border-transparent"
-                      : "bg-xan-card-hover text-muted-foreground hover:text-foreground border-xan-border hover:border-xan-crimson/30"
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Audio mode selector — REMOVED: the Sub/Dub tabs now live in the
+              ProviderSelector panel directly under the player (animex.one
+              layout), which covers both desktop and mobile. */}
 
-          {/* Sources panel — XAN-style, grouped by provider */}
-          {filteredSources.length > 0 && (
-            <div className="glass rounded-2xl p-4">
-              <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-                <Play className="h-4 w-4 text-xan-crimson" />
-                Servers
-                <span className="text-xs text-muted-foreground font-normal">({filteredSources.length})</span>
-              </h3>
-              <div className="space-y-3 max-h-64 overflow-y-auto pr-1 no-scrollbar">
-                {/* Group by provider */}
-                {(() => {
-                  const providerOrder = ["allanime", "zen", "koto", "demo"];
-                  const groups = providerOrder.map((p) => ({
-                    providerId: p,
-                    label: p === "allanime" ? "AllAnime"
-                      : p === "zen" ? "Zen"
-                      : p === "koto" ? "Koto"
-                      : p === "demo" ? "Demo"
-                      : p.charAt(0).toUpperCase() + p.slice(1),
-                    items: filteredSources
-                      .map((s, idx) => ({ s, idx }))
-                      .filter(({ s }) => s.provider === p),
-                  })).filter((g) => g.items.length > 0);
-
-                  return groups.map((group) => (
-                    <div key={group.providerId}>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
-                          {group.label}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/50">{group.items.length}</span>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                        {group.items.map(({ s: source, idx }) => {
-                          const isActive = stream?.url === source.url;
-                          return (
-                            <button
-                              key={`${idx}-${source.url.slice(0, 40)}`}
-                              onClick={() => setStream(source)}
-                              title={source.sourceName}
-                              className={`relative px-2 py-1.5 rounded-md text-[10px] font-medium transition-all flex flex-col items-center gap-0.5 ${
-                                isActive
-                                  ? "bg-xan-crimson/20 text-foreground border border-xan-crimson/50"
-                                  : "bg-xan-card/60 text-muted-foreground border border-transparent hover:bg-xan-card-hover hover:text-foreground"
-                              }`}
-                            >
-                              <span className="font-mono truncate max-w-[80px]">{source.sourceName}</span>
-                              <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded ${
-                                source.type === "iframe" ? "bg-purple-500/20 text-purple-400"
-                                : source.type === "hls" ? "bg-blue-500/20 text-blue-400"
-                                : "bg-green-500/20 text-green-400"
-                              }`}>
-                                {source.type}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ));
-                })()}
-              </div>
-              <p className="mt-3 pt-2 border-t border-xan-border/40 text-center text-[10px] text-muted-foreground/60">
-                If current server doesn't work, try other servers below.
-              </p>
-            </div>
-          )}
+          {/* The old sidebar "Servers" panel was REMOVED — every resolved
+              source now lives in the Sources row of the ProviderSelector
+              under the player (one panel, no separate portion). */}
         </div>
       </div>
 
