@@ -1611,51 +1611,28 @@ export function VideoPlayer({
             </button>
 
             {/* Volume — click toggles mute (the icon always implied this and
-                the aria-label promised it); the slider expands on hover on
-                pointer devices and on keyboard focus-within. The old click
-                merely expanded the slider while loudly labelling itself
-                "Mute (M)" — a screen-reader user activating "Unmute" got a
-                volume slider, and pointer-only users had no mute at all. */}
-            <div className="group/vol flex items-center flex-shrink-0">
-              <button
-                onClick={toggleMute}
-                className={CTRL_BTN}
-                aria-label={muted ? "Unmute" : "Mute"}
-                title={muted ? "Unmute (M)" : "Mute (M)"}
-              >
-                {muted || volume === 0 ? (
-                  <VolumeX className="h-5 w-5" />
-                ) : volume < 0.5 ? (
-                  <Volume1 className="h-5 w-5" />
-                ) : (
-                  <Volume2 className="h-5 w-5" />
-                )}
-              </button>
-              <div className="overflow-hidden transition-all duration-200 ease-out w-0 opacity-0 group-hover/vol:w-14 group-hover/vol:opacity-100 group-focus-within/vol:w-14 group-focus-within/vol:opacity-100">
-                <div className="xan-hud-shadow relative h-3 flex items-center">
-                  {/* Track, fill and input all span the FULL 0→100% of the
-                      container — the old left-1/right-1 insets made the fill
-                      (width = % of the whole box) overflow past the track and
-                      get chopped by overflow-hidden at full volume. */}
-                  <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
-                  <div
-                    className="absolute left-0 h-1 rounded-full bg-white transition-all"
-                    style={{ width: `${(muted ? 0 : volume) * 100}%` }}
-                  />
-                  <input
-                    type="range" min={0} max={1} step={0.02}
-                    value={muted ? 0 : volume}
-                    onChange={(e) => changeVolume(Number(e.target.value))}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    className="xan-flat absolute inset-0 w-full opacity-0 cursor-pointer"
-                    aria-label="Volume"
-                    style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
-                  />
-                </div>
-              </div>
-            </div>
+                the aria-label promised it). The slider itself now lives in
+                the settings panel (PLAYER tab → Volume, next to Extra
+                volume): the hover-expand slider was unreachable on touch
+                devices (it only opened on hover/focus-within) and crammed
+                the bar on mobile, so the bar keeps just the quick mute
+                toggle while the panel owns fine-grained volume. The ↑/↓ keys
+                and the app's default-volume setting still feed the same
+                persisted value. */}
+            <button
+              onClick={toggleMute}
+              className={CTRL_BTN}
+              aria-label={muted ? "Unmute" : "Mute"}
+              title={muted ? "Unmute (M)" : "Mute (M)"}
+            >
+              {muted || volume === 0 ? (
+                <VolumeX className="h-5 w-5" />
+              ) : volume < 0.5 ? (
+                <Volume1 className="h-5 w-5" />
+              ) : (
+                <Volume2 className="h-5 w-5" />
+              )}
+            </button>
           </div>
 
           {/* Right cluster — animex.one order: −10s · +10s · CC · Screenshot ·
@@ -2102,6 +2079,42 @@ export function VideoPlayer({
                     <ChevronRight className="h-3.5 w-3.5" />
                   </span>
                 </button>
+
+                <SectionLabel>Volume</SectionLabel>
+                <div className="px-3 py-1.5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[13px] text-white/85">Player volume</span>
+                    <span className="text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{muted ? "Muted" : `${Math.round(volume * 100)}%`}</span>
+                  </div>
+                  <div className="relative h-4 flex items-center">
+                    <div className="absolute left-0 right-0 h-1 rounded-full bg-white/[0.14]" />
+                    <div
+                      className="absolute left-0 h-1 rounded-full bg-xan-crimson shadow-[0_0_8px_rgba(233,69,96,0.5)] transition-all"
+                      style={{ width: `${(muted ? 0 : volume) * 100}%` }}
+                    />
+                    <div
+                      className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.5)] pointer-events-none"
+                      style={{ left: `calc(${(muted ? 0 : volume) * 100}% - 5px)` }}
+                    />
+                    <input
+                      type="range" min={0} max={100} step={1}
+                      value={muted ? 0 : Math.round(volume * 100)}
+                      onChange={(e) => changeVolume(Number(e.target.value) / 100)}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="xan-flat absolute inset-0 w-full opacity-0 cursor-pointer"
+                      aria-label="Volume"
+                      style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5 tabular-nums">
+                    <span>Mute</span><span>50%</span><span>100%</span>
+                  </div>
+                  <p className="text-[10px] text-white/40 mt-2 leading-snug">
+                    Live volume for this player — also adjustable with the ↑ / ↓ keys.
+                    Mute with the speaker button or M.
+                  </p>
+                </div>
 
                 <SectionLabel>Audio boost</SectionLabel>
                 <div className="px-3 py-1.5 pb-2.5">
