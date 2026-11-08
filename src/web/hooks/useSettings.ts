@@ -80,6 +80,19 @@ export interface XanSettings {
   hasSeenOnboarding: boolean;
   moodPreference: MoodPreference | null;
   durationPreference: DurationPreference | null;
+  /**
+   * Subtitle look — customized from the player's Subs tab and rendered by
+   * the in-player subtitle layer (track.mode = "hidden" + custom paint),
+   * so the browser's default bottom-of-video caption placement never applies.
+   *  - subSize  → caption font size step
+   *  - subColor → caption text color preset
+   *  - subBg    → backing style: no backing / soft shadow / solid bar
+   *  - subDelay → caption sync offset in seconds (−5…+5, 0.5 steps)
+   */
+  subSize: "sm" | "md" | "lg" | "xl";
+  subColor: "white" | "yellow" | "cyan" | "pink";
+  subBg: "none" | "shadow" | "bar";
+  subDelay: number;
 }
 
 const DEFAULTS: XanSettings = {
@@ -110,6 +123,10 @@ const DEFAULTS: XanSettings = {
   hasSeenOnboarding: false,
   moodPreference: null,
   durationPreference: null,
+  subSize: "md",
+  subColor: "white",
+  subBg: "shadow",
+  subDelay: 0,
 };
 
 const STORAGE_KEY = "xan:settings";

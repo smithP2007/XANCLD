@@ -30,7 +30,7 @@ import {
   SkipForward,
 } from "lucide-react";
 import type { StreamResult } from "../lib/allanime";
-import { updateSettings, type XanSettings } from "../hooks/useSettings";
+import { updateSettings, getXanSettings, type XanSettings } from "../hooks/useSettings";
 import { KeyboardShortcutsOverlay } from "./KeyboardShortcutsOverlay";
 import { AutoPlayOverlay } from "./AutoPlayOverlay";
 import { VideoEnhancerPanel } from "./VideoEnhancerPanel";
@@ -134,6 +134,51 @@ const MENU_ROW =
 const CTRL_BTN =
   "xan-hud-shadow h-9 w-9 rounded-lg grid place-items-center flex-shrink-0 text-white transition-colors hover:bg-white/10 active:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/60 outline-none";
 
+/** VTT cue text → plain display lines: strips inline markup (<c>, <i>,
+ *  <00:00:01.000> timestamp tags …), unfolds ASS-style "\N" soft breaks,
+ *  decodes the common named entities, then splits on real newlines. Pure
+ *  text only — the custom subtitle layer renders no HTML from cue payload. */
+function cueTextToLines(text: string): string[] {
+  const cleaned = text
+    .replace(/<[^>]*>/g, "")
+    .replace(/\\N/g, "\n")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&(?:apos|#39);/g, "'")
+    .replace(/&nbsp;/g, " ");
+  return cleaned
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+/** Subtitle look presets — Subs tab in the player panel. Sizes are
+ *  responsive (slightly smaller on phones, step up from sm:). */
+const SUB_SIZE: Record<XanSettings["subSize"], string> = {
+  sm: "text-[13px] sm:text-sm",
+  md: "text-[15px] sm:text-base",
+  lg: "text-lg sm:text-xl",
+  xl: "text-xl sm:text-2xl",
+};
+const SUB_COLOR: Record<XanSettings["subColor"], string> = {
+  white: "text-white",
+  yellow: "text-amber-300",
+  cyan: "text-cyan-300",
+  pink: "text-pink-300",
+};
+const SUB_COLOR_SWATCH: Record<XanSettings["subColor"], string> = {
+  white: "#ffffff",
+  yellow: "#fcd34d",
+  cyan: "#67e8f9",
+  pink: "#f9a8d4",
+};
+/** Clamped ±0.5s delay stepper — snaps to half-second grid, −5…+5s. */
+function stepSubDelay(from: number, dir: 1 | -1): number {
+  return Math.max(-5, Math.min(5, Math.round((from + dir * 0.5) * 2) / 2));
+}
+
 /** animex-style settings row with an iOS switch (used across the PLAYER tab). */
 function SettingToggle({ label, hint, on, onChange, disabled }: {
   label: string;
@@ -233,6 +278,10 @@ export function VideoPlayer({
   // Soft-subtitle selection (AnimeX per-episode sources ship VTT tracks).
   // -1 = off; otherwise the index into stream.tracks.
   const [activeTrackIndex, setActiveTrackIndex] = useState(-1);
+  // Text lines of the cue(s) active RIGHT NOW — painted by the custom
+  // subtitle layer above the control bar (never the browser's native
+  // bottom-of-video caption rendering).
+  const [subLines, setSubLines] = useState<string[]>([]);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [qualityLevels, setQualityLevels] = useState<{ height: number; index: number; bitrate: number }[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
@@ -432,8 +481,10 @@ export function VideoPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stream.url]);
 
-  // Mirror activeTrackIndex onto the native text tracks whenever it changes
-  // (and after the new stream's <track> elements mount).
+  // Mirror activeTrackIndex onto the native text tracks — but with mode
+  // "hidden", never "showing": the browser's own caption paint places cues
+  // at the bottom of the video where they collide with the control bar
+  // (user request). The custom layer below owns the actual display.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -441,9 +492,61 @@ export function VideoPlayer({
     for (let i = 0; i < tt.length; i++) {
       const track = tt[i];
       if (track.kind !== "subtitles") continue;
-      track.mode = i === activeTrackIndex ? "showing" : "disabled";
+      track.mode = i === activeTrackIndex ? "hidden" : "disabled";
     }
   }, [activeTrackIndex, stream.url]);
+
+  // Custom subtitle paint — native rendering is switched off above, so
+  // active cues are projected onto a positioned layer ABOVE the control bar
+  // with the user's look (size / color / backing from the Subs tab) and the
+  // sync offset (subDelay shifts the evaluation window: +1.5s shows the cue
+  // that starts 1.5s ahead). Re-evaluated on cuechange (cues parsed /
+  // entered-exited), timeupdate + seeked (playhead moved), loadedmetadata,
+  // plus two deferred retries for the async VTT fetch on first activation.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || activeTrackIndex < 0) {
+      setSubLines([]);
+      return;
+    }
+    const track = video.textTracks[activeTrackIndex];
+    if (!track || track.kind !== "subtitles") {
+      setSubLines([]);
+      return;
+    }
+    track.mode = "hidden"; // cues load + events fire, browser paints nothing
+    const paint = () => {
+      const t = video.currentTime + settings.subDelay;
+      const cues = track.cues;
+      if (!cues) return;
+      const lines: string[] = [];
+      for (let i = 0; i < cues.length && lines.length < 4; i++) {
+        const cue = cues[i] as VTTCue; // text cues only (kind="subtitles")
+        if (cue.startTime <= t && t < cue.endTime) {
+          lines.push(...cueTextToLines(cue.text));
+        }
+      }
+      setSubLines((prev) =>
+        prev.length === lines.length && prev.every((l, i) => l === lines[i]) ? prev : lines,
+      );
+    };
+    paint();
+    track.addEventListener("cuechange", paint);
+    video.addEventListener("timeupdate", paint);
+    video.addEventListener("seeked", paint);
+    video.addEventListener("loadedmetadata", paint);
+    const retry1 = setTimeout(paint, 300);
+    const retry2 = setTimeout(paint, 1200);
+    return () => {
+      track.removeEventListener("cuechange", paint);
+      video.removeEventListener("timeupdate", paint);
+      video.removeEventListener("seeked", paint);
+      video.removeEventListener("loadedmetadata", paint);
+      clearTimeout(retry1);
+      clearTimeout(retry2);
+      setSubLines([]);
+    };
+  }, [activeTrackIndex, stream.url, settings.subDelay]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -1240,6 +1343,34 @@ export function VideoPlayer({
         </button>
       )}
 
+      {/* ── Custom subtitle layer — captions render ABOVE the control bar
+          (user request: the browser's default bottom-of-video placement sat
+          underneath the seekbar/buttons). Styled by the Subs tab (size /
+          color / backing); sits just over the controls when they are up and
+          settles lower when they fade, mirroring the xan-controls motion. ── */}
+      {subLines.length > 0 && activeTrackIndex >= 0 && !loading && !error && (
+        <div
+          data-xan-subs=""
+          className={`absolute left-0 right-0 z-[15] flex justify-center px-6 pointer-events-none text-center transition-[bottom] duration-200 ease-out ${
+            controlsHidden ? "bottom-5" : "bottom-[4.75rem] sm:bottom-[5rem]"
+          }`}
+        >
+          <div
+            className={`font-semibold leading-snug max-w-full break-words ${
+              settings.subBg === "bar"
+                ? "bg-black/75 rounded-md px-2.5 py-1 ring-1 ring-white/10"
+                : settings.subBg === "shadow"
+                  ? "xan-hud-text"
+                  : ""
+            } ${SUB_SIZE[settings.subSize]} ${SUB_COLOR[settings.subColor]}`}
+          >
+            {subLines.map((line, i) => (
+              <div key={`${i}-${line}`}>{line}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Top overlay with title + badges. The dark gradient backing is
           GONE (user request): no vignette over the video, ever — the title
           keeps its drop-shadow and the badges keep their own pill backing
@@ -1596,6 +1727,152 @@ export function VideoPlayer({
                     ))}
                   </>
                 )}
+
+                {/* ── Caption style — customization for the custom subtitle
+                    layer (size / color / backing / sync). Always editable so
+                    the look can be preset even before a track is picked. ── */}
+                <SectionLabel>Caption style</SectionLabel>
+
+                {/* Text size */}
+                <div className="px-3 pt-1 pb-2.5">
+                  <p className="text-[11px] text-white/55 mb-1.5">Text size</p>
+                  <div
+                    role="radiogroup"
+                    aria-label="Subtitle text size"
+                    className="flex items-center rounded-[10px] bg-white/[0.06] p-0.5"
+                  >
+                    {([
+                      ["sm", "S"],
+                      ["md", "M"],
+                      ["lg", "L"],
+                      ["xl", "XL"],
+                    ] as const).map(([id, label]) => (
+                      <button
+                        key={id}
+                        role="radio"
+                        aria-checked={settings.subSize === id}
+                        onClick={() => updateSettings({ subSize: id })}
+                        className={`flex-1 rounded-[8px] py-1.5 text-[11px] font-semibold text-center transition-all ${
+                          settings.subSize === id
+                            ? "bg-white/[0.14] text-white shadow-sm"
+                            : "text-white/45 hover:text-white/80"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Text color */}
+                <div className="px-3 pb-2.5 flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-white/55">Text color</p>
+                  <div
+                    role="radiogroup"
+                    aria-label="Subtitle text color"
+                    className="flex items-center gap-2"
+                  >
+                    {(
+                      [
+                        ["white", "White"],
+                        ["yellow", "Yellow"],
+                        ["cyan", "Cyan"],
+                        ["pink", "Pink"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        role="radio"
+                        aria-checked={settings.subColor === id}
+                        title={label}
+                        aria-label={`${label} subtitle color`}
+                        onClick={() => updateSettings({ subColor: id })}
+                        className={`h-6 w-6 rounded-full grid place-items-center transition-all ${
+                          settings.subColor === id
+                            ? "ring-2 ring-white ring-offset-2 ring-offset-[#101014] scale-105"
+                            : "ring-1 ring-white/20 hover:scale-105"
+                        }`}
+                        style={{ backgroundColor: SUB_COLOR_SWATCH[id] }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Background */}
+                <div className="px-3 pb-2.5">
+                  <p className="text-[11px] text-white/55 mb-1.5">Background</p>
+                  <div
+                    role="radiogroup"
+                    aria-label="Subtitle background"
+                    className="flex items-center rounded-[10px] bg-white/[0.06] p-0.5"
+                  >
+                    {([
+                      ["none", "None"],
+                      ["shadow", "Shadow"],
+                      ["bar", "Bar"],
+                    ] as const).map(([id, label]) => (
+                      <button
+                        key={id}
+                        role="radio"
+                        aria-checked={settings.subBg === id}
+                        onClick={() => updateSettings({ subBg: id })}
+                        className={`flex-1 rounded-[8px] py-1.5 text-[11px] font-semibold text-center transition-all ${
+                          settings.subBg === id
+                            ? "bg-white/[0.14] text-white shadow-sm"
+                            : "text-white/45 hover:text-white/80"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Delay — ±0.5s sync offset for the caption layer */}
+                <div className="px-3 pb-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-white/55">Delay</p>
+                    <p className="text-[10px] text-white/35 mt-0.5">
+                      {settings.subDelay > 0
+                        ? `+${settings.subDelay.toFixed(1)}s · captions show later`
+                        : settings.subDelay < 0
+                          ? `${settings.subDelay.toFixed(1)}s · captions show earlier`
+                          : "Synced with audio"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => updateSettings({ subDelay: stepSubDelay(getXanSettings().subDelay, -1) })}
+                      className="h-7 w-7 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] grid place-items-center text-white/80 text-base leading-none transition-colors"
+                      aria-label="Show subtitles earlier"
+                      disabled={settings.subDelay <= -5}
+                    >
+                      −
+                    </button>
+                    <button
+                      onClick={() => settings.subDelay !== 0 && updateSettings({ subDelay: 0 })}
+                      className={`h-7 w-14 rounded-lg bg-white/[0.08] grid place-items-center text-[11px] font-mono tabular-nums transition-colors ${
+                        settings.subDelay === 0
+                          ? "text-white/45 cursor-default"
+                          : "text-white hover:bg-white/[0.15]"
+                      }`}
+                      aria-label="Reset subtitle delay"
+                      title={settings.subDelay === 0 ? "Synced" : "Click to reset"}
+                    >
+                      {settings.subDelay === 0
+                        ? "0.0s"
+                        : `${settings.subDelay > 0 ? "+" : ""}${settings.subDelay.toFixed(1)}s`}
+                    </button>
+                    <button
+                      onClick={() => updateSettings({ subDelay: stepSubDelay(getXanSettings().subDelay, 1) })}
+                      className="h-7 w-7 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] grid place-items-center text-white/80 text-base leading-none transition-colors"
+                      aria-label="Show subtitles later"
+                      disabled={settings.subDelay >= 5}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
