@@ -131,9 +131,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 const MENU_ROW =
   "flex items-center justify-between gap-3 w-full rounded-[10px] px-3 py-2.5 text-[13px] text-white/85 hover:bg-white/[0.07] hover:text-white transition-colors text-left";
 
-/** Player control-bar button — Netflix-style 36px hit target, subtle hover. */
+/** Player control-bar button — Netflix-style 36px hit target, subtle hover.
+ *  xan-hud-shadow gives each icon a dark rim so it stays readable on bright
+ *  frames now that the gradient backing is gone. */
 const CTRL_BTN =
-  "h-9 w-9 rounded-lg grid place-items-center flex-shrink-0 text-white transition-colors hover:bg-white/10 active:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/60 outline-none";
+  "xan-hud-shadow h-9 w-9 rounded-lg grid place-items-center flex-shrink-0 text-white transition-colors hover:bg-white/10 active:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/60 outline-none";
 
 /** animex-style settings row with an iOS switch (used across the PLAYER tab). */
 function SettingToggle({ label, hint, on, onChange, disabled }: {
@@ -1264,15 +1266,15 @@ export function VideoPlayer({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-white font-semibold text-sm md:text-base truncate drop-shadow">
+            <p className="xan-hud-text text-white font-semibold text-sm md:text-base truncate">
               {title} — Episode {episode}
             </p>
             <div className="flex items-center gap-1.5 mt-1.5">
-              <span className="text-[10px] px-2 py-0.5 rounded-md bg-black/45 backdrop-blur-sm ring-1 ring-white/15 text-white/90 font-medium">
+              <span className="xan-hud-shadow text-[10px] px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-sm ring-1 ring-white/15 text-white/90 font-medium">
                 {stream.sourceName}
               </span>
               {enhancerActive && (
-                <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-xan-crimson/25 text-white ring-1 ring-xan-crimson/50 backdrop-blur-sm">
+                <span className="xan-hud-shadow px-2 py-0.5 rounded-md text-[9px] font-bold bg-xan-crimson/40 text-white ring-1 ring-xan-crimson/50 backdrop-blur-sm">
                   ENHANCED
                 </span>
               )}
@@ -1284,7 +1286,7 @@ export function VideoPlayer({
             {CAST_SUPPORTED && (
               <button
                 onClick={toggleCast}
-                className="h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
+                className="xan-hud-shadow h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
                 aria-label="Cast"
                 title="Cast to a device"
               >
@@ -1294,7 +1296,7 @@ export function VideoPlayer({
             {/* Keyboard shortcuts */}
             <button
               onClick={() => setShowShortcuts(true)}
-              className="h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
+              className="xan-hud-shadow h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
               aria-label="Keyboard shortcuts"
               title="Keyboard shortcuts (?)"
             >
@@ -1325,9 +1327,10 @@ export function VideoPlayer({
       <div
         className={`absolute bottom-0 left-0 right-0 px-2 sm:px-3 pb-1.5 sm:pb-2 pt-10 ${controlsClass}`}
       >
-        {/* Seekbar */}
+        {/* Seekbar — xan-hud-shadow rims the track/fill/thumb so the bar
+            keeps its edge on bright scenes (no gradient band behind it). */}
         <div
-          className="relative h-3 flex items-center cursor-pointer group/seek mb-1"
+          className="xan-hud-shadow relative h-3 flex items-center cursor-pointer group/seek mb-1"
           onMouseMove={handleSeekHover}
           onMouseLeave={() => setHoverPct(null)}
           onClick={handleSeekClick}
@@ -1401,7 +1404,7 @@ export function VideoPlayer({
               <div
                 className={`overflow-hidden transition-all duration-200 ease-out ${showVolumeSlider ? "w-14 opacity-100" : "w-0 opacity-0"}`}
               >
-                <div className="relative h-3 flex items-center px-1">
+                <div className="xan-hud-shadow relative h-3 flex items-center px-1">
                   <div className="absolute left-1 right-1 h-1 rounded-full bg-white/25" />
                   <div
                     className="absolute left-1 h-1 rounded-full bg-white transition-all"
@@ -1425,7 +1428,7 @@ export function VideoPlayer({
             {/* Time display */}
             <button
               onClick={() => setTimeMode((m) => (m === "duration" ? "remaining" : "duration"))}
-              className="text-xs font-mono tabular-nums px-1.5 py-1 rounded-md hover:bg-white/10 transition-colors whitespace-nowrap flex-shrink-0 hidden sm:block text-white/90"
+              className="xan-hud-text text-xs font-mono tabular-nums px-1.5 py-1 rounded-md hover:bg-white/10 transition-colors whitespace-nowrap flex-shrink-0 hidden sm:block text-white/90"
               title="Click to toggle remaining time"
             >
               {timeMode === "duration"

@@ -600,6 +600,19 @@ body {
 .xan-controls { transition: opacity 0.25s ease, transform 0.25s ease; }
 .xan-controls--hidden { opacity: 0; transform: translateY(6px); pointer-events: none; }
 
+/* HUD legibility edges — per-element dark rims for controls floating
+   directly on the video (the full-width gradient bands were removed by
+   request, so white icons/text need their own contrast). drop-shadow
+   hugs each icon/glyph shape (unlike box-shadow) giving every button a
+   crisp dark edge on bright frames; text-shadow does the same for HUD
+   text. Two stacked shadows: a tight contact rim + a soft ambient halo. */
+.xan-hud-shadow {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 5px rgba(0, 0, 0, 0.35));
+}
+.xan-hud-text {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.45);
+}
+
 /* Flat range inputs — invisible inputs that drive custom-drawn slider
    visuals (playback speed, audio boost, control-bar volume). A native
    thumb, even on an opacity-0 input, reserves travel inset: the browser
