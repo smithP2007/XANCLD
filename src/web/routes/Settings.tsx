@@ -15,7 +15,6 @@ import {
   ShieldAlert,
   Cpu,
   Search as SearchIcon,
-  Zap,
   Languages,
   Power,
   Sparkles,
@@ -60,20 +59,35 @@ const SECTIONS: Section[] = [
   { id: "playback", label: "Playback", icon: Play, keywords: ["autoplay", "auto play", "autoplay next", "skip intro", "resume", "speed", "default mode", "sub", "dub", "tv mode"] },
   { id: "audio", label: "Audio & Subtitles", icon: Languages, keywords: ["volume", "mute", "subtitles", "subs", "audio", "language", "dub"] },
   { id: "enhancer", label: "Video Enhancer", icon: Sliders, keywords: ["brightness", "contrast", "saturation", "sharpen", "blur", "filter", "gamma", "preset"] },
-  { id: "bandwidth", label: "Bandwidth", icon: Zap, keywords: ["source", "provider", "quality", "pin", "data saver", "koto", "zen", "allanime"] },
+  { id: "server", label: "Server", icon: Server, keywords: ["server", "source", "provider", "quality", "pin", "stream", "embed", "hls", "proxy", "koto", "zen", "allanime", "animex", "yuki", "zoro", "sora", "loli"] },
   { id: "content", label: "Content & Discovery", icon: Compass, keywords: ["mood", "recommendations", "vibe", "adult", "trending", "discover"] },
   { id: "data", label: "Data & Privacy", icon: Database, keywords: ["history", "clear", "export", "import", "reset", "onboarding", "storage", "bookmarks"] },
   { id: "about", label: "About", icon: Info, keywords: ["version", "credits", "license", "github", "info"] },
 ];
 
-// Known stream sources — shown in Settings > Bandwidth > Source filters
-const KNOWN_SOURCES: { name: string; type: "mp4" | "hls" | "iframe"; desc: string }[] = [
-  { name: "Mp4", type: "mp4", desc: "AllAnime — mp4upload.com direct MP4. Plays in custom player with seeking." },
-  { name: "Ok", type: "iframe", desc: "AllAnime — Ok.ru video embed." },
-  { name: "Zen", type: "iframe", desc: "FlixCloud embed. Dual audio (sub + dub)." },
-  { name: "Zen (Dual→Dub)", type: "iframe", desc: "FlixCloud embed labeled for dub mode." },
-  { name: "Koto", type: "iframe", desc: "MegaPlay embed. Direct iframe, always available." },
+// Known stream servers — shown in Settings > Server > Availability. Names
+// MUST match the `sourceName` values the providers emit (Watch.tsx matches
+// disabledSources / pinnedSource against them verbatim).
+const KNOWN_SERVERS: { name: string; family: "AnimeX" | "AllAnime" | "Koto" | "Zen"; type: "hls" | "mp4" | "iframe"; desc: string }[] = [
+  { name: "Zoro", family: "AnimeX", type: "hls", desc: "Direct HLS through the Worker proxy · soft subtitles when the episode ships them" },
+  { name: "Yuki", family: "AnimeX", type: "hls", desc: "Direct HLS · usual default with English soft-subs" },
+  { name: "Loli", family: "AnimeX", type: "hls", desc: "Direct HLS · per-episode availability" },
+  { name: "Sora", family: "AnimeX", type: "hls", desc: "Direct HLS · soft subtitles when the episode ships them" },
+  { name: "Nero", family: "AnimeX", type: "hls", desc: "Direct HLS · often unavailable (hotlink protection)" },
+  { name: "Mp4", family: "AllAnime", type: "mp4", desc: "mp4upload.com direct MP4 streamed through /api/stream" },
+  { name: "Ok", family: "AllAnime", type: "iframe", desc: "Ok.ru video embed" },
+  { name: "Koto", family: "Koto", type: "iframe", desc: "MegaPlay embed — instant, no API round-trip" },
+  { name: "Zen", family: "Zen", type: "iframe", desc: "FlixCloud embed · dual audio (sub + dub)" },
+  { name: "Zen (Dual→Dub)", family: "Zen", type: "iframe", desc: "FlixCloud embed pinned to the dub track" },
 ];
+
+const FAMILY_BLURB: Record<KnownServerFamily, string> = {
+  AnimeX: "Per-episode servers · direct HLS + soft-subs",
+  AllAnime: "Aggregated MP4s & embeds",
+  Koto: "Instant embed",
+  Zen: "Dual-audio embed",
+};
+type KnownServerFamily = (typeof KNOWN_SERVERS)[number]["family"];
 
 export function Settings() {
   const [settings, update] = useSettings();
@@ -516,66 +530,74 @@ export function Settings() {
           </div>
         </Section>
 
-        {/* Bandwidth */}
+        {/* Server */}
         <Section
-          id="bandwidth"
-          icon={Zap}
-          title="Bandwidth"
-          desc="Control how video streams are loaded to minimize server costs"
+          id="server"
+          icon={Server}
+          title="Server"
+          desc="Which servers load for an episode, in what order, and how streams reach you"
         >
+          {/* Default server — preferredProvider, tried first */}
           <Row
-            label="Stream loading strategy"
-            desc="Auto: provider order. Direct only: skip iframe embeds (Koto/Zen). Proxy only: prefer direct streams — MP4s load through the Worker proxy."
+            label="Default server"
+            desc="Tried first when an episode loads — the rest follow as fallback in the watch page's Servers panel"
           >
-            <select
-              value={settings.bandwidthMode}
-              onChange={(e) => update({ bandwidthMode: e.target.value as "auto" | "direct-only" | "proxy-only" })}
-              className="px-3 py-1.5 rounded-lg bg-xan-card border border-xan-border text-sm text-foreground focus:outline-none focus:border-xan-crimson/50 w-44"
-            >
-              <option value="auto">Auto (recommended)</option>
-              <option value="direct-only">Direct only</option>
-              <option value="proxy-only">Proxy only (Worker)</option>
-            </select>
-          </Row>
-          <Row
-            label="Preferred provider"
-            desc="Which anime source API to try first when loading an episode"
-          >
-            <div className="flex gap-1.5 bg-xan-card/60 p-1 rounded-lg border border-xan-border">
-              {(["allanime", "koto", "zen"] as const).map((p) => (
+            <div className="grid grid-cols-2 gap-1.5 bg-xan-card/60 p-1 rounded-lg border border-xan-border w-56">
+              {([
+                ["animex", "AnimeX"],
+                ["allanime", "AllAnime"],
+                ["koto", "Koto"],
+                ["zen", "Zen"],
+              ] as const).map(([id, label]) => (
                 <button
-                  key={p}
-                  onClick={() => update({ preferredProvider: p })}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${
-                    settings.preferredProvider === p
+                  key={id}
+                  onClick={() => update({ preferredProvider: id })}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    settings.preferredProvider === id
                       ? "bg-gradient-to-r from-xan-crimson to-xan-violet text-white shadow"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {p}
+                  {label}
                 </button>
               ))}
             </div>
           </Row>
 
-          {/* Source filters — toggle individual sources on/off + pin */}
+          {/* Stream loading — bandwidthMode, presented in server terms */}
+          <Row
+            label="Stream loading"
+            desc="Auto: the servers' own order. Direct only: skips embeds (Koto / Zen / Ok) entirely. Direct first: HLS / MP4 streams sorted ahead of embeds."
+          >
+            <select
+              value={settings.bandwidthMode}
+              onChange={(e) => update({ bandwidthMode: e.target.value as "auto" | "direct-only" | "proxy-only" })}
+              className="px-3 py-1.5 rounded-lg bg-xan-card border border-xan-border text-sm text-foreground focus:outline-none focus:border-xan-crimson/50 w-52"
+            >
+              <option value="auto">Auto (recommended)</option>
+              <option value="direct-only">Direct only — no embeds</option>
+              <option value="proxy-only">Direct first — embeds last</option>
+            </select>
+          </Row>
+
+          {/* Server availability — grouped by family, pin + toggle */}
           <div className="py-4">
             <div className="mb-3">
-              <p className="font-medium text-sm text-foreground">Source filters</p>
+              <p className="font-medium text-sm text-foreground">Availability</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Toggle sources on/off.{" "}
-                <span className="text-xan-crimson font-medium">Click the dot (●)</span> to pin — only that source loads, no fallback.
+                Toggle servers off.{" "}
+                <span className="text-xan-crimson font-medium">Click the dot (●)</span> to pin — only that server loads, no fallback. AnimeX servers vary per episode; the watch page's Servers panel shows what's live right now.
               </p>
             </div>
 
-            {/* Pinned source indicator */}
+            {/* Pinned server banner */}
             {settings.pinnedSource && (
-              <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-xan-crimson/10 border border-xan-crimson/30 text-xs">
+              <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-xan-crimson/10 border border-xan-crimson/30 text-xs">
                 <span className="w-2 h-2 rounded-full bg-xan-crimson animate-pulse flex-shrink-0" />
                 <span className="text-xan-crimson font-medium">
                   Pinned: <span className="font-mono">{settings.pinnedSource}</span>
                 </span>
-                <span className="text-muted-foreground">— only this source will load</span>
+                <span className="text-muted-foreground">— only this server will load</span>
                 <button
                   onClick={() => update({ pinnedSource: null })}
                   className="ml-auto text-xs text-muted-foreground hover:text-foreground underline"
@@ -585,65 +607,86 @@ export function Settings() {
               </div>
             )}
 
-            {/* Known sources list */}
-            <div className="space-y-1.5">
-              {KNOWN_SOURCES.map((source) => {
-                const isEnabled = !settings.disabledSources.includes(source.name);
-                const isPinned = settings.pinnedSource === source.name;
+            {/* Servers grouped by family */}
+            <div className="space-y-3">
+              {(Object.keys(FAMILY_BLURB) as KnownServerFamily[]).map((family) => {
+                const servers = KNOWN_SERVERS.filter((s) => s.family === family);
+                const allOff = servers.every((s) => settings.disabledSources.includes(s.name));
                 return (
                   <div
-                    key={source.name}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
-                      isPinned
-                        ? "bg-xan-crimson/10 border-xan-crimson/40"
-                        : isEnabled
-                          ? "bg-xan-card/60 border-xan-border"
-                          : "bg-red-500/5 border-red-500/20"
+                    key={family}
+                    className={`rounded-xl border p-2.5 transition-colors ${
+                      allOff
+                        ? "border-red-500/20 bg-red-500/5"
+                        : "border-xan-border bg-xan-card/40"
                     }`}
                   >
-                    {/* Pin dot button */}
-                    <button
-                      onClick={() => {
-                        update({ pinnedSource: isPinned ? null : source.name });
-                      }}
-                      className={`flex-shrink-0 w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${
-                        isPinned
-                          ? "bg-xan-crimson border-xan-crimson shadow-[0_0_6px_rgba(233,69,96,0.6)]"
-                          : "bg-transparent border-muted-foreground/40 hover:border-foreground"
-                      }`}
-                      aria-label={isPinned ? `Unpin ${source.name}` : `Pin ${source.name}`}
-                      title={isPinned ? "Pinned — click to unpin" : "Pin: only this source will load (no fallback)"}
-                    >
-                      {isPinned && <span className="w-2 h-2 rounded-full bg-white" />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground font-mono">{source.name}</span>
-                        <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded ${
-                          source.type === "iframe" ? "bg-purple-500/20 text-purple-400"
-                          : source.type === "hls" ? "bg-blue-500/20 text-blue-400"
-                          : "bg-green-500/20 text-green-400"
-                        }`}>
-                          {source.type}
-                        </span>
-                        {isPinned && (
-                          <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-xan-crimson/25 text-xan-crimson border border-xan-crimson/30">
-                            PINNED
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{source.desc}</p>
+                    <div className="flex items-baseline gap-2 px-1 pb-2">
+                      <span className="text-xs font-bold text-foreground">{family}</span>
+                      <span className="text-[10px] text-muted-foreground">{FAMILY_BLURB[family]}</span>
                     </div>
-                    <Toggle
-                      checked={isEnabled}
-                      onChange={(checked) => {
-                        if (checked) {
-                          update({ disabledSources: settings.disabledSources.filter((n) => n !== source.name) });
-                        } else {
-                          update({ disabledSources: [...settings.disabledSources, source.name] });
-                        }
-                      }}
-                    />
+                    <div className="space-y-1.5">
+                      {servers.map((source) => {
+                        const isEnabled = !settings.disabledSources.includes(source.name);
+                        const isPinned = settings.pinnedSource === source.name;
+                        return (
+                          <div
+                            key={source.name}
+                            className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
+                              isPinned
+                                ? "bg-xan-crimson/10 border-xan-crimson/40"
+                                : isEnabled
+                                  ? "bg-xan-card/60 border-xan-border"
+                                  : "bg-red-500/5 border-red-500/20"
+                            }`}
+                          >
+                            {/* Pin dot button */}
+                            <button
+                              onClick={() => {
+                                update({ pinnedSource: isPinned ? null : source.name });
+                              }}
+                              className={`flex-shrink-0 w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${
+                                isPinned
+                                  ? "bg-xan-crimson border-xan-crimson shadow-[0_0_6px_rgba(233,69,96,0.6)]"
+                                  : "bg-transparent border-muted-foreground/40 hover:border-foreground"
+                              }`}
+                              aria-label={isPinned ? `Unpin ${source.name}` : `Pin ${source.name}`}
+                              title={isPinned ? "Pinned — click to unpin" : "Pin: only this server will load (no fallback)"}
+                            >
+                              {isPinned && <span className="w-2 h-2 rounded-full bg-white" />}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-foreground font-mono">{source.name}</span>
+                                <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded ${
+                                  source.type === "iframe" ? "bg-purple-500/20 text-purple-400"
+                                  : source.type === "hls" ? "bg-blue-500/20 text-blue-400"
+                                  : "bg-green-500/20 text-green-400"
+                                }`}>
+                                  {source.type}
+                                </span>
+                                {isPinned && (
+                                  <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-xan-crimson/25 text-xan-crimson border border-xan-crimson/30">
+                                    PINNED
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{source.desc}</p>
+                            </div>
+                            <Toggle
+                              checked={isEnabled}
+                              onChange={(checked) => {
+                                if (checked) {
+                                  update({ disabledSources: settings.disabledSources.filter((n) => n !== source.name) });
+                                } else {
+                                  update({ disabledSources: [...settings.disabledSources, source.name] });
+                                }
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
@@ -653,9 +696,9 @@ export function Settings() {
             {settings.disabledSources.length > 0 && (
               <button
                 onClick={() => update({ disabledSources: [] })}
-                className="mt-2 text-xs text-muted-foreground hover:text-foreground underline"
+                className="mt-3 text-xs text-muted-foreground hover:text-foreground underline"
               >
-                Enable all sources
+                Enable all servers
               </button>
             )}
           </div>
@@ -683,11 +726,11 @@ export function Settings() {
           >
             <Toggle checked={settings.hideAdult} onChange={(v) => update({ hideAdult: v })} />
           </Row>
-          <Row label="Content source" desc="Where episodes are sourced from">
+          <Row label="Stream servers" desc="Where episodes are streamed from">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-xan-card border border-xan-border">
               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-sm font-medium text-foreground">AllAnime</span>
-              <span className="text-xs text-muted-foreground">· active</span>
+              <span className="text-sm font-medium text-foreground">Multi-server</span>
+              <span className="text-xs text-muted-foreground">· AnimeX / AllAnime / Koto / Zen</span>
             </div>
           </Row>
           <Row label="Metadata source" desc="Anime info, images, and search">
@@ -752,23 +795,31 @@ export function Settings() {
           <div className="p-4 rounded-xl bg-gradient-to-br from-xan-crimson/10 to-xan-violet/10 border border-xan-crimson/20">
             <div className="flex items-center gap-3 mb-3">
               <LogoMark className="h-10 w-10 flex-shrink-0 rounded-xl shadow-lg shadow-xan-crimson/20" />
-              <div>
-                <h3 className="font-bold font-display text-foreground">XAN</h3>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold font-display text-foreground">XANCLD</h3>
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-xan-crimson/15 text-xan-crimson border border-xan-crimson/30">
+                    v1.5.0
+                  </span>
+                </div>
                 <p className="text-xs text-muted-foreground">Hono + Vite + React · Cloudflare Workers</p>
               </div>
             </div>
             <div className="space-y-1.5 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <Check className="h-3 w-3 text-green-500" /> Tier 2 client-side fetch architecture
+              <div className="flex items-start gap-2">
+                <Check className="h-3 w-3 text-green-500 flex-shrink-0 mt-0.5" /> Custom player — Anime4K WebGPU upscaling, live video enhancer & styled soft-subtitles
               </div>
-              <div className="flex items-center gap-2">
-                <Check className="h-3 w-3 text-green-500" /> AES-256-CTR decryption in browser (WebCrypto)
+              <div className="flex items-start gap-2">
+                <Check className="h-3 w-3 text-green-500 flex-shrink-0 mt-0.5" /> Multi-server streaming — AnimeX (Zoro / Yuki / Loli / Sora / Nero) direct HLS, AllAnime, Koto & Zen
               </div>
-              <div className="flex items-center gap-2">
-                <Check className="h-3 w-3 text-green-500" /> Zero streaming bandwidth on Cloudflare
+              <div className="flex items-start gap-2">
+                <Check className="h-3 w-3 text-green-500 flex-shrink-0 mt-0.5" /> Streams relay through the Worker — zero streaming bandwidth hits Cloudflare's paid limits
               </div>
-              <div className="flex items-center gap-2">
-                <Check className="h-3 w-3 text-green-500" /> Runs on Workers Free tier ($0/mo)
+              <div className="flex items-start gap-2">
+                <Check className="h-3 w-3 text-green-500 flex-shrink-0 mt-0.5" /> Local-first — history, bookmarks & settings never leave your browser
+              </div>
+              <div className="flex items-start gap-2">
+                <Check className="h-3 w-3 text-green-500 flex-shrink-0 mt-0.5" /> Runs on Workers Free tier ($0/mo)
               </div>
             </div>
             <div className="mt-4 pt-4 border-t border-xan-border flex items-center gap-3">
@@ -781,7 +832,7 @@ export function Settings() {
                 <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="h-3.5 w-3.5"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z" /></svg> Source
               </a>
               <span className="text-muted-foreground/50">·</span>
-              <span className="text-xs text-muted-foreground">Data: AniList + AllAnime</span>
+              <span className="text-xs text-muted-foreground">Metadata: AniList · Streams: AnimeX / AllAnime / Koto / Zen</span>
             </div>
           </div>
         </Section>

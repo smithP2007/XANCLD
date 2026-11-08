@@ -52,7 +52,9 @@ export interface XanSettings {
   tvMode: boolean;
   // Bandwidth / source
   bandwidthMode: "auto" | "direct-only" | "proxy-only";
-  preferredProvider: "allanime" | "koto" | "zen";
+  /** Server tier tried first when an episode loads. "animex" is the
+      per-episode family (Zoro / Yuki / Loli / Sora / Nero — direct HLS). */
+  preferredProvider: "allanime" | "animex" | "koto" | "zen";
   /** Source names that are disabled (hidden from Sources panel, never auto-selected) */
   disabledSources: string[];
   /** When set, ONLY this source loads — no fallback to other sources */

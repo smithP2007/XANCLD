@@ -444,7 +444,7 @@ export function Watch() {
         // If the user's preferred provider is disabled, remove it from the front
         const finalOrderedProviders = orderedProviders.filter((p) => activeProviders.includes(p));
         if (finalOrderedProviders.length === 0 && !settings.pinnedSource) {
-          setError("All sources are disabled. Enable at least one source in Settings > Bandwidth.");
+          setError("All servers are disabled. Enable at least one in Settings > Server.");
           setLoading(false);
           return;
         }
