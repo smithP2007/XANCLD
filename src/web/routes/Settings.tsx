@@ -74,7 +74,7 @@ const KNOWN_SERVERS: { name: string; family: "AnimeX" | "AllAnime" | "Koto" | "Z
   { name: "Loli", family: "AnimeX", type: "hls", desc: "Direct HLS · per-episode availability" },
   { name: "Sora", family: "AnimeX", type: "hls", desc: "Direct HLS · soft subtitles when the episode ships them" },
   { name: "Nero", family: "AnimeX", type: "hls", desc: "Direct HLS · often unavailable (hotlink protection)" },
-  { name: "Mp4", family: "AllAnime", type: "mp4", desc: "mp4upload.com direct MP4 streamed through /api/stream" },
+  { name: "Mp4", family: "AllAnime", type: "iframe", desc: "mp4upload.com embed — their own player runs inside an iframe (the scraped direct URL needs Referer headers our proxy can't send)" },
   { name: "Ok", family: "AllAnime", type: "iframe", desc: "Ok.ru video embed" },
   { name: "Koto", family: "Koto", type: "iframe", desc: "MegaPlay embed — instant, no API round-trip" },
   { name: "Zen", family: "Zen", type: "iframe", desc: "FlixCloud embed · dual audio (sub + dub)" },
@@ -679,7 +679,15 @@ export function Settings() {
                                 if (checked) {
                                   update({ disabledSources: settings.disabledSources.filter((n) => n !== source.name) });
                                 } else {
-                                  update({ disabledSources: [...settings.disabledSources, source.name] });
+                                  // BUG-FIX (pin+disable): disabling the pinned
+                                  // server used to leave the pin armed — the
+                                  // watch page then kept playing the server
+                                  // the user just turned off. Unpin on disable
+                                  // so the two controls can't contradict.
+                                  update({
+                                    disabledSources: [...settings.disabledSources, source.name],
+                                    ...(settings.pinnedSource === source.name ? { pinnedSource: null } : {}),
+                                  });
                                 }
                               }}
                             />
@@ -799,7 +807,7 @@ export function Settings() {
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold font-display text-foreground">XANCLD</h3>
                   <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-xan-crimson/15 text-xan-crimson border border-xan-crimson/30">
-                    v1.5.0
+                    v1.5.1
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">Hono + Vite + React · Cloudflare Workers</p>

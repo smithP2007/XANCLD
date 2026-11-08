@@ -133,11 +133,48 @@ const DEFAULTS: XanSettings = {
 
 const STORAGE_KEY = "xan:settings";
 
+// BUG-FIX (sanitize): older builds shipped enum values that no longer exist
+// (themePreset "cozy"/"midnight"; sub styles added later). A blind merge kept
+// them forever: applyThemePreset set a data-theme-preset attribute no CSS rule
+// matched (silent revert to classic look) and the style Records looked up to
+// `undefined` classes. Everything unknown now snaps back to its default.
+function sanitizeSettings(s: XanSettings): XanSettings {
+  const out = { ...s };
+  if (!THEME_PRESETS.some((p) => p.id === out.themePreset)) out.themePreset = "classic";
+  if (out.theme !== "dark" && out.theme !== "light" && out.theme !== "system") out.theme = "dark";
+  if (out.bandwidthMode !== "auto" && out.bandwidthMode !== "direct-only" && out.bandwidthMode !== "proxy-only") out.bandwidthMode = "auto";
+  if (out.preferredProvider !== "allanime" && out.preferredProvider !== "animex" && out.preferredProvider !== "koto" && out.preferredProvider !== "zen") out.preferredProvider = "allanime";
+  if (out.defaultMode !== "sub" && out.defaultMode !== "dub") out.defaultMode = "sub";
+  if (out.aspectRatio !== "auto" && out.aspectRatio !== "fill" && out.aspectRatio !== "16:9" && out.aspectRatio !== "4:3") out.aspectRatio = "auto";
+  if (!["mode-a", "mode-aa", "mode-b", "mode-bb", "mode-c", "mode-ca"].includes(out.anime4kPreset)) out.anime4kPreset = "mode-a";
+  if (out.subSize !== "sm" && out.subSize !== "md" && out.subSize !== "lg" && out.subSize !== "xl") out.subSize = "md";
+  if (out.subColor !== "white" && out.subColor !== "yellow" && out.subColor !== "cyan" && out.subColor !== "pink") out.subColor = "white";
+  if (out.subBg !== "none" && out.subBg !== "shadow" && out.subBg !== "bar") out.subBg = "shadow";
+  if (!Number.isFinite(out.subDelay)) out.subDelay = 0;
+  else out.subDelay = Math.max(-5, Math.min(5, out.subDelay));
+  if (!Number.isFinite(out.volume)) out.volume = 80;
+  else out.volume = Math.max(0, Math.min(100, Math.round(out.volume)));
+  if (!Number.isFinite(out.playbackRate) || out.playbackRate <= 0) out.playbackRate = 1;
+  if (!Number.isFinite(out.audioBoost)) out.audioBoost = 0;
+  else out.audioBoost = Math.max(0, Math.min(200, out.audioBoost));
+  if (!Array.isArray(out.disabledSources)) out.disabledSources = [];
+  return out;
+}
+
 function loadSettings(): XanSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return { ...DEFAULTS, ...JSON.parse(raw) };
+      const sanitized = sanitizeSettings({ ...DEFAULTS, ...JSON.parse(raw) });
+      // Persist the repair right away — otherwise bogus legacy values keep
+      // lingering on disk until the user's next settings change, and every
+      // consumer re-sanitizes them from scratch.
+      try {
+        if (JSON.stringify(sanitized) !== raw) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+        }
+      } catch { /* quota — in-memory value is still correct */ }
+      return sanitized;
     }
   } catch {
     // ignore
@@ -230,12 +267,32 @@ export function useSettings(): [XanSettings, (updates: Partial<XanSettings>) => 
   const [settings, setSettings] = useState<XanSettings>(currentSettings);
 
   useEffect(() => {
-    // Load from localStorage on mount
-    currentSettings = loadSettings();
-    setSettings(currentSettings);
+    // Apply theme/flags from the boot-time snapshot. NO blanket re-read here:
+    // the module-level init already loaded localStorage, all same-tab writes
+    // flow through updateSettings (memory+disk together), and cross-tab
+    // writes arrive via the storage listener below. The old re-read let a
+    // failed quota write silently REVERT the user's just-made change on the
+    // next route change (memory had the new value, disk the old one).
     applyTheme(currentSettings.theme);
     applyThemePreset(currentSettings.themePreset);
     applyRuntimeFlags(currentSettings);
+
+    // Cross-tab sync: `storage` fires when ANOTHER tab writes to xan:settings
+    // (or clears localStorage — key === null). Without this, a second tab kept
+    // its stale copy: theme/hideAdult/tvMode changes never applied live there,
+    // and its next updateSettings wrote the stale merge back over tab A's
+    // newer settings on disk.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY || e.key === null) {
+        currentSettings = loadSettings();
+        setSettings(currentSettings);
+        applyTheme(currentSettings.theme);
+        applyThemePreset(currentSettings.themePreset);
+        applyRuntimeFlags(currentSettings);
+        notify();
+      }
+    };
+    window.addEventListener("storage", onStorage);
 
     // React to OS theme changes when in "system" mode
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -249,6 +306,7 @@ export function useSettings(): [XanSettings, (updates: Partial<XanSettings>) => 
     return () => {
       subscribers.delete(unsub);
       mq.removeEventListener("change", onSchemeChange);
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 

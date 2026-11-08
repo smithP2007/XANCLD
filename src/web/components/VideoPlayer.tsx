@@ -266,7 +266,6 @@ export function VideoPlayer({
   const [showSkipOutro, setShowSkipOutro] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(settings.playbackRate);
   const [showSettings, setShowSettings] = useState(false);
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   // Floating settings panel: four persistent tabs (Quality/Subs/Player/Servers)
   // plus an in-PLAYER sub-page for the WebGPU renderer.
   const [settingsTab, setSettingsTab] = useState<"quality" | "subs" | "settings" | "servers">("settings");
@@ -285,6 +284,15 @@ export function VideoPlayer({
   const [cursorVisible, setCursorVisible] = useState(true);
   const [qualityLevels, setQualityLevels] = useState<{ height: number; index: number; bitrate: number }[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
+  // BUG-FIX (quality pin): the pinned quality used to live ONLY in state.
+  // A new stream created a fresh Hls instance (Auto), so the pin silently
+  // reverted on every episode/server switch while the menu kept the stale
+  // checkmark — and on mp4 servers the old level list survived untouched,
+  // making every row a silent no-op. The pin is tracked as a HEIGHT (not a
+  // level index — indexes don't match across streams) and re-applied after
+  // each MANIFEST_PARSED; a stream without that height honestly falls back
+  // to Auto.
+  const pinnedQualityHeightRef = useRef(0); // 0 = Auto
   // Height hls.js is ACTUALLY playing while in Auto mode — shown as
   // "Auto (1080p)" in the Quality tab like animex does.
   const [autoLevelHeight, setAutoLevelHeight] = useState(0);
@@ -292,6 +300,10 @@ export function VideoPlayer({
   const [hoverPct, setHoverPct] = useState<number | null>(null);
   const [seekRipples, setSeekRipples] = useState<SeekRipple[]>([]);
   const [tapRipples, setTapRipples] = useState<TapRipple[]>([]);
+  // Seek/tap ripple fade-out timers — tracked so unmount can cancel them
+  // (the last untracked setTimeout family left in the file; a seek <700ms
+  // before unmount used to setState after unmount).
+  const rippleTimersRef = useRef<Set<number>>(new Set());
   const [showShortcuts, setShowShortcuts] = useState(false);
   // Enhancer — self-contained by default, but the Watch page can inject its
   // own instance so the toolbar row above the player (Fullscreen / Enhancer /
@@ -335,9 +347,18 @@ export function VideoPlayer({
       if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
       if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+      // Pending seek/tap ripple fade-outs — cancel so they can't setState
+      // after unmount.
+      for (const t of rippleTimersRef.current) clearTimeout(t);
+      rippleTimersRef.current.clear();
       // Exit fullscreen if the user navigates away while fullscreen is active
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => { /* ignore */ });
+      // (webkit-prefixed API covered — Safari ≤16.3 only exposes that).
+      {
+        const d = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+        if (document.fullscreenElement || d.webkitFullscreenElement) {
+          if (document.exitFullscreen) document.exitFullscreen().catch(() => { /* ignore */ });
+          else d.webkitExitFullscreen?.();
+        }
       }
       // HLS: stop the loader FIRST (aborts in-flight fragment downloads),
       // then detach media (unbinds from the <video>), then destroy.
@@ -371,6 +392,10 @@ export function VideoPlayer({
     const video = videoRef.current;
     const url = stream.url;
     resumeAppliedRef.current = false;
+    // BUG-FIX: the 10s history-write throttle timestamp survived stream
+    // switches — the first ~10s of a new episode's playback produced no
+    // progress write, so closing the tab in that window lost that progress.
+    lastHistoryWriteRef.current = 0;
     // M-17 FIX: nothing outside the manual toggle ever called play(), so the
     // "autoplay next episode" countdown AND the initial episode click both
     // landed on a paused player with the big center play button. Arm the
@@ -385,6 +410,12 @@ export function VideoPlayer({
     setCurrent(0);
     setDuration(0);
     setBuffered(0);
+    // BUG-FIX (quality pin): reset the per-stream quality UI. The previous
+    // stream's level list + checkmark used to survive into mp4 servers where
+    // MANIFEST_PARSED never fires — every quality row then silently no-ops.
+    setCurrentQuality(-1);
+    setAutoLevelHeight(0);
+    setQualityLevels([]);
 
     // BUG 8 FIX: arm the loading watchdog for THIS stream. 20s with no
     // playback → explicit error state instead of an eternal spinner.
@@ -415,6 +446,19 @@ export function VideoPlayer({
           .filter((l) => l.height > 0)
           .sort((a, b) => b.height - a.height);
         setQualityLevels(levels);
+        // BUG-FIX (quality pin): re-apply the user's pinned HEIGHT on this
+        // new stream — the pin used to silently revert to Auto on every
+        // episode/server switch. No matching height → honest Auto fallback.
+        const pinnedHeight = pinnedQualityHeightRef.current;
+        if (pinnedHeight > 0) {
+          const match = hls.levels.findIndex((l) => l.height === pinnedHeight);
+          if (match >= 0) {
+            hls.currentLevel = match;
+            setCurrentQuality(match);
+          } else {
+            pinnedQualityHeightRef.current = 0;
+          }
+        }
         setLoading(false);
       });
       // M-6 FIX: only mirror the actual playing level into UI state when the
@@ -438,6 +482,13 @@ export function VideoPlayer({
             "resp:", data.response?.code,
             "reason:", data.reason ?? "-",
           );
+          // BUG-FIX: disarm the 20s loading watchdog — an error that shows
+          // instantly used to get REPLACED 20s later by the watchdog's
+          // misleading "took too long to start" message.
+          if (playbackTimeoutRef.current) {
+            clearTimeout(playbackTimeoutRef.current);
+            playbackTimeoutRef.current = null;
+          }
           setError(`Playback error: ${data.details}`);
           setLoading(false);
         }
@@ -499,10 +550,12 @@ export function VideoPlayer({
   // Custom subtitle paint — native rendering is switched off above, so
   // active cues are projected onto a positioned layer ABOVE the control bar
   // with the user's look (size / color / backing from the Subs tab) and the
-  // sync offset (subDelay shifts the evaluation window: +1.5s shows the cue
-  // that starts 1.5s ahead). Re-evaluated on cuechange (cues parsed /
-  // entered-exited), timeupdate + seeked (playhead moved), loadedmetadata,
-  // plus two deferred retries for the async VTT fetch on first activation.
+  // sync offset (subDelay > 0 means captions show LATER, matching the Subs
+  // tab labels — the cue for time t becomes visible at t + delay). It used
+  // to be `currentTime + delay`, which showed every cue EARLIER — the exact
+  // opposite of what the ± stepper promised. Re-evaluated on cuechange (cues
+  // parsed / entered-exited), timeupdate + seeked (playhead moved),
+  // loadedmetadata, plus two deferred retries for the async VTT fetch.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || activeTrackIndex < 0) {
@@ -516,7 +569,10 @@ export function VideoPlayer({
     }
     track.mode = "hidden"; // cues load + events fire, browser paints nothing
     const paint = () => {
-      const t = video.currentTime + settings.subDelay;
+      // subDelay > 0 = show captions later ⇒ evaluate the cue window at an
+      // EARLIER timeline point (currentTime - delay). The old `+` inverted
+      // the control: pressing + to delay subs made them appear even earlier.
+      const t = video.currentTime - settings.subDelay;
       const cues = track.cues;
       if (!cues) return;
       const lines: string[] = [];
@@ -643,6 +699,13 @@ export function VideoPlayer({
       onEnded?.();
     };
     const onError = () => {
+      // BUG-FIX: disarm the 20s loading watchdog — an instant "source
+      // unavailable" error used to be swapped for the watchdog's misleading
+      // "took too long to start" message 20s later.
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
       setError("Failed to load video. The source may be unavailable.");
       setLoading(false);
     };
@@ -681,10 +744,19 @@ export function VideoPlayer({
   }, [resumeTime, settings.skipIntro, settings.skipOutro, settings.autoResume, onProgress, onEnded]);
 
   // ─── Fullscreen ───
+  // BUG-FIX: Safari ≤16.3 only exposes the webkit-prefixed fullscreen API —
+  // listening to `fullscreenchange` alone left the icon/aria-label desynced
+  // from reality there, and iPhones (which only fullscreen the <video>
+  // itself, never a div) fired a TypeError on every toggle.
   useEffect(() => {
-    const onFsChange = () => setFullscreen(!!document.fullscreenElement);
+    const d = document as Document & { webkitFullscreenElement?: Element | null };
+    const onFsChange = () => setFullscreen(!!(document.fullscreenElement || d.webkitFullscreenElement));
     document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
   }, []);
 
   // ─── Picture-in-Picture state mirror ───
@@ -757,6 +829,12 @@ export function VideoPlayer({
           canvas: canvasRef.current,
           preset: settings.anime4kPreset,
           onError: (msg) => {
+            // BUG-FIX: this session may already belong to a torn-down effect
+            // (episode switched while the 3.5MB init was pending) — without
+            // the disposed guard a late failure did setState-after-unmount
+            // AND flipped the global anime4kEnabled setting off for a stream
+            // the user had already left.
+            if (disposed) return;
             setA4kStatus("error");
             setA4kError(msg);
             // Auto-restore the plain <video> so playback stays visible.
@@ -770,6 +848,7 @@ export function VideoPlayer({
         a4kSessionRef.current = session;
         setA4kStatus("on");
       } catch (e) {
+        if (disposed) return;
         setA4kStatus("error");
         setA4kError(e instanceof Error ? e.message : String(e));
         updateSettings({ anime4kEnabled: false });
@@ -819,17 +898,21 @@ export function VideoPlayer({
   const fireSeekRipple = useCallback((amount: string, side: SeekRipple["side"]) => {
     const id = Date.now() + Math.random();
     setSeekRipples((r) => [...r, { id, side, amount }]);
-    setTimeout(() => {
+    const t = window.setTimeout(() => {
+      rippleTimersRef.current.delete(t);
       setSeekRipples((r) => r.filter((x) => x.id !== id));
     }, 700);
+    rippleTimersRef.current.add(t);
   }, []);
 
   const fireTapRipple = useCallback((side: "left" | "right", x: number, y: number) => {
     const id = Date.now() + Math.random();
     setTapRipples((r) => [...r, { id, side, x, y }]);
-    setTimeout(() => {
+    const t = window.setTimeout(() => {
+      rippleTimersRef.current.delete(t);
       setTapRipples((r) => r.filter((x) => x.id !== id));
     }, 550);
+    rippleTimersRef.current.add(t);
   }, []);
 
   // ─── Controls ───
@@ -901,10 +984,27 @@ export function VideoPlayer({
   }, []);
 
   const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
+    // BUG-FIX (Safari): feature-detect the webkit-prefixed API. Plain
+    // requestFullscreen on iPhone Safari doesn't exist for a div → TypeError;
+    // there we fall back to webkitEnterFullscreen on the video element (the
+    // only fullscreen iOS allows). All promises are caught — an unhandled
+    // rejection used to surface as a console error on user gestures.
+    const d = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+    const el = containerRef.current as (HTMLDivElement & { webkitRequestFullscreen?: () => void }) | null;
+    const active = document.fullscreenElement || d.webkitFullscreenElement;
+    if (active) {
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => { /* ignore */ });
+      else d.webkitExitFullscreen?.();
+      return;
+    }
+    if (!el) return;
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch(() => { /* ignore */ });
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
     } else {
-      containerRef.current?.requestFullscreen();
+      const v = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+      v?.webkitEnterFullscreen?.();
     }
   }, []);
 
@@ -919,6 +1019,9 @@ export function VideoPlayer({
     if (hlsRef.current) {
       hlsRef.current.currentLevel = index;
       setCurrentQuality(index);
+      // Track the pin as a HEIGHT so it survives stream switches (indexes
+      // don't line up across manifests). -1 (Auto) clears the pin.
+      pinnedQualityHeightRef.current = index >= 0 ? hlsRef.current.levels[index]?.height ?? 0 : 0;
     }
   }, []);
 
@@ -1136,6 +1239,12 @@ export function VideoPlayer({
         case "p":
           onPrev?.();
           break;
+        case "i":
+          // PiP — the button tooltip always promised this shortcut; the
+          // handler was never wired up (dead tooltip).
+          e.preventDefault();
+          void togglePip();
+          break;
         case "e":
           // L-14 FIX: this used to toggle the enhancer's enabled state AND
           // open/close the panel — two unrelated actions at once, while the
@@ -1161,6 +1270,7 @@ export function VideoPlayer({
     changeVolume,
     onNext,
     onPrev,
+    togglePip,
     showControlsTemporarily,
     fireSeekRipple,
   ]);
@@ -1500,10 +1610,15 @@ export function VideoPlayer({
               {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-white" />}
             </button>
 
-            {/* Volume — tap to expand slider (YouTube-style) */}
-            <div className="flex items-center flex-shrink-0">
+            {/* Volume — click toggles mute (the icon always implied this and
+                the aria-label promised it); the slider expands on hover on
+                pointer devices and on keyboard focus-within. The old click
+                merely expanded the slider while loudly labelling itself
+                "Mute (M)" — a screen-reader user activating "Unmute" got a
+                volume slider, and pointer-only users had no mute at all. */}
+            <div className="group/vol flex items-center flex-shrink-0">
               <button
-                onClick={() => setShowVolumeSlider((v) => !v)}
+                onClick={toggleMute}
                 className={CTRL_BTN}
                 aria-label={muted ? "Unmute" : "Mute"}
                 title={muted ? "Unmute (M)" : "Mute (M)"}
@@ -1516,9 +1631,7 @@ export function VideoPlayer({
                   <Volume2 className="h-5 w-5" />
                 )}
               </button>
-              <div
-                className={`overflow-hidden transition-all duration-200 ease-out ${showVolumeSlider ? "w-14 opacity-100" : "w-0 opacity-0"}`}
-              >
+              <div className="overflow-hidden transition-all duration-200 ease-out w-0 opacity-0 group-hover/vol:w-14 group-hover/vol:opacity-100 group-focus-within/vol:w-14 group-focus-within/vol:opacity-100">
                 <div className="xan-hud-shadow relative h-3 flex items-center">
                   {/* Track, fill and input all span the FULL 0→100% of the
                       container — the old left-1/right-1 insets made the fill

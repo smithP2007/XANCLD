@@ -73,20 +73,18 @@ export function useAnimeList() {
   const [list, setList] = useState<ListEntry[]>(current);
 
   useEffect(() => {
-    // Re-read from localStorage on mount — handles cross-tab updates and
-    // ensures we have the latest data after navigation/remounts.
-    current = load();
-    setList(current);
-    const unsub = (l: ListEntry[]) => setList(l);
-    subscribers.add(unsub);
-    // Also listen for cross-tab localStorage changes
+    // Cross-tab sync via `storage` (key === null covers localStorage.clear(),
+    // whose wipe otherwise resurrected itself: this tab's next write persisted
+    // its stale pre-clear array back to disk).
     const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) {
+      if (e.key === STORAGE_KEY || e.key === null) {
         current = load();
-        setList(current);
+        notify();
       }
     };
     window.addEventListener("storage", onStorage);
+    const unsub = (l: ListEntry[]) => setList(l);
+    subscribers.add(unsub);
     return () => {
       subscribers.delete(unsub);
       window.removeEventListener("storage", onStorage);

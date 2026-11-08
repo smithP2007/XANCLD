@@ -28,6 +28,7 @@ import {
   resolveAnimexShow,
   fetchAnimexServers,
   fetchAnimexSources,
+  animexProviderDisplayName,
   type AnimexServerInfo,
   type AnimexSource,
 } from "../lib/providers/animex";
@@ -60,10 +61,15 @@ interface UnifiedSource {
   tracks?: { url: string; label: string; lang: string; isDefault?: boolean }[];
 }
 
-// H-6 FIX: bandwidthMode was a dead setting — persisted by Settings but read
-// NOWHERE, so "Direct only"/"Proxy only" did absolutely nothing.
-//   direct-only : iframe embeds (Koto/Zen) are excluded entirely — iframes
-//                 load third-party JS and bypass the worker completely
+// H-6 (rewritten): bandwidthMode now acts on the CURRENT provider reality —
+// every AllAnime source (incl. "Mp4"/mp4upload) resolves to an iframe embed,
+// Koto/Zen are iframes by design, and only AnimeX ships direct HLS. So:
+//   direct-only : iframe embeds are excluded entirely — iframes load
+//                 third-party JS and bypass the worker completely. On
+//                 episodes where AnimeX has no servers this leaves nothing,
+//                 which the loader now reports HONESTLY (see the
+//                 direct-only branch of the demo-fallback) instead of
+//                 playing the demo stream behind a false error message.
 //   proxy-only  : direct streams (mp4/hls) are ordered FIRST — MP4 sources
 //                 already stream through /api/stream, maximizing the
 //                 Worker-proxied path; iframes remain as last resort
@@ -162,9 +168,15 @@ function PlayerToolbar({
 function isProviderFullyDisabled(prov: Provider, disabledSources: string[]): boolean {
   if (prov === "koto") return disabledSources.includes("Koto");
   if (prov === "zen") return disabledSources.includes("Zen") && disabledSources.includes("Zen (Dual→Dub)");
-  // gogoanime removed
-  // allanime: source names are dynamic (Mp4, Ok, etc.) — can't know in advance, so still load it
-  // animex: per-episode servers are dynamic too (Yuki/Loli/Sora/Zoro) — same reasoning
+  if (prov === "allanime") {
+    // BUG-FIX: this used to be hardcoded `false` because AllAnime emits many
+    // server names beyond the two shown in Settings (Yt-mp4, Sak, Wixmp…).
+    // So disabling BOTH visible entries turned the family red in Settings yet
+    // the provider still loaded, its hidden servers still won the claim race
+    // and played. Treat "every listed AllAnime server disabled" as family-off.
+    return disabledSources.includes("Mp4") && disabledSources.includes("Ok");
+  }
+  // animex: per-episode servers are dynamic (Yuki/Loli/Sora/Zoro) — still load it
   return false;
 }
 
@@ -226,13 +238,21 @@ export function Watch() {
   // own root element (the same element its internal fullscreen uses), so the
   // row button, the F key and the in-player button share one fullscreen state.
   const toggleHlsFullscreen = useCallback(() => {
+    // Same webkit fallbacks as the player's own toggle — Safari ≤16.3 / iOS
+    // only expose the prefixed API (or video-only fullscreen on iPhones).
     const el = document.querySelector<HTMLDivElement>("[data-xan-player-root]");
     if (!el) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      el.requestFullscreen();
+    const d = document as Document & { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+    const active = document.fullscreenElement || d.webkitFullscreenElement;
+    if (active) {
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => { /* ignore */ });
+      else d.webkitExitFullscreen?.();
+      return;
     }
+    const ext = el as HTMLDivElement & { webkitRequestFullscreen?: () => void };
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => { /* ignore */ });
+    else if (ext.webkitRequestFullscreen) ext.webkitRequestFullscreen();
+    else (el.querySelector("video") as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null)?.webkitEnterFullscreen?.();
   }, []);
   const [providerStatus, setProviderStatus] = useState<Record<Provider, "idle" | "loading" | "done" | "error">>({
     allanime: "idle",
@@ -352,7 +372,14 @@ export function Watch() {
   };
 
   useEffect(() => {
-    if (!animeId) return;
+    // BUG-FIX: /watch/abc or /watch/0 parsed to animeId 0 and bailed BEFORE
+    // any state update — `loading` initialized true and never flipped, so the
+    // page spun forever with no Retry button (that UI only renders on error).
+    if (!animeId) {
+      setError("Invalid anime link.");
+      setLoading(false);
+      return;
+    }
     // H-2 FIX: claim this run. Every async callback below checks isStale()
     // before touching state/refs, so a superseded run (user switched
     // episode/anime while providers were resolving) can no longer:
@@ -365,6 +392,9 @@ export function Watch() {
     // Reset resume position when episode changes — otherwise switching from
     // ep 1 (saved at 5:00) to ep 2 would carry over ep 1's resume point.
     setResumeTime(undefined);
+    // ...and the tracked live position too (a server switch in the first
+    // seconds of the new episode must not inherit the OLD episode's position).
+    latestPosRef.current = 0;
     allAnimeShowIdRef.current = null; // H-3: Clear cached show ID on episode/mode change
     (async () => {
       setLoading(true);
@@ -455,8 +485,16 @@ export function Watch() {
         // querying the remaining providers even after the pinned source was
         // already in hand. Now: disabled providers are skipped up-front, and
         // the loop breaks the moment the pinned source is found.
-        if (settings.pinnedSource) {
-          console.log(`[Watch] Pinned source "${settings.pinnedSource}" — searching providers for it`);
+        // BUG-FIX (pin+disable): a pin pointing at a DISABLED server used to
+        // play anyway — this path never consulted disabledSources (the
+        // parallel path does). Settings now auto-unpins on disable, but stale
+        // localStorage can still hold the contradictory state: treat it as
+        // unpinned instead of playing a server the user turned off.
+        const activePinned = settings.pinnedSource && !settings.disabledSources.includes(settings.pinnedSource)
+          ? settings.pinnedSource
+          : null;
+        if (activePinned) {
+          console.log(`[Watch] Pinned source "${activePinned}" — searching providers for it`);
           let allCollectedSources: UnifiedSource[] = [];
           let pinnedFound = false;
           for (const prov of allProviders) {
@@ -467,7 +505,7 @@ export function Watch() {
             allCollectedSources = [...allCollectedSources, ...provSources];
             // BUG 7 FIX (b): stop the moment the pinned source is available —
             // no over-fetching of the remaining providers
-            if (provSources.some((s) => s.sourceName === settings.pinnedSource)) {
+            if (provSources.some((s) => s.sourceName === activePinned)) {
               pinnedFound = true;
               break;
             }
@@ -484,15 +522,15 @@ export function Watch() {
           setAllSources(allCollectedSources);
 
           // Filter for the pinned source
-          const pinnedSources = allCollectedSources.filter((s) => s.sourceName === settings.pinnedSource);
+          const pinnedSources = allCollectedSources.filter((s) => s.sourceName === activePinned);
           if (pinnedSources.length === 0) {
-            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available from any enabled provider (found=${pinnedFound})`);
-            setError(`Pinned source "${settings.pinnedSource}" is not available for this episode. Unpin it in Settings to use other sources.`);
+            console.log(`[Watch] Pinned source "${activePinned}" not available from any enabled provider (found=${pinnedFound})`);
+            setError(`Pinned source "${activePinned}" is not available for this episode. Unpin it in Settings to use other sources.`);
             setLoading(false);
             return;
           }
 
-          console.log(`[Watch] Pinned source "${settings.pinnedSource}" found (${pinnedSources.length} matches)`);
+          console.log(`[Watch] Pinned source "${activePinned}" found (${pinnedSources.length} matches)`);
           setStream(pinnedSources[0]);
           setLoading(false);
           return;
@@ -611,8 +649,23 @@ export function Watch() {
         // If nothing claimed and no provider produced usable sources, show
         // the explicit demo fallback (H-7) — L-21 FIX: now under its own
         // "demo" provider instead of masquerading as AllAnime.
+        // BUG-FIX (direct-only dead end): "Direct only" filters every iframe
+        // embed out — and per-episode AnimeX servers are often unavailable,
+        // leaving ZERO sources on many episodes. That used to fall through to
+        // the demo stream behind the banner "no provider could resolve this
+        // episode" — a false message (the providers resolved fine; the mode
+        // hid their embeds) plus Big Buck Bunny as a bonus. Report the real
+        // cause and the fix instead of playing the demo.
         if (sources.length === 0 && !claimed) {
           if (isStale()) return;
+          if (settings.bandwidthMode === "direct-only") {
+            console.log("[Watch] direct-only mode left no sources — surfacing honest error instead of demo fallback");
+            setError(
+              "No direct streams are available for this episode in “Direct only” mode — only embed servers (Zen / Koto / AllAnime) carry it. Switch Stream loading to Auto in Settings › Server to play embeds.",
+            );
+            setLoading(false);
+            return;
+          }
           console.log("[Watch] All providers failed — adding demo stream fallback");
           const demoSource: UnifiedSource = {
             url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
@@ -655,24 +708,32 @@ export function Watch() {
         const list = mode === "dub" ? servers?.dubProviders : servers?.subProviders;
         setAnimexServers(list ?? []);
         setAnimexServerStatus({});
+        // BUG-FIX: disabled servers no longer get auto-picked (a red status
+        // dot used to show for a server the user turned OFF, wasting its
+        // fetch) nor fetched by the aggregated per-server load below — their
+        // display names match disabledSources verbatim (Zoro/Yuki/Loli/Sora/Nero).
+        const enabledList = list?.filter(
+          (s) => !settings.disabledSources.includes(animexProviderDisplayName(s.id)),
+        );
         // Default the per-episode selection to the server animex.one marks
         // default (usually yuki). Only when nothing is selected yet.
-        if (list && list.length > 0) {
-          const def = list.find((s) => s.default) ?? list[0];
+        if (enabledList && enabledList.length > 0) {
+          const def = enabledList.find((s) => s.default) ?? enabledList[0];
           setAnimexProviderId((cur) =>
-            list.some((s) => s.id === cur) ? cur : def.id,
+            enabledList.some((s) => s.id === cur) ? cur : def.id,
           );
         }
-        // AGGREGATED per-server load — every server this episode offers is
-        // fetched in parallel right here (NOT in the main load effect, which
-        // would restart playback); all working streams merge into the
-        // Sources row at once and each server chip gets its own status dot.
-        // A dead upstream server (Loli 500s sitewide right now) simply
-        // contributes nothing and shows a red dot — the others still play.
-        if (list && list.length > 0) {
+        // AGGREGATED per-server load — every ENABLED server this episode
+        // offers is fetched in parallel right here (NOT in the main load
+        // effect, which would restart playback); all working streams merge
+        // into the Sources row at once and each server chip gets its own
+        // status dot. A dead upstream server (Loli 500s sitewide right now)
+        // simply contributes nothing and shows a red dot — the others still
+        // play. Disabled servers are skipped entirely (see enabledList).
+        if (enabledList && enabledList.length > 0) {
           (async () => {
             const perServer = await Promise.allSettled(
-              list.map((s) =>
+              enabledList.map((s) =>
                 fetchAnimexSources(slug, episode, mode, s.id).then((r) => ({
                   id: s.id,
                   r,
@@ -683,7 +744,9 @@ export function Watch() {
             const statusRecord: Record<string, "done" | "error"> = {};
             const collected: AnimexSource[] = [];
             perServer.forEach((res, i) => {
-              const id = list[i].id;
+              // Index into enabledList — perServer was built from it (would
+              // mis-align with `list` when any server is disabled).
+              const id = enabledList[i].id;
               const got = res.status === "fulfilled" ? res.value.r : [];
               statusRecord[id] = got.length > 0 ? "done" : "error";
               collected.push(...got);
@@ -781,9 +844,26 @@ export function Watch() {
   const handlePlayerServerSelect = useCallback(
     (url: string) => {
       const next = filteredSources.find((x) => x.url === url);
-      if (next) setStream(next);
+      if (!next) return;
+      // BUG-FIX (server-switch rewind): continue from the CURRENT playback
+      // position, not the episode's original resume point. Also cancel a
+      // running auto-next countdown — the user just made a manual playback
+      // choice; navigating to the next episode under them betrays it.
+      if (latestPosRef.current > 5) setResumeTime(latestPosRef.current);
+      setAutoPlayNext(false);
+      setStream(next);
     },
     [filteredSources],
+  );
+  // Sidebar Servers-panel chip — same position carry-over + auto-next cancel
+  // as handlePlayerServerSelect (both are manual server switches).
+  const handleSidebarServerSelect = useCallback(
+    (source: UnifiedSource) => {
+      if (latestPosRef.current > 5) setResumeTime(latestPosRef.current);
+      setAutoPlayNext(false);
+      setStream(source);
+    },
+    [],
   );
 
   // M-16 FIX: episode-count-unknown handling. `anime.episodes` is null for
@@ -813,8 +893,17 @@ export function Watch() {
   listApiRef.current = { getListStatus, setListStatus };
   // One-shot per anime per mount (route param changes don't remount Watch).
   const autoMarkedRef = useRef<number | null>(null);
+  // BUG-FIX (server-switch rewind): resumeTime is set ONCE per episode, but
+  // VideoPlayer re-applies it on every stream.url change and the Zen bridge
+  // bakes it into start_at — so switching servers mid-playback REWOUND the
+  // episode to the original resume point (and the next progress write then
+  // regressed the saved history too). Track the latest position the player
+  // reports; server switches hand THAT to resumeTime so playback continues
+  // exactly where it was.
+  const latestPosRef = useRef(0);
   const handleProgress = useCallback(
     (currentTime: number, duration: number) => {
+      latestPosRef.current = currentTime;
       if (anime && currentTime > 5 && duration > 0) {
         addToHistory({
           animeId,
@@ -1352,7 +1441,7 @@ export function Watch() {
                           return (
                             <button
                               key={`${idx}-${source.url.slice(0, 40)}`}
-                              onClick={() => setStream(source)}
+                              onClick={() => handleSidebarServerSelect(source)}
                               title={source.sourceName}
                               className={`relative px-2 py-1.5 rounded-md text-[10px] font-medium transition-all flex flex-col items-center gap-0.5 ${
                                 isActive

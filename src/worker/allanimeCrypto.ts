@@ -294,9 +294,13 @@ async function signedEpisodeQuery(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const ts = Math.floor(Date.now() / TS_BUCKET_MS) * TS_BUCKET_MS;
-    const extensions = await buildExtensions(ts);
-    const url = `${api}?variables=${encodeURIComponent(variables)}&extensions=${encodeURIComponent(extensions)}`;
     try {
+      // BUG-FIX: buildExtensions (buildAaReq → crypto.subtle) used to run
+      // BEFORE the try — a WebCrypto failure escaped signedEpisodeQuery as an
+      // unhandled rejection and the route died with a bare 500 instead of the
+      // graceful { error } shape (and the client's legacy fallback).
+      const extensions = await buildExtensions(ts);
+      const url = `${api}?variables=${encodeURIComponent(variables)}&extensions=${encodeURIComponent(extensions)}`;
       const res = await fetch(url, {
         signal: AbortSignal.timeout(15_000),
         headers: {

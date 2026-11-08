@@ -54,13 +54,15 @@ export function OnboardingSheet({ open, onComplete, onSkip }: Props) {
     onCompleteRef.current = onComplete;
   });
 
-  // Reset state when reopened + focus trap setup
+  // Focus trap setup + reset-on-close. The reset used to run on OPEN — but
+  // this component never unmounts (open=false just returns null), so an effect
+  // reset happens AFTER the reopen render is painted: the sheet flashed the
+  // old final step with stale selections for a frame before snapping to step 0.
+  // Resetting in the cleanup (close time) means every reopen renders from a
+  // clean slate with no flash.
   useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
-    setStep(0);
-    setMood(null);
-    setDuration(null);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onSkipRef.current();
     };
@@ -70,6 +72,9 @@ export function OnboardingSheet({ open, onComplete, onSkip }: Props) {
       document.removeEventListener("keydown", onKey);
       unlockBodyScroll();
       previouslyFocused.current?.focus?.();
+      setStep(0);
+      setMood(null);
+      setDuration(null);
     };
   }, [open]);
 

@@ -249,9 +249,11 @@ app.post("/api/proxy-post", async (c) => {
       body: JSON.stringify(body.body ?? {}),
     });
 
+    // B3 FIX parity with /api/proxy: keep the abort timer armed through the
+    // body read — clearing right after the headers left res.text() unbounded.
+    const text = await res.text();
     clearTimeout(timeout);
 
-    const text = await res.text();
     return new Response(text, {
       status: res.status,
       headers: {
@@ -366,6 +368,14 @@ app.get("/api/stream", async (c) => {
 //
 // The browser calls this when the legacy direct query returns AA_CRYPTO_MISSING.
 app.get("/api/allanime/episode", async (c) => {
+  // B3/B8: opt-in relay protection — this is the most EXPENSIVE route in the
+  // worker (bootstrap HMAC + AES-GCM signing + upstream calls + response
+  // cache) and was one of the few that stayed fully open when ALLOWED_ORIGINS
+  // locked everything else down, letting any third-party site burn quota.
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
+
   const showId = c.req.query("showId");
   const episodeString = c.req.query("episodeString");
   const translationType = (c.req.query("translationType") || "sub") as "sub" | "dub";
@@ -431,7 +441,12 @@ app.get("/api/stream-zen", async (c) => {
       );
     }
 
+    // B3 FIX parity with /api/proxy: read the body BEFORE disarming the
+    // abort timer — clearing it right after the headers left res.json()
+    // unbounded, so a stalled upstream body could hang the request past
+    // the whole 12s budget.
     const data = await res.json();
+    clearTimeout(timeout);
     return c.json(data, 200);
   } catch (err) {
     clearTimeout(timeout);
@@ -501,6 +516,11 @@ export function extractAnimexSlug(payload: unknown): AnimexPageData {
 // GET /api/anx/resolve?anilistId=178083&ep=1
 // → { slug: "tokyo-revengers-santen-sensou-hen-nr2on", anilistId, epNum }
 app.get("/api/anx/resolve", async (c) => {
+  // B3/B8: opt-in relay protection — this route was left fully open when
+  // ALLOWED_ORIGINS locked the rest down (slug scraping hits animex.one).
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
   const anilistId = c.req.query("anilistId");
   const ep = c.req.query("ep") || "1";
   if (!anilistId || !/^\d+$/.test(anilistId)) {
@@ -523,11 +543,12 @@ app.get("/api/anx/resolve", async (c) => {
         Accept: "application/json",
       },
     });
+    // B3 FIX parity: body read stays inside the abort-timer window.
+    const raw = await res.text();
     clearTimeout(timeout);
     if (!res.ok) {
       return c.json({ error: `animex.one returned ${res.status}` }, 502);
     }
-    const raw = await res.text();
     const json = parseFirstJsonLine(raw);
     if (!json) return c.json({ error: "empty page data" }, 502);
     const parsed = extractAnimexSlug(json);
@@ -567,11 +588,12 @@ async function proxyAnimexRest(c: any, path: string, params: Record<string, stri
         Referer: "https://animex.one/",
       },
     });
+    // B3 FIX parity: keep the timer armed through the body read.
+    const data = await res.text();
     clearTimeout(timeout);
     if (!res.ok) {
       return c.json({ error: `pp.animex.one returned ${res.status}` }, 502);
     }
-    const data = await res.text();
     return new Response(data, {
       status: 200,
       headers: {
@@ -589,6 +611,10 @@ async function proxyAnimexRest(c: any, path: string, params: Record<string, stri
 }
 
 app.get("/api/anx/servers", (c) => {
+  // B3/B8: opt-in relay protection (see /api/anx/resolve)
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
   const slug = c.req.query("slug");
   const epNum = c.req.query("epNum");
   if (!slug || !epNum) return c.json({ error: "slug and epNum are required" }, 400);
@@ -596,6 +622,10 @@ app.get("/api/anx/servers", (c) => {
 });
 
 app.get("/api/anx/sources", (c) => {
+  // B3/B8: opt-in relay protection (see /api/anx/resolve)
+  if (!originAllowed(c.env, c.req.header("Origin"))) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
   const slug = c.req.query("slug");
   const epNum = c.req.query("epNum");
   const type = c.req.query("type") || "sub";
@@ -694,7 +724,6 @@ app.get("/api/anx-stream", async (c) => {
     );
   }
   const upstream = res as Response;
-  clearTimeout(timeout);
 
   // m3u8 playlists are small text — buffer + rewrite. Everything else must
   // stream through BYTE-EXACT: these CDNs disguise video segments as
@@ -729,11 +758,16 @@ app.get("/api/anx-stream", async (c) => {
   }
 
   if (!isPlaylistType && !pathLooksPlaylist && upstream.body) {
-    // Stream non-playlist bodies through untouched (segments can be huge)
+    // Stream non-playlist bodies through untouched (segments can be huge).
+    // B3 FIX parity: the abort timer is only safe to disarm once the body
+    // is handed off — streaming keeps it armed until return completes.
+    clearTimeout(timeout);
     return new Response(upstream.body, { status: upstream.status, headers: respHeaders });
   }
 
+  // B3 FIX parity: read the buffered body INSIDE the abort-timer window.
   const buf = new Uint8Array(await upstream.arrayBuffer());
+  clearTimeout(timeout);
   // Byte-level sniff — do NOT trust the content-type (some CDNs answer
   // .m3u8 with octet-stream, and a bot-block HTML page must not be
   // mangled by a UTF-8 decode either).
@@ -754,8 +788,13 @@ app.get("/api/anx-stream", async (c) => {
   if (refParam) hdrParams.ref = refParam;
   if (originParam) hdrParams.origin = originParam;
   if (uaParam) hdrParams.ua = uaParam;
+  // BUG-FIX (BOM): the byte sniff above strips \uFEFF before checking
+  // #EXTM3U, but the rewrite got the UNSTRIPPED decode — with a BOM the
+  // header line didn't start with "#", fell through to absolutize() and was
+  // emitted as a garbage segment URL, so hls.js rejected the whole manifest.
+  const bodyText = new TextDecoder("utf-8").decode(buf).replace(/^\uFEFF/, "");
   return new Response(
-    rewriteM3u8(new TextDecoder("utf-8").decode(buf), parsed.toString(),
+    rewriteM3u8(bodyText, parsed.toString(),
       hdrParams.ref || hdrParams.origin || hdrParams.ua ? hdrParams : null),
     {
       status: upstream.status,

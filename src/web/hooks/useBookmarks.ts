@@ -62,12 +62,23 @@ export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>(current);
 
   useEffect(() => {
-    current = load();
-    setBookmarks(current);
+    // Cross-tab sync — the module `current` used to be read once at import and
+    // never refreshed, so a second tab toggled bookmarks on a STALE array and
+    // its read-modify-write silently ERASED the other tab's bookmarks on disk.
+    // `storage` fires for writes from other tabs; key === null covers
+    // localStorage.clear() (Settings → Clear cached data).
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY || e.key === null) {
+        current = load();
+        notify();
+      }
+    };
+    window.addEventListener("storage", onStorage);
     const unsub = (b: BookmarkEntry[]) => setBookmarks(b);
     subscribers.add(unsub);
     return () => {
       subscribers.delete(unsub);
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
