@@ -1045,6 +1045,14 @@ export function VideoPlayer({
     rateBeforeBoostRef.current = v.playbackRate > 0 ? v.playbackRate : 1;
     v.playbackRate = 2;
     setHoldBoost2x(true);
+    // 2x = skimming mode: get the chrome out of the way. The bottom bar
+    // (buttons/options) fades NOW instead of lingering; the top bar stays
+    // because it carries the time chip with the 2x marker. Without this a
+    // pending 3s hide timer plus mouse jitter kept the controls on screen
+    // for the whole hold (user report).
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    setShowControls(false);
+    setCursorVisible(false);
   }, []);
 
   const stopHoldBoost = useCallback(() => {
@@ -1232,6 +1240,11 @@ export function VideoPlayer({
         return;
       }
 
+      // Set when a keydown is just noise from the held Space key (OS
+      // auto-repeat) rather than a fresh press — those must NOT re-show the
+      // controls, or the fade timer re-arms ~30x/s and the buttons can
+      // never fade while the 2x hold is active (user report).
+      let holdKeyNoise = false;
       switch (e.key) {
         case "Escape":
           // Layered dismissal: settings panel first, then overlays.
@@ -1244,7 +1257,8 @@ export function VideoPlayer({
           // e.repeat guards against OS auto-repeat re-arming the timer, and a
           // paused video just plays instantly (2x means nothing while paused).
           e.preventDefault();
-          if (e.repeat) break;
+          if (e.repeat) { holdKeyNoise = true; break; }
+          if (hold2xActiveRef.current) { holdKeyNoise = true; break; }
           if (videoRef.current && !videoRef.current.paused) {
             spaceDownRef.current = true;
             if (spaceHoldTimerRef.current) clearTimeout(spaceHoldTimerRef.current);
@@ -1315,7 +1329,10 @@ export function VideoPlayer({
           setShowShortcuts((v) => !v);
           break;
       }
-      showControlsTemporarily();
+      // Held-Space repeats skip the re-show: while 2x is on, every auto-
+      // repeat keydown used to re-arm the 3s fade timer here, so the
+      // control bar sat on screen for the entire hold (user report).
+      if (!holdKeyNoise) showControlsTemporarily();
     };
     // Release of the hold: keyup ends either a quick tap (→ toggle pause) or
     // a 2x hold (→ restore rate). Window blur while held (alt-tab etc.)
@@ -1329,6 +1346,10 @@ export function VideoPlayer({
         togglePlay();
       } else {
         stopHoldBoost();
+        // Release of the 2x hold: bring the controls back for the standard
+        // 3s window (the bottom bar was force-hidden for the hold), then
+        // the normal fade takes over.
+        showControlsTemporarily();
       }
     };
     const onWindowBlur = () => {
@@ -1403,7 +1424,13 @@ export function VideoPlayer({
     : {};
 
   const controlsHidden = !showControls && !showSettings && !showShortcuts;
-  const controlsClass = `xan-controls ${controlsHidden ? "xan-controls--hidden" : ""}`;
+  // The 2x hold splits visibility: the BOTTOM bar (buttons/options) must be
+  // gone while skimming, but the TOP bar stays — it carries the time chip
+  // with the 2x marker the hold is named after.
+  const bottomHidden = controlsHidden || holdBoost2x;
+  const topHidden = controlsHidden && !holdBoost2x;
+  const topControlsClass = `xan-controls ${topHidden ? "xan-controls--hidden" : ""}`;
+  const bottomControlsClass = `xan-controls ${bottomHidden ? "xan-controls--hidden" : ""}`;
 
   return (
     <div
@@ -1462,6 +1489,9 @@ export function VideoPlayer({
           if (hold2xActiveRef.current) {
             stopHoldBoost();
             suppressNextClickRef.current = true;
+            // Release of the 2x hold: restore the controls for the standard
+            // 3s window, mirroring the desktop Space keyup.
+            showControlsTemporarily();
           }
         }}
         onTouchCancel={() => {
@@ -1470,6 +1500,12 @@ export function VideoPlayer({
             longPressTimerRef.current = null;
           }
           if (hold2xActiveRef.current) stopHoldBoost();
+        }}
+        onContextMenu={(e) => {
+          // Android/Chrome fires the native context menu (open/download)
+          // on a long-press, which touch-cancels the 2x hold mid-gesture.
+          // Players suppress it over the video surface; do the same.
+          e.preventDefault();
         }}
       >
         {/* Soft-subtitle tracks (proxied VTT from the AnimeX providers).
@@ -1592,7 +1628,7 @@ export function VideoPlayer({
         <div
           data-xan-subs=""
           className={`absolute left-0 right-0 z-[15] flex justify-center px-6 pointer-events-none text-center transition-[bottom] duration-200 ease-out ${
-            controlsHidden ? "bottom-5" : "bottom-[4.75rem] sm:bottom-[5rem]"
+            bottomHidden ? "bottom-5" : "bottom-[4.75rem] sm:bottom-[5rem]"
           }`}
         >
           <div
@@ -1616,7 +1652,7 @@ export function VideoPlayer({
           keeps its drop-shadow and the badges keep their own pill backing
           so both stay readable on any frame. ── */}
       <div
-        className={`absolute top-0 left-0 right-0 z-20 px-4 pt-3 pb-8 ${controlsClass}`}
+        className={`absolute top-0 left-0 right-0 z-20 px-4 pt-3 pb-8 ${topControlsClass}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -1698,7 +1734,7 @@ export function VideoPlayer({
           (user request): controls float directly on the video with their
           hover states, no dark bands on hover or ever. ── */}
       <div
-        className={`absolute bottom-0 left-0 right-0 px-2 sm:px-3 pb-1.5 sm:pb-2 pt-10 ${controlsClass}`}
+        className={`absolute bottom-0 left-0 right-0 px-2 sm:px-3 pb-1.5 sm:pb-2 pt-10 ${bottomControlsClass}`}
       >
         {/* Seekbar — xan-hud-shadow rims the track/fill/thumb so the bar
             keeps its edge on bright scenes (no gradient band behind it). */}
