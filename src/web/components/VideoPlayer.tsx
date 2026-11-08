@@ -26,7 +26,6 @@ import {
   X,
   Captions,
   Camera,
-  FastForward,
   PictureInPicture2,
   SkipForward,
 } from "lucide-react";
@@ -1561,18 +1560,6 @@ export function VideoPlayer({
         </div>
       ))}
 
-      {/* Hold-to-2x HUD — visible the whole time the boost is active (Space
-          held / finger pressed), not a fleeting ripple, so it reads as a
-          MODE. Centered like the seek feedback; pointer-events-none. */}
-      {holdBoost2x && (
-        <div className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30">
-          <div className="xan-hud-shadow flex items-center gap-2 rounded-full bg-black/65 px-4 py-1.5 ring-1 ring-white/15 backdrop-blur-sm text-white font-bold text-base animate-menu-in">
-            <FastForward className="h-4 w-4 text-xan-crimson" />
-            2x speed
-          </div>
-        </div>
-      )}
-
       {/* Skip Intro button — Netflix-style white pill, always readable on any frame */}
       {showSkipIntro && !loading && !error && (
         <button
@@ -1654,12 +1641,30 @@ export function VideoPlayer({
                 remaining time. */}
             <button
               onClick={() => setTimeMode((m) => (m === "duration" ? "remaining" : "duration"))}
-              className="xan-hud-text text-[11px] sm:text-xs font-mono tabular-nums px-2 py-1 rounded-md bg-black/50 backdrop-blur-sm ring-1 ring-white/10 text-white/90 hover:bg-black/70 transition-colors whitespace-nowrap flex-shrink-0"
+              className="xan-hud-text text-[11px] sm:text-xs font-mono tabular-nums px-2 py-1 rounded-md bg-black/50 backdrop-blur-sm ring-1 ring-white/10 text-white/90 hover:bg-black/70 transition-colors whitespace-nowrap flex-shrink-0 flex items-center"
               title="Click to toggle remaining time"
             >
-              {timeMode === "duration"
-                ? `${fmt(current)} / ${fmt(duration)}`
-                : `${fmt(current)} / -${fmt(remainingTime)}`}
+              <span>
+                {timeMode === "duration"
+                  ? `${fmt(current)} / ${fmt(duration)}`
+                  : `${fmt(current)} / -${fmt(remainingTime)}`}
+              </span>
+              {/* Hold-to-2x indicator — the time chip itself EXPANDS to
+                  reveal a crimson "2x" beside the clock while Space is held
+                  / the screen is long-pressed, and collapses on release.
+                  Replaces the old centered "2x speed" pop-up (user request:
+                  nothing should cover the picture). */}
+              <span
+                data-xan-boost2x=""
+                aria-hidden="true"
+                className={`overflow-hidden text-xan-crimson font-bold leading-none transition-all duration-200 ease-out ${
+                  holdBoost2x
+                    ? "max-w-[2.5rem] ml-1.5 opacity-100"
+                    : "max-w-0 opacity-0"
+                }`}
+              >
+                2x
+              </span>
             </button>
             {/* Keyboard shortcuts */}
             <button
