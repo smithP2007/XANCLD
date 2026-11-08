@@ -1255,9 +1255,14 @@ export function VideoPlayer({
         </button>
       )}
 
-      {/* ── Top gradient with title + badges ── */}
+      {/* ── Top gradient with title + badges. The dark gradient backing is
+          the player's vignette — dropped while the settings panel is open
+          (user request: no background dimming when the player option
+          panel appears); kept during normal playback for legibility. ── */}
       <div
-        className={`absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 pt-3 pb-8 ${controlsClass}`}
+        className={`absolute top-0 left-0 right-0 z-20 px-4 pt-3 pb-8 ${
+          showSettings ? "" : "bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+        } ${controlsClass}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -1316,9 +1321,12 @@ export function VideoPlayer({
         </div>
       )}
 
-      {/* ── Bottom controls bar ── */}
+      {/* ── Bottom controls bar — vignette backing dropped while the
+          settings panel is open (see top gradient note). ── */}
       <div
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 sm:px-3 pb-1.5 sm:pb-2 pt-10 ${controlsClass}`}
+        className={`absolute bottom-0 left-0 right-0 px-2 sm:px-3 pb-1.5 sm:pb-2 pt-10 ${
+          showSettings ? "" : "bg-gradient-to-t from-black/95 via-black/60 to-transparent"
+        } ${controlsClass}`}
       >
         {/* Seekbar */}
         <div

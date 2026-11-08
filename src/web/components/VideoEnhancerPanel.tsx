@@ -64,10 +64,10 @@ export function VideoEnhancerPanel({ open, onClose }: Props) {
 
   return (
     <div
-      // Transparent click-catcher — no dark backdrop/vignette over the video
-      // (user request): the panel floats over live playback. Clicking outside
-      // the panel still dismisses it.
-      className="absolute inset-0 z-40 flex items-end sm:items-center justify-center sm:p-3"
+      // Dark backdrop/vignette behind the panel (user request — restored):
+      // dims the video so the panel stays readable. Clicking outside still
+      // dismisses it.
+      className="absolute inset-0 z-40 bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-3 animate-fade-in"
       onClick={onClose}
     >
       <div
