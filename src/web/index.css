@@ -591,12 +591,6 @@ body {
 }
 .animate-seek-ripple { animation: xan-seek-ripple 0.7s ease-out forwards; }
 
-@keyframes xan-tap-ripple {
-  0% { opacity: 0.7; transform: scale(0); }
-  100% { opacity: 0; transform: scale(2.5); }
-}
-.animate-tap-ripple { animation: xan-tap-ripple 0.55s ease-out forwards; }
-
 .xan-controls { transition: opacity 0.25s ease, transform 0.25s ease; }
 .xan-controls--hidden { opacity: 0; transform: translateY(6px); pointer-events: none; }
 

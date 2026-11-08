@@ -1201,23 +1201,18 @@ export function VideoPlayer({
         </div>
       ))}
 
-      {/* Mobile tap ripples */}
+      {/* Mobile tap ripples — clean white ±10s pulse, same style as the
+          keyboard seek ripples. The old pink radial-gradient blob is gone
+          (user request). */}
       {tapRipples.map((r) => (
         <div
           key={r.id}
-          className="absolute pointer-events-none z-20"
-          style={{
-            left: r.x - 40, top: r.y - 40, width: 80, height: 80,
-            borderRadius: r.side === "left" ? "80px 0 0 80px" : "0 80px 80px 0",
-            background: r.side === "left"
-              ? "radial-gradient(circle at 100% 50%, rgba(233,69,96,0.6), transparent 70%)"
-              : "radial-gradient(circle at 0% 50%, rgba(233,69,96,0.6), transparent 70%)",
-          }}
+          className={`absolute top-1/2 -translate-y-1/2 pointer-events-none z-20 ${
+            r.side === "left" ? "left-1/4" : "right-1/4"
+          }`}
         >
-          <div className="animate-tap-ripple w-full h-full flex items-center justify-center">
-            <span className="text-2xl font-bold text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]">
-              {r.side === "left" ? "-10s" : "+10s"}
-            </span>
+          <div className="animate-seek-ripple text-4xl font-bold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)]">
+            {r.side === "left" ? "-10s" : "+10s"}
           </div>
         </div>
       ))}
@@ -1393,10 +1388,14 @@ export function VideoPlayer({
               <div
                 className={`overflow-hidden transition-all duration-200 ease-out ${showVolumeSlider ? "w-14 opacity-100" : "w-0 opacity-0"}`}
               >
-                <div className="xan-hud-shadow relative h-3 flex items-center px-1">
-                  <div className="absolute left-1 right-1 h-1 rounded-full bg-white/25" />
+                <div className="xan-hud-shadow relative h-3 flex items-center">
+                  {/* Track, fill and input all span the FULL 0→100% of the
+                      container — the old left-1/right-1 insets made the fill
+                      (width = % of the whole box) overflow past the track and
+                      get chopped by overflow-hidden at full volume. */}
+                  <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
                   <div
-                    className="absolute left-1 h-1 rounded-full bg-white transition-all"
+                    className="absolute left-0 h-1 rounded-full bg-white transition-all"
                     style={{ width: `${(muted ? 0 : volume) * 100}%` }}
                   />
                   <input
