@@ -27,7 +27,6 @@ import {
   Captions,
   Camera,
   PictureInPicture2,
-  Cast,
   SkipForward,
 } from "lucide-react";
 import type { StreamResult } from "../lib/allanime";
@@ -114,8 +113,6 @@ const OUTRO_WINDOW = 90;
 /** Feature support — computed once, module level (SSR-safe). */
 const PIP_SUPPORTED =
   typeof document !== "undefined" && "pictureInPictureEnabled" in document;
-const CAST_SUPPORTED =
-  typeof HTMLMediaElement !== "undefined" && "remote" in HTMLMediaElement.prototype;
 
 /** Section header inside the settings panel — tiny crimson dot + spaced caps. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -885,15 +882,6 @@ export function VideoPlayer({
     }
   }, [showToast]);
 
-  const toggleCast = useCallback(async () => {
-    const v = videoRef.current as (HTMLVideoElement & { remote?: { prompt: () => Promise<void> } }) | null;
-    try {
-      await v?.remote?.prompt();
-    } catch {
-      // No devices / user cancelled — silently ignore.
-    }
-  }, []);
-
   /** Display geometry for the <video>/<canvas> per the Aspect ratio setting. */
   const aspectStyle = useMemo<React.CSSProperties>(() => {
     switch (settings.aspectRatio) {
@@ -1281,18 +1269,19 @@ export function VideoPlayer({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            {/* Cast (animex top-right) — only rendered when the browser
-                exposes the Remote Playback prompt (Chromium + Chromecast). */}
-            {CAST_SUPPORTED && (
-              <button
-                onClick={toggleCast}
-                className="xan-hud-shadow h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
-                aria-label="Cast"
-                title="Cast to a device"
-              >
-                <Cast className="h-4 w-4" />
-              </button>
-            )}
+            {/* Time display — lives where the Cast button used to sit
+                (Chromecast removed entirely). Shown on ALL devices now:
+                mobile previously had no time readout at all. Click toggles
+                remaining time. */}
+            <button
+              onClick={() => setTimeMode((m) => (m === "duration" ? "remaining" : "duration"))}
+              className="xan-hud-text text-[11px] sm:text-xs font-mono tabular-nums px-2 py-1 rounded-md bg-black/50 backdrop-blur-sm ring-1 ring-white/10 text-white/90 hover:bg-black/70 transition-colors whitespace-nowrap flex-shrink-0"
+              title="Click to toggle remaining time"
+            >
+              {timeMode === "duration"
+                ? `${fmt(current)} / ${fmt(duration)}`
+                : `${fmt(current)} / -${fmt(remainingTime)}`}
+            </button>
             {/* Keyboard shortcuts */}
             <button
               onClick={() => setShowShortcuts(true)}
@@ -1424,17 +1413,6 @@ export function VideoPlayer({
                 </div>
               </div>
             </div>
-
-            {/* Time display */}
-            <button
-              onClick={() => setTimeMode((m) => (m === "duration" ? "remaining" : "duration"))}
-              className="xan-hud-text text-xs font-mono tabular-nums px-1.5 py-1 rounded-md hover:bg-white/10 transition-colors whitespace-nowrap flex-shrink-0 hidden sm:block text-white/90"
-              title="Click to toggle remaining time"
-            >
-              {timeMode === "duration"
-                ? `${fmt(current)} / ${fmt(duration)}`
-                : `${fmt(current)} / -${fmt(remainingTime)}`}
-            </button>
           </div>
 
           {/* Right cluster — animex.one order: −10s · +10s · CC · Screenshot ·
