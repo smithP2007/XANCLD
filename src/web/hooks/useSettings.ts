@@ -2,6 +2,19 @@ import { useState, useEffect, useCallback } from "react";
 
 export type ThemePreset = "classic" | "sakura" | "neon" | "sunset" | "ocean" | "royal";
 
+/**
+ * Bug 10 FIX (shared): clamp a watch-progress percentage.
+ * `entry.duration` can be 0 / NaN / negative (malformed history entries from
+ * older builds) and `currentTime` can slightly exceed `duration` — the raw
+ * division then produced NaN, Infinity or >100% widths on progress bars.
+ * Every progress-bar site routes through this helper now.
+ */
+export function clampProgressPct(currentTime: number, duration: number): number {
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+  if (!Number.isFinite(currentTime) || currentTime <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((currentTime / duration) * 100)));
+}
+
 /** Onboarding mood preference (redesign plan §5). Used by recommend.ts. */
 export type MoodPreference = "action" | "cozy" | "funny" | "romance" | "mystery" | "dark" | "surprise";
 /** Onboarding duration preference (redesign plan §5). Used by recommend.ts. */
@@ -46,6 +59,9 @@ export interface XanSettings {
   pinnedSource: string | null;
   // Enhancer
   enhancerEnabled: boolean;
+  // Expanding Title Hover engine (Part 2) — anime card titles unfold to
+  // their full multi-line text on hover instead of truncating.
+  expandingTitleHover: boolean;
   // Onboarding (redesign plan §5) — shown once, resettable from Settings > Data
   hasSeenOnboarding: boolean;
   moodPreference: MoodPreference | null;
@@ -71,6 +87,7 @@ const DEFAULTS: XanSettings = {
   disabledSources: [],
   pinnedSource: null,
   enhancerEnabled: false,
+  expandingTitleHover: true,
   hasSeenOnboarding: false,
   moodPreference: null,
   durationPreference: null,

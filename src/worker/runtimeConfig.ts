@@ -10,7 +10,7 @@
 // a global Hono middleware) keeps every module-level helper synchronous.
 
 export interface WorkerRuntimeConfig {
-  /** AllAnime GraphQL API root */
+  /** AllAnime GraphQL API root (legacy unsigned path + search) */
   allanimeApi: string;
   /** Referer header sent to AllAnime/mkissa endpoints (with trailing slash) */
   allanimeReferer: string;
@@ -20,6 +20,14 @@ export interface WorkerRuntimeConfig {
   mkissaWatchBase: string;
   /** Zen (FlixCloud) host for /api/stream-zen */
   zenHost: string;
+  /** mkissa.net signed GraphQL API (episode sources; Nov 2026 aaReq scheme) */
+  aaApi: string;
+  /** mkissa.net client-crypto bootstrap endpoint */
+  aaBootstrap: string;
+  /** mkissa.to frontend build id (x-build-id header + mask salt input) */
+  aaBuildId: string;
+  /** Content lane for episode queries ("k7" = episodes) */
+  aaLane: string;
 }
 
 const DEFAULTS: WorkerRuntimeConfig = {
@@ -28,6 +36,10 @@ const DEFAULTS: WorkerRuntimeConfig = {
   allanimeOrigin: "https://mkissa.to",
   mkissaWatchBase: "https://mkissa.to",
   zenHost: "https://flixcloud.cc",
+  aaApi: "https://api.mkissa.net/api",
+  aaBootstrap: "https://api.mkissa.net/client-crypto/v1/bootstrap",
+  aaBuildId: "186",
+  aaLane: "k7",
 };
 
 let cfg: WorkerRuntimeConfig = DEFAULTS;
@@ -45,6 +57,10 @@ export function initRuntimeConfig(env: Record<string, unknown> | undefined): voi
     allanimeOrigin: (env.MKISSA_ORIGIN as string) || DEFAULTS.allanimeOrigin,
     mkissaWatchBase: (env.MKISSA_ORIGIN as string) || DEFAULTS.mkissaWatchBase,
     zenHost: (env.ZEN_HOST as string) || DEFAULTS.zenHost,
+    aaApi: (env.AA_API as string) || DEFAULTS.aaApi,
+    aaBootstrap: (env.AA_BOOTSTRAP as string) || DEFAULTS.aaBootstrap,
+    aaBuildId: (env.AA_BUILD_ID as string) || DEFAULTS.aaBuildId,
+    aaLane: (env.AA_LANE as string) || DEFAULTS.aaLane,
   };
 }
 

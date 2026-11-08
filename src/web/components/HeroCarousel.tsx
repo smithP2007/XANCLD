@@ -33,10 +33,19 @@ function sanitizeDescription(d: string | null | undefined): string {
 export function HeroCarousel({ anime, onActiveChange }: Props) {
   const [active, setActive] = useState(0);
   const [hoverPaused, setHoverPaused] = useState(false);
+  // BUG 3 FIX: the auto-advance timer used to keep cycling while the browser
+  // tab was backgrounded — switching back landed mid-slide-jump. A
+  // visibilitychange listener freezes rotation whenever the tab is hidden
+  // (hover-pause already covered the cursor-over-hero case).
+  const [isTabHidden, setIsTabHidden] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const slides = anime.slice(0, 5);
-  const paused = hoverPaused;
+  // BUG 2 FIX: cap the carousel at 8 slides. The API can hand back up to 20
+  // items; 20 pagination dots in one unwrapped row collided with the info
+  // column on narrow viewports. 8 is the sweet spot (marketing-real estate:
+  // nobody clicks dot #14) and the dots row now ALSO wraps defensively.
+  const slides = anime.slice(0, 8);
+  const paused = hoverPaused || isTabHidden;
 
   const go = useCallback(
     (dir: 1 | -1) => setActive((i) => (i + dir + slides.length) % slides.length),
@@ -52,7 +61,15 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
     onActiveChange?.(slides[active]?.coverImage?.color ?? null);
   }, [active, slides, onActiveChange]);
 
-  // Auto-rotate (paused on hover OR when user has explicitly paused)
+  // BUG 3 FIX (part 2): track document visibility
+  useEffect(() => {
+    const onVis = () => setIsTabHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  // Auto-rotate (paused on hover OR when user has explicitly paused OR when
+  // the tab is hidden — BUG 3)
   useEffect(() => {
     if (paused || slides.length <= 1) return;
     timerRef.current = setTimeout(() => go(1), SLIDE_MS);
@@ -228,11 +245,16 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
         </div>
 
         {/* Progress segments — bottom-left inside the card (repositioned).
+            BUG 2 FIX: `flex-wrap` + `max-w-[55vw]` keep up to 8 dots inside
+            the safe zone on narrow viewports instead of colliding with the
+            info column, and the mobile bottom offset rises to bottom-20 so
+            the cluster clears the fixed glass bottom nav
+            (calc(4rem + env(safe-area-inset-bottom))).
             v4.3 LIVELY: the active segment fills w-4→w-9 over exactly the
             7s auto-advance window (animation restarts each slide change and
             while unpaused — the timer resets on the same triggers, so they
             stay in sync). Paused: static full bar reads as "held". */}
-        <div className="absolute bottom-6 left-6 z-20 flex items-center gap-1.5 md:bottom-7 md:left-8">
+        <div className="absolute bottom-20 left-6 z-20 flex max-w-[55vw] flex-wrap items-center gap-1.5 md:bottom-7 md:left-8">
           {slides.map((s, i) => (
             <button
               key={s.id}
@@ -247,8 +269,10 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
           ))}
         </div>
 
-        {/* Arrow cluster — bottom-right inside the card (repositioned) */}
-        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 md:bottom-6 md:right-6">
+        {/* Arrow cluster — bottom-right inside the card (repositioned).
+            BUG 2 FIX: mobile bottom offset raised to bottom-20 (clears the
+            fixed glass bottom nav bar + safe-area inset); desktop unchanged. */}
+        <div className="absolute bottom-20 right-4 z-20 flex items-center gap-2 md:bottom-6 md:right-6">
           <button
             onClick={() => go(-1)}
             aria-label="Previous slide"

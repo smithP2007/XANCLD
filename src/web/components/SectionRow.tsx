@@ -70,21 +70,24 @@ export function SectionRow({ title, subtitle, icon, children, badge }: Props) {
         </div>
       </div>
       {/* Horizontal scroller with scroll-snap.
-          v4.4.1 HOVER-CLIP FIX: `overflow-x: auto` makes this a scroll
-          container, and per CSS Overflow L3 the untouched `overflow-y`
-          then computes to `auto` — so the padding box clips anything
+          BUG 1 FIX — HOVER-CLIP, THE FULL 10px BUDGET: `overflow-x: auto`
+          makes this a scroll container, and per CSS Overflow L3 the untouched
+          `overflow-y` computes to `auto`, so the padding box clips anything
           painted above it. Cards lift -6px on hover (AnimeCard
-          `-translate-y-1.5` + ~2px shadow bleed above), but the card top
-          sat FLUSH with this box (headroom 0px), so every hover shaved
-          the top off. `pt-2` gives the padding box 8px of vertical
-          headroom; `-mt-2` compensates so the cards keep their exact
-          original position relative to the header (net layout shift: 0).
-          Scroll containers clip at the PADDING box edge, so 8px is enough;
+          `-translate-y-1.5`) + cast a soft rose glow shadow that bleeds ~4px
+          higher still — an 8px budget (pt-2) shaved the top of the SHADOW on
+          bright backgrounds. The container is now `pt-2.5 pb-4 -mt-2.5`: 10px
+          of top headroom (6px lift + 4px shadow bleed) and 16px below so the
+          enlarged hover shadow isn't sliced at the bottom either. `-mt-2.5`
+          compensates the top padding so cards keep their exact original
+          position relative to the header (net layout shift: 0; pb-4 trades
+          against the section's own space-y-4 gap which it replaces).
+          Scroll containers clip at the PADDING box edge, so 10px is enough;
           upward overhang is never scrollable overflow, so no vertical
           scrollbar can appear and horizontal snap/scroll is untouched. */}
       <div
         ref={scrollRef}
-        className="-mt-2 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2 mask-fade-r snap-x snap-mandatory scroll-pl-4"
+        className="-mt-2.5 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2.5 pb-4 mask-fade-r snap-x snap-mandatory scroll-pl-4"
       >
         {children}
       </div>

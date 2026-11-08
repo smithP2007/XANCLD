@@ -778,6 +778,78 @@ body {
   mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
 }
 
+/* ─── Expanding Title Hover engine (Part 2) ──────────────────────────
+   Architecture: see ExpandingCardTitle.tsx header comment.
+   The container is ABSOLUTELY anchored bottom:0 inside a fixed-height
+   flow spacer in the card (AnimeCard), so the stretching title grows
+   upward over the artwork and the grid never reflows. The clip box
+   animates its height to exact measured pixel values
+   (--title-rest-h ↔ --title-full-h) — never max-height.
+
+   Perf contract: .anime-card-title-container runs `transition: all
+   0.3s ease-in-out` + `will-change: transform`; title text uses a real
+   -webkit-line-clamp at rest and drops it on hover while the clip
+   stretches open; every hover-driven rule is scoped inside
+   @media (hover: hover) and (pointer: fine). */
+.anime-card-title-container {
+  /* PERF CONTRACT: one 0.3s ease-in-out curve owns every property the
+     hover states touch, and will-change keeps the container on its own
+     compositor layer. */
+  transition: all 0.3s ease-in-out;
+  will-change: transform;
+}
+.anime-card-title-text {
+  /* Rest state: a real single-line clamp. On hover the clamp is removed
+     (-webkit-line-clamp: unset) so the full title flows naturally across
+     multiple lines while the clip stretches open around it. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.anime-card-title-onartwork .anime-card-title-text {
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+.anime-card-title-measure {
+  /* Same width as the visible text, pre-wrapped, NEVER clamped —
+     pure measurement source for --title-full-h / --title-rest-h */
+  -webkit-line-clamp: unset;
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* The stretching box: ONE height animation owns the whole effect.
+   Rest: exactly one line tall (--title-rest-h). Hover: grows to the
+   measured full-name height (--title-full-h) while the clamp is dropped
+   — the component itself expands/stretches to fit the complete name. */
+.anime-card-title-clip {
+  height: var(--title-rest-h, 18px);
+  overflow: hidden;
+  transition: height 0.3s ease-in-out;
+  will-change: height;
+}
+.anime-card-title-meta {
+  transition: opacity 0.28s ease, transform 0.3s ease-in-out;
+}
+
+/* ── HOVER EXPANSION — scoped to real pointers ──
+   Every hover-driven rule lives inside @media (hover: hover) and
+   (pointer: fine) so touch/mobile devices skip the hover animations
+   entirely (no sticky-expanded cards on tap). Multiline titles only;
+   single-line titles stay completely static on hover. */
+@media (hover: hover) and (pointer: fine) {
+  .xan-title-hover-group:hover .anime-card-title-container[data-multiline="true"] .anime-card-title-clip {
+    height: var(--title-full-h, 35px);
+  }
+  .xan-title-hover-group:hover .anime-card-title-container[data-multiline="true"] .anime-card-title-text {
+    -webkit-line-clamp: unset;
+  }
+}
+
 /* ─── Reduced motion ─── */
 .xan-reduce-motion *,
 .xan-reduce-motion *::before,
@@ -793,6 +865,40 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* BUG 4 FIX: the generic duration-0.001ms catch-all above still lets
+   looping ambient keyframes run (at absurd speed) and lets the expanding
+   title CONTAINER transitions animate. These explicit rules kill them
+   completely — `animation: none` / `transition: none` — in BOTH the OS
+   media query and the runtime .xan-reduce-motion flag. */
+.xan-reduce-motion .animate-mesh,
+.xan-reduce-motion .animate-mesh-2,
+.xan-reduce-motion .animate-float,
+.xan-reduce-motion .animate-glow-pulse,
+.xan-reduce-motion .animate-slide-up {
+  animation: none !important;
+}
+.xan-reduce-motion .anime-card-title-container,
+.xan-reduce-motion .anime-card-title-text,
+.xan-reduce-motion .anime-card-title-clip,
+.xan-reduce-motion .anime-card-title-meta {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-mesh,
+  .animate-mesh-2,
+  .animate-float,
+  .animate-glow-pulse,
+  .animate-slide-up {
+    animation: none !important;
+  }
+  .anime-card-title-container,
+  .anime-card-title-text,
+  .anime-card-title-clip,
+  .anime-card-title-meta {
+    transition: none !important;
   }
 }
 

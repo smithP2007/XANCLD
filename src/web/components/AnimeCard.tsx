@@ -4,6 +4,7 @@ import { Star, Play, Bookmark } from "lucide-react";
 import type { AnimeCard as AnimeCardT } from "../lib/anilist";
 import { getTitle } from "../lib/anilist";
 import { useIsBookmarked, useToggleBookmark } from "../hooks/useBookmarks";
+import { ExpandingCardTitle } from "./ExpandingCardTitle";
 
 interface Props {
   anime: AnimeCardT;
@@ -51,11 +52,14 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
 
   return (
     <div
-      className="group relative card-enter"
+      className="group xan-title-hover-group relative card-enter"
       style={{ "--card-index": index } as React.CSSProperties}
     >
       <Link to={`/anime/${anime.id}`} className="block">
-        <div className="overflow-hidden rounded-[18px] border border-xan-border bg-xan-card transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-xan-crimson/50 group-hover:shadow-[0_20px_44px_rgba(0,0,0,0.45)]">
+        {/* PART 2: `relative` on the card frame — the expanding title's
+            container anchors bottom:0 against THIS box so it can glide up
+            over the poster artwork without affecting anything outside. */}
+        <div className="relative overflow-hidden rounded-[18px] border border-xan-border bg-xan-card transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-xan-crimson/50 group-hover:shadow-[0_20px_44px_rgba(0,0,0,0.45)]">
           {/* Poster */}
           <div className="relative aspect-[2/3] overflow-hidden bg-xan-surface">
             <img
@@ -119,25 +123,39 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
             </div>
           </div>
 
-          {/* Info BELOW the poster on the card surface (new position) */}
-          <div className="p-2.5 md:p-3">
-            <h3 className="line-clamp-1 text-[13px] font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-xan-crimson">
-              {title}
-            </h3>
-            {/* v4.4.4 META — score · status · year, one line. The episode
-                count no longer lives here (moved to the poster badge above),
-                so the Clock icon is gone too. Still whitespace-nowrap and
-                size-tuned so the shortest possible row stays on one line
-                with room to spare on every card width. */}
-            <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
-              {score && (
-                <span className="flex items-center gap-1 font-bold text-xan-crimson">
-                  <Star className="h-2.5 w-2.5 shrink-0 fill-xan-crimson sm:h-3 sm:w-3" />
-                  {score}
-                </span>
-              )}
-              {status && <span>{status}</span>}
-              {anime.seasonYear && <span>{anime.seasonYear}</span>}
+          {/* Info BELOW the poster on the card surface.
+
+              PART 2 — EXPANDING TITLE HOVER (bar-grows-up architecture):
+              this block is a FIXED-HEIGHT flow spacer (56px / 60px) that
+              reserves the title zone in the grid. The BLACK BAR itself is
+              an absolutely-anchored, CONTENT-SIZED surface pinned to the
+              spacer's bottom edge — on hover the title unclamps and the
+              bar's background grows UPWARD over the poster in sync with
+              the 0.3s clip stretch, so the full multi-line name always
+              sits INSIDE the bar. Grid rows below never move.
+              See ExpandingCardTitle.tsx. */}
+          <div className="relative h-[56px] md:h-[60px]">
+            <div className="anime-card-title-bar absolute inset-x-0 bottom-0 z-20 bg-xan-card px-2.5 pt-1 pb-2.5 md:px-3 md:pb-3">
+              <ExpandingCardTitle
+                title={title}
+                meta={
+                  /* v4.4.4 META — score · status · year, one line. The episode
+                      count no longer lives here (moved to the poster badge above),
+                      so the Clock icon is gone too. Still whitespace-nowrap and
+                      size-tuned so the shortest possible row stays on one line
+                      with room to spare on every card width. */
+                  <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
+                    {score && (
+                      <span className="flex items-center gap-1 font-bold text-xan-crimson">
+                        <Star className="h-2.5 w-2.5 shrink-0 fill-xan-crimson sm:h-3 sm:w-3" />
+                        {score}
+                      </span>
+                    )}
+                    {status && <span>{status}</span>}
+                    {anime.seasonYear && <span>{anime.seasonYear}</span>}
+                  </div>
+                }
+              />
             </div>
           </div>
         </div>

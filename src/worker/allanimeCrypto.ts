@@ -1,42 +1,67 @@
-// AllAnime mkissa.to direct-crypto resolver — ported from XAN/cf-worker/worker.js
+// AllAnime (ANMX) episode resolver — mkissa.net bootstrap-crypto scheme.
 //
+// As of Nov 2026 AllAnime's frontend (mkissa.to, buildId 186) signs every
+// episode query with an `aaReq` proof derived from a weekly-rotating "epoch"
+// and a build-embedded mask. The scheme was reverse-engineered from the
+// SvelteKit bundle (chunks at cdn.mkissa.net) and verified byte-exact
+// against a live browser session:
+//
+//   1. MASK — 32 bytes assembled from four base64 fragments embedded in the
+//      bundle, XORed with a buildId-salt and a (fragIndex*187 + byte*64) term:
+//        salt[i]  = (buildId.charCodeAt(i % len) || 0) ^ ((i*234 + 35) & 255)
+//        mask[i]  = frag[i] ^ salt[i] ^ ((l*187 + f*64) & 255)
+//   2. BOOT TOKEN — hex(HMAC(HMAC(mask, "1fwWJAeMU:<buildId>"),
+//      "<buildId>+<host>+<group>+<lane>+<epoch>")) sent as the x-aa-boot
+//      header to GET /client-crypto/v1/bootstrap?buildId=…&k=…
+//      → { epoch, epochMs, graceMs, switchAt, partB, k }
+//   3. AES KEY — key = atob(partB) XOR mask
+//   4. aaReq — base64([0x01][iv(12)][AES-GCM(key, iv, payload)])
+//        payload = {"v":1,"ts":<5-min bucket>,"epoch":…,"buildId":"186",
+//                   "qh":<episode query hash>,"k":"k7"}
+//        iv      = SHA256("epoch:buildId:qh:ts:lane").slice(0, 12)
+//   5. Episode query — GET https://api.mkissa.net/api
+//        ?variables={"showId","translationType","episodeString"}
+//        &extensions={"persistedQuery":{"version":1,"sha256Hash":EP_HASH},
+//                     "k":"k7","aaReq":…}
+//        header: x-build-id: 186
+//      → { data: { episode: { sourceUrls } } } or encrypted tobeparsed
+//        (AES-GCM with the derived key; legacy sha256("Xot36i3lK3:v1") key
+//        still works as fallback).
+//
+// NOTE: the api.mkissa.net episode endpoint additionally sits behind a
+// Cloudflare client gate (NEED_CAPTCHA for flagged clients). When that gate
+// blocks a worker deployment, this resolver falls back to the legacy
+// unsigned query on api.allanime.day, and the other providers (Koto/Zen/
+// AnimeX) still cover playback.
 import { RT } from "./runtimeConfig";
-//
-// As of mid-2026, AllAnime migrated from allmanga.to to mkissa.to and now
-// requires a signed `aaReq` extension on every episode GraphQL query.
-// Without it, the server returns `AA_CRYPTO_MISSING` and zero sources.
-//
-// The crypto scheme (reverse-engineered from mkissa.to's SvelteKit bundle):
-//
-//   1. AllAnime embeds window.__aaCrypto = {epoch, partB} in the page HTML
-//      (mkissa.to returns 200 with no Cloudflare challenge)
-//   2. The AES key is derived: key = XOR(atob(partB), hexToBytes(MASK))
-//      where MASK = "5ddc3a1ac04f5b0ae3f33bce61f78e4c209bb2a850d9c5d7dad9c2706d99a34d"
-//   3. For each episode query, build a signed "aaReq" extension:
-//      a. ts = Math.floor(Date.now() / 300000) * 300000  (5-min bucket)
-//      b. payload = JSON.stringify({v:1, ts, epoch, buildId:"9", qh:queryHash})
-//      c. iv = SHA-256(epoch + ":" + buildId + ":" + queryHash + ":" + ts).slice(0, 12)
-//      d. encrypted = AES-GCM-encrypt(key, iv, payload)
-//      e. aaReq = base64([0x01][iv(12)][encrypted+tag])
-//   4. POST to https://api.allanime.day/api with:
-//      - body: {query, variables, extensions: {persistedQuery, aaReq}}
-//      - headers: Content-Type: application/json, x-build-id: "9"
-//   5. Server returns tobeparsed (encrypted with the same key, AES-GCM)
-//      — the OLD sha256("Xot36i3lK3:v1") key still works as a fallback
-//   6. Decrypt tobeparsed → {episode: {sourceUrls: [...]}}
 
-// ⚠️ The MASK changes when mkissa.to deploys a new build. If AA_CRYPTO_STALE
-// persists even after refreshing __aaCrypto, check if the MASK has changed:
-//   1. Fetch https://mkissa.to/ and find the main JS chunk URL
-//   2. Search the chunks for: const $n=_t(460)!=="string"?"<64-char hex>":""
-//   3. Update MASK_HEX and BUILD_ID below and redeploy
-// Last verified: 2026-07-10 — MASK=f5dc46e6..., BUILD_ID=13
-const MASK_HEX = "f5dc46e6f42968c5ed0eab602d6ae8f2107991006f02876947e64fcb75d53da6";
-const BUILD_ID = "13";
-const OLD_KEY_STR = "Xot36i3lK3:v1";
-// B8: domains now come from runtimeConfig.ts (wrangler.toml [vars] overridable)
-const MKISSA_EPISODE_URL = (showId: string, ep: string, mode: string) =>
-  `${RT().mkissaWatchBase}/watch/${showId}/p-${ep}-${mode}`;
+// ─── Constants (verified against mkissa.to build 186, lane k7) ───
+const VM_FRAGMENTS = [
+  "1KCP6HH4CIw=",
+  "AKst81/pPjI=",
+  "5DdlrLuAeF0=",
+  "Kgtk2A3ZOVk=",
+];
+const BOOT_PREFIX = "1fwWJAeMU:";
+const SALT_MUL = 234;
+const SALT_ADD = 35;
+const FRAG_MUL = 187;
+const FRAG_ADD = 64;
+const BOOT_GROUP = "mkissa";
+const BOOT_HOST = "mkissa.to";
+const EPOCH_MS = 604800000; // 7 days — echoed by the bootstrap response
+const GRACE_MS = 86400000; // 1 day cross-epoch grace window
+const TS_BUCKET_MS = 300000; // aaReq ts is a 5-minute bucket
+// Persisted-query hash of the episode sources query (build 186)
+const EPISODE_QUERY_HASH =
+  "670bbf38d0868f446e2346c1e956ca2c40c416e733ca248fd54e04f1c8b99145";
+// Legacy fallback hash + endpoint (unsigned; worked pre-aaReq and still
+// serves the shows search)
+const LEGACY_EPISODE_HASH =
+  "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec";
+const LEGACY_KEY_STR = "Xot36i3lK3:v1";
+const UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 export interface SourceUrl {
   sourceName: string;
@@ -51,145 +76,321 @@ export interface EpisodeResolveResult {
   error?: string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
+// ─── Small helpers ────────────────────────────────────────────
+const encoder = new TextEncoder();
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
-async function sha256(str: string): Promise<Uint8Array> {
-  const data = new TextEncoder().encode(str);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return new Uint8Array(hash);
+function bytesToB64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
 }
 
-async function sha256Hex(str: string): Promise<string> {
-  const hash = await sha256(str);
-  return Array.from(hash)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+function bytesToHex(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, "0");
+  return out;
 }
 
-async function getOldKey(): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const digest = await crypto.subtle.digest("SHA-256", enc.encode(OLD_KEY_STR));
-  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["decrypt"]);
-}
-
-// Derive the AES key: key = XOR(atob(partB), maskBytes)
-async function deriveAesKey(partB: string): Promise<CryptoKey> {
-  const maskBytes = hexToBytes(MASK_HEX);
-  const partBBytes = Uint8Array.from(atob(partB), (c) => c.charCodeAt(0));
-  if (partBBytes.length < 32) throw new Error("partB too short");
-  const keyBytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    keyBytes[i] = partBBytes[i] ^ maskBytes[i % maskBytes.length];
-  }
-  return crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, [
-    "encrypt",
-    "decrypt",
-  ]);
-}
-
-// Build the aaReq signed proof: base64([0x01][iv(12)][encrypted+tag])
-async function buildAaReq(queryHash: string, epoch: string, aesKey: CryptoKey): Promise<string> {
-  const ts = Math.floor(Date.now() / 300000) * 300000; // 5-min bucket
-  const payload = JSON.stringify({ v: 1, ts, epoch, buildId: BUILD_ID, qh: queryHash });
-  const ivSource = `${epoch}:${BUILD_ID}:${queryHash}:${ts}`;
-  const ivHash = await sha256(ivSource);
-  const iv = ivHash.slice(0, 12);
-  const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    aesKey,
-    new TextEncoder().encode(payload),
+async function hmacSha256(keyBytes: Uint8Array, msg: string): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes as BufferSource,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
   );
-  const encryptedBytes = new Uint8Array(encrypted);
-  const result = new Uint8Array(1 + 12 + encryptedBytes.length);
-  result[0] = 1;
-  result.set(iv, 1);
-  result.set(encryptedBytes, 13);
-  let binary = "";
-  for (let i = 0; i < result.length; i++) binary += String.fromCharCode(result[i]);
-  return btoa(binary);
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(msg));
+  return new Uint8Array(sig);
 }
 
-// Fetch window.__aaCrypto from mkissa.to episode page HTML
-async function fetchAaCrypto(
-  showId: string,
-  episodeString: string,
-  translationType: string,
-): Promise<{ epoch: string; partB: string }> {
-  const url = MKISSA_EPISODE_URL(showId, episodeString, translationType);
-  // B3 FIX: this fetch (and its HTML body read) previously had no timeout —
-  // a hung mkissa.to would pin the request until Workers' own limits.
-  // 15s matches the /api/proxy-post budget; the caller retries once anyway.
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(15_000),
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`mkissa.to returned HTTP ${res.status}`);
-  }
-  const html = await res.text();
-  const match = html.match(/window\.__aaCrypto\s*=\s*(\{[^}]+\})/);
-  if (!match) {
-    throw new Error("__aaCrypto not found in mkissa.to page HTML");
-  }
-  const aaCrypto = JSON.parse(match[1]);
-  if (!aaCrypto.partB || !aaCrypto.epoch) {
-    throw new Error(`__aaCrypto missing required fields: ${JSON.stringify(aaCrypto)}`);
-  }
-  return aaCrypto;
+async function sha256Bytes(msg: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(msg)));
 }
 
-// Decrypt tobeparsed (try new key first, fall back to OLD sha256("Xot36i3lK3:v1"))
-async function decryptTobeparsed(b64: string, newKey: CryptoKey): Promise<unknown> {
+async function importGcmKey(keyBytes: Uint8Array, usages: KeyUsage[]): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", keyBytes as BufferSource, { name: "AES-GCM" }, false, usages);
+}
+
+// ─── Step 1: mask ─────────────────────────────────────────────
+export function deriveMask(buildId: string): Uint8Array {
+  const salt = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    salt[i] =
+      ((buildId.charCodeAt(i % buildId.length) || 0) ^ ((i * SALT_MUL + SALT_ADD) & 255)) & 255;
+  }
+  const mask = new Uint8Array(32);
+  for (let l = 0; l < 4; l++) {
+    const frag = b64ToBytes(VM_FRAGMENTS[l]);
+    for (let f = 0; f < 8; f++) {
+      mask[l * 8 + f] = (frag[f] ^ salt[l * 8 + f] ^ ((l * FRAG_MUL + f * FRAG_ADD) & 255)) & 255;
+    }
+  }
+  return mask;
+}
+
+// ─── Step 2: epoch candidates + boot token + bootstrap ────────
+// epoch = floor(now / 7d); during the first 24h of a new epoch the previous
+// one is still accepted (grace), so both candidates are tried in order.
+export function epochCandidates(now = Date.now()): number[] {
+  const cur = Math.floor(now / EPOCH_MS);
+  const prev = now - cur * EPOCH_MS < GRACE_MS && cur > 0 ? cur - 1 : cur;
+  return [...new Set([prev, cur])];
+}
+
+function lane(): string {
+  return RT().aaLane || "k7";
+}
+
+function buildId(): string {
+  return RT().aaBuildId || "186";
+}
+
+async function bootToken(mask: Uint8Array, epoch: number): Promise<string> {
+  const inner = await hmacSha256(mask, BOOT_PREFIX + buildId());
+  const msg = [buildId(), BOOT_HOST, BOOT_GROUP, lane(), String(epoch)].join("+");
+  return bytesToHex(await hmacSha256(inner, msg));
+}
+
+interface BootstrapState {
+  epoch: number;
+  partB: string;
+  k: string;
+}
+
+let bootCache: { state: BootstrapState; keyBytes: Uint8Array; expiresAt: number } | null = null;
+const BOOT_TTL_MS = 4 * 60 * 1000; // bootstrap itself caches 5 min server-side
+
+async function fetchBootstrapFor(mask: Uint8Array, epoch: number): Promise<BootstrapState | null> {
+  const boot = await bootToken(mask, epoch);
+  const base = RT().aaBootstrap || "https://api.mkissa.net/client-crypto/v1/bootstrap";
+  const url = `${base}?buildId=${encodeURIComponent(buildId())}&k=${encodeURIComponent(lane())}`;
   try {
-    const binaryStr = atob(b64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-    if (bytes.length < 32 || bytes[0] !== 1) return null;
-    const iv = bytes.slice(1, 13);
-    const ctWithTag = bytes.slice(13);
-
-    // Try NEW key first (mkissa.to's primary path)
-    try {
-      const plaintext = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv },
-        newKey,
-        ctWithTag,
-      );
-      return JSON.parse(new TextDecoder().decode(plaintext));
-    } catch {
-      // fall through to old key
-    }
-
-    // Fallback: OLD key
-    try {
-      const oldKey = await getOldKey();
-      const plaintext = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv },
-        oldKey,
-        ctWithTag,
-      );
-      return JSON.parse(new TextDecoder().decode(plaintext));
-    } catch {
-      return null;
-    }
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        "User-Agent": UA,
+        Referer: `https://${BOOT_HOST}/`,
+        Origin: `https://${BOOT_HOST}`,
+        "x-build-id": buildId(),
+        "x-aa-boot": boot,
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as Partial<BootstrapState> | null;
+    if (!json?.partB || typeof json.epoch !== "number") return null;
+    return { epoch: json.epoch, partB: json.partB, k: json.k || lane() };
   } catch {
     return null;
   }
 }
 
-// ─── In-memory caches ─────────────────────────────────────────
+async function getBootState(mask: Uint8Array): Promise<{ state: BootstrapState; keyBytes: Uint8Array } | null> {
+  if (bootCache && bootCache.expiresAt > Date.now()) {
+    return { state: bootCache.state, keyBytes: bootCache.keyBytes };
+  }
+  for (const epoch of epochCandidates()) {
+    const state = await fetchBootstrapFor(mask, epoch);
+    if (!state) continue;
+    const partB = b64ToBytes(state.partB);
+    const keyBytes = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) keyBytes[i] = partB[i] ^ mask[i % mask.length];
+    bootCache = { state, keyBytes, expiresAt: Date.now() + BOOT_TTL_MS };
+    return { state, keyBytes };
+  }
+  return null;
+}
+
+// ─── Step 4: aaReq signing ────────────────────────────────────
+async function buildAaReq(
+  keyBytes: Uint8Array,
+  epoch: number,
+  queryHash: string,
+  ts: number,
+): Promise<string> {
+  const payload = JSON.stringify({
+    v: 1,
+    ts,
+    epoch,
+    buildId: buildId(),
+    qh: queryHash,
+    k: lane(),
+  });
+  const ivSource = `${epoch}:${buildId()}:${queryHash}:${ts}:${lane()}`;
+  const iv = (await sha256Bytes(ivSource)).slice(0, 12);
+  const aesKey = await importGcmKey(keyBytes, ["encrypt"]);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, encoder.encode(payload)));
+  const out = new Uint8Array(13 + ct.length);
+  out[0] = 1;
+  out.set(iv, 1);
+  out.set(ct, 13);
+  return bytesToB64(out);
+}
+
+// ─── Step 5: episode query over the signed GET path ───────────
+async function decryptTobeparsed(
+  b64: string,
+  keys: Uint8Array[],
+): Promise<{ episode?: { sourceUrls?: SourceUrl[] } } | null> {
+  let raw: Uint8Array;
+  try {
+    raw = b64ToBytes(b64);
+  } catch {
+    return null;
+  }
+  if (raw.length < 32 || raw[0] !== 1) return null;
+  const iv = raw.slice(1, 13);
+  const tag = raw.slice(raw.length - 16);
+  const ct = raw.slice(13, raw.length - 16);
+  const body = new Uint8Array(ct.length + 16);
+  body.set(ct);
+  body.set(tag, ct.length);
+  for (const keyBytes of keys) {
+    try {
+      const key = await importGcmKey(keyBytes, ["decrypt"]);
+      const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, body);
+      return JSON.parse(new TextDecoder().decode(pt));
+    } catch {
+      // try next key
+    }
+  }
+  return null;
+}
+
+function sourceUrlsFrom(json: Record<string, unknown>): SourceUrl[] {
+  const data = json.data as
+    | { tobeparsed?: string; episode?: { sourceUrls?: SourceUrl[] } }
+    | undefined;
+  if (data?.episode?.sourceUrls && data.episode.sourceUrls.length > 0) {
+    return data.episode.sourceUrls;
+  }
+  return [];
+}
+
+async function signedEpisodeQuery(
+  showId: string,
+  episodeString: string,
+  translationType: "sub" | "dub",
+): Promise<{ sources: SourceUrl[] | null; error?: string }> {
+  const mask = deriveMask(buildId());
+  const boot = await getBootState(mask);
+  if (!boot) return { sources: null, error: "bootstrap unavailable" };
+
+  const api = RT().aaApi || "https://api.mkissa.net/api";
+  const variables = JSON.stringify({ showId, translationType, episodeString });
+  const buildExtensions = async (ts: number) =>
+    JSON.stringify({
+      persistedQuery: { version: 1, sha256Hash: EPISODE_QUERY_HASH },
+      k: lane(),
+      aaReq: await buildAaReq(boot.keyBytes, boot.state.epoch, EPISODE_QUERY_HASH, ts),
+    });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ts = Math.floor(Date.now() / TS_BUCKET_MS) * TS_BUCKET_MS;
+    const extensions = await buildExtensions(ts);
+    const url = `${api}?variables=${encodeURIComponent(variables)}&extensions=${encodeURIComponent(extensions)}`;
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          "User-Agent": UA,
+          Referer: `https://${BOOT_HOST}/`,
+          Origin: `https://${BOOT_HOST}`,
+          "x-build-id": buildId(),
+          Accept: "*/*",
+        },
+      });
+      if (!res.ok) {
+        return { sources: null, error: `mkissa API HTTP ${res.status}` };
+      }
+      const json = (await res.json()) as Record<string, unknown>;
+      let sources = sourceUrlsFrom(json);
+      if (sources.length === 0) {
+        // Encrypted tobeparsed — decrypt with the derived key, then legacy key
+        const data = json.data as { tobeparsed?: string } | undefined;
+        const legacyKey = await getLegacyKey();
+        const keys = legacyKey ? [boot.keyBytes, legacyKey] : [boot.keyBytes];
+        if (data?.tobeparsed) {
+          const decrypted = await decryptTobeparsed(data.tobeparsed, keys);
+          sources = decrypted?.episode?.sourceUrls ?? [];
+        }
+      }
+      if (sources.length > 0) return { sources };
+      // NEED_CAPTCHA / gate errors — a fresh aaReq occasionally clears it
+      const errs = json.errors as Array<{ message?: string }> | undefined;
+      const msg = errs?.[0]?.message || "no sources";
+      if (attempt === 0 && /captcha|crypto|stale/i.test(msg)) continue;
+      return { sources: null, error: `mkissa API: ${msg}` };
+    } catch (err) {
+      if (attempt === 1) {
+        return { sources: null, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  }
+  return { sources: null, error: "mkissa API exhausted" };
+}
+
+// Legacy fallback: the pre-aaReq key still decrypts tobeparsed on some
+// deployments, and the unsigned GET query still works for search.
+let legacyKeyCache: Uint8Array | null = null;
+async function getLegacyKey(): Promise<Uint8Array | null> {
+  if (legacyKeyCache) return legacyKeyCache;
+  try {
+    legacyKeyCache = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(LEGACY_KEY_STR)));
+    return legacyKeyCache;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Legacy unsigned episode query (api.allanime.day) ─────────
+async function legacyEpisodeQuery(
+  showId: string,
+  episodeString: string,
+  translationType: "sub" | "dub",
+): Promise<{ sources: SourceUrl[] | null; error?: string }> {
+  const variables = JSON.stringify({ showId, episodeString, translationType });
+  const extensions = JSON.stringify({
+    persistedQuery: { version: 1, sha256Hash: LEGACY_EPISODE_HASH },
+  });
+  const url = `${RT().allanimeApi}?variables=${encodeURIComponent(variables)}&extensions=${encodeURIComponent(extensions)}`;
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        "User-Agent": UA,
+        Referer: `${RT().allanimeReferer}`,
+        Origin: RT().allanimeOrigin,
+        Accept: "*/*",
+      },
+    });
+    if (!res.ok) return { sources: null, error: `legacy API HTTP ${res.status}` };
+    const json = (await res.json()) as Record<string, unknown>;
+    let sources = sourceUrlsFrom(json);
+    if (sources.length === 0) {
+      const data = json.data as { tobeparsed?: string } | undefined;
+      const legacyKey = await getLegacyKey();
+      if (data?.tobeparsed && legacyKey) {
+        const decrypted = await decryptTobeparsed(data.tobeparsed, [legacyKey]);
+        sources = decrypted?.episode?.sourceUrls ?? [];
+      }
+    }
+    if (sources.length > 0) return { sources };
+    const errs = json.errors as Array<{ message?: string }> | undefined;
+    return { sources: null, error: `legacy API: ${errs?.[0]?.message || "no sources"}` };
+  } catch (err) {
+    return { sources: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─── Response cache + main resolver ───────────────────────────
 const responseCache = new Map<string, { sources: SourceUrl[]; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -208,269 +409,31 @@ function setCached(key: string, sources: SourceUrl[]) {
   }
 }
 
-// Cache for __aaCrypto + derived AES key (1 hour TTL — refreshes on AA_CRYPTO_STALE)
-const AA_CRYPTO_CACHE_TTL_MS = 60 * 60 * 1000;
-let aaCryptoCache: {
-  aaCrypto: { epoch: string; partB: string };
-  aesKey: CryptoKey;
-  expiresAt: number;
-} | null = null;
-
-async function getAaCryptoAndKey(
-  showId: string,
-  episodeString: string,
-  translationType: string,
-) {
-  if (aaCryptoCache && aaCryptoCache.expiresAt > Date.now()) {
-    return aaCryptoCache;
-  }
-  const aaCrypto = await fetchAaCrypto(showId, episodeString, translationType);
-  const aesKey = await deriveAesKey(aaCrypto.partB);
-  aaCryptoCache = {
-    aaCrypto,
-    aesKey,
-    expiresAt: Date.now() + AA_CRYPTO_CACHE_TTL_MS,
-  };
-  return aaCryptoCache;
-}
-
-// ─── Episode query (exact fields mkissa.to expects) ───────────
-// The server rejects smaller queries with "Cannot set properties of undefined"
-const EPISODE_QUERY = `query(
-$showId: String!
-$translationType: VaildTranslationTypeEnumType!
-$episodeString: String!
-) {
-episode(
-showId: $showId
-translationType: $translationType
-episodeString: $episodeString
-) {
-episodeString
-uploadDate
-sourceUrls
-thumbnail
-notes
-show{
-_id
-name
-englishName
-nativeName
-slugTime
-thumbnail
-lastEpisodeInfo
-lastEpisodeDate
-type
-season
-score
-airedStart
-availableEpisodes
-episodeDuration
-episodeCount
-lastUpdateEnd
-characterCount
-description
-broadcastInterval
-banner
-characters
-availableEpisodesDetail
-nameOnlyString
-isAdult
-relatedShows
-relatedMangas
-altNames
-disqusIds
-}
-pageStatus{
-_id
-notes
-pageId
-showId
-views
-likesCount
-commentCount
-dislikesCount
-reviewCount
-userScoreCount
-userScoreTotalValue
-userScoreAverValue
-}
-episodeInfo{
-notes
-thumbnails
-vidInforssub
-uploadDates
-vidInforsdub
-vidInforsraw
-description
-}
-versionFix
-}
-}`;
-
-// ─── Main resolver ────────────────────────────────────────────
 export async function fetchAllAnimeEpisodeDirect(
   showId: string,
   episodeString: string,
   translationType: "sub" | "dub",
 ): Promise<EpisodeResolveResult> {
   const cacheKey = `${showId}:${episodeString}:${translationType}`;
-
   const cached = getCached(cacheKey);
-  if (cached) {
-    return { sources: cached, cached: true, error: undefined };
+  if (cached) return { sources: cached, cached: true, error: undefined };
+
+  // Primary: the current signed mkissa.net scheme (boot token + aaReq).
+  const signed = await signedEpisodeQuery(showId, episodeString, translationType);
+  if (signed.sources && signed.sources.length > 0) {
+    setCached(cacheKey, signed.sources);
+    return { sources: signed.sources, cached: false, error: undefined };
   }
 
-  try {
-    // Step 1: Get __aaCrypto from mkissa.to
-    const { aaCrypto, aesKey } = await getAaCryptoAndKey(
-      showId,
-      episodeString,
-      translationType,
-    );
-
-    // Step 2: Compute query hash
-    const queryHash = await sha256Hex(EPISODE_QUERY);
-
-    // Step 3: Build aaReq signed proof
-    const aaReq = await buildAaReq(queryHash, aaCrypto.epoch, aesKey);
-
-    // Step 4: POST to api.allanime.day/api
-    const body = {
-      query: EPISODE_QUERY,
-      variables: { showId, episodeString, translationType },
-      extensions: {
-        persistedQuery: { version: 1, sha256Hash: queryHash },
-        aaReq,
-      },
-    };
-
-    const res = await fetch(RT().allanimeApi, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        Referer: "https://mkissa.to/",
-        Origin: "https://mkissa.to",
-        "x-build-id": BUILD_ID,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      return {
-        sources: null,
-        error: `AllAnime API HTTP ${res.status}: ${text.slice(0, 200)}`,
-      };
-    }
-
-    const json: Record<string, unknown> = await res.json();
-
-    if (json.errors && (json.errors as Array<Record<string, unknown>>)[0]) {
-      const err = (json.errors as Array<Record<string, unknown>>)[0];
-      const errCode = (err.extensions as { code?: string })?.code ?? "";
-      const errMsg = (err.message as string) ?? "Unknown error";
-
-      // If crypto is rejected (STALE, BUILD_MISMATCH), refresh __aaCrypto and retry
-      if (errCode.startsWith("AA_CRYPTO")) {
-        aaCryptoCache = null;
-        const freshCrypto = await getAaCryptoAndKey(
-          showId,
-          episodeString,
-          translationType,
-        );
-        const freshAaReq = await buildAaReq(queryHash, freshCrypto.aaCrypto.epoch, freshCrypto.aesKey);
-
-        const retryRes = await fetch(RT().allanimeApi, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            "User-Agent":
-              "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            Referer: "https://mkissa.to/",
-            Origin: "https://mkissa.to",
-            "x-build-id": BUILD_ID,
-          },
-          body: JSON.stringify({
-            query: EPISODE_QUERY,
-            variables: { showId, episodeString, translationType },
-            extensions: {
-              persistedQuery: { version: 1, sha256Hash: queryHash },
-              aaReq: freshAaReq,
-            },
-          }),
-        });
-
-        if (retryRes.ok) {
-          const retryJson: Record<string, unknown> = await retryRes.json();
-          if (!retryJson.errors) {
-            const retryData = retryJson.data as
-              | { tobeparsed?: string; episode?: { sourceUrls?: SourceUrl[] } }
-              | undefined;
-            if (retryData?.tobeparsed) {
-              const decrypted = (await decryptTobeparsed(
-                retryData.tobeparsed,
-                freshCrypto.aesKey,
-              )) as { episode?: { sourceUrls?: SourceUrl[] } } | null;
-              const sources = decrypted?.episode?.sourceUrls ?? [];
-              if (sources.length > 0) {
-                setCached(cacheKey, sources);
-                return { sources, cached: false, error: undefined };
-              }
-            }
-            // M-14 FIX: empty arrays are falsy-failures here — an empty
-            // sourceUrls list must NOT be cached as a 5-minute success.
-            const retrySources = retryData?.episode?.sourceUrls;
-            if (retrySources && retrySources.length > 0) {
-              setCached(cacheKey, retrySources);
-              return { sources: retrySources, cached: false, error: undefined };
-            }
-          }
-        }
-
-        return {
-          sources: null,
-          error: `AllAnime GraphQL: ${errMsg} (${errCode}) — retry also failed`,
-        };
-      }
-
-      return { sources: null, error: `AllAnime GraphQL: ${errMsg} (${errCode})` };
-    }
-
-    // Step 5: Decrypt tobeparsed (try new key, fall back to old)
-    const data = json.data as
-      | { tobeparsed?: string; episode?: { sourceUrls?: SourceUrl[] } }
-      | undefined;
-
-    if (data?.tobeparsed) {
-      const decrypted = (await decryptTobeparsed(data.tobeparsed, aesKey)) as
-        | { episode?: { sourceUrls?: SourceUrl[] } }
-        | null;
-      const sources = decrypted?.episode?.sourceUrls ?? [];
-      if (sources.length === 0) {
-        return { sources: null, error: "tobeparsed decrypted but no sourceUrls" };
-      }
-      setCached(cacheKey, sources);
-      return { sources, cached: false, error: undefined };
-    }
-
-    // M-14 FIX: `[]` is truthy — require a non-empty list before treating
-    // the cleartext path as success (and before caching it for 5 minutes).
-    if (data?.episode?.sourceUrls && data.episode.sourceUrls.length > 0) {
-      const sources = data.episode.sourceUrls;
-      setCached(cacheKey, sources);
-      return { sources, cached: false, error: undefined };
-    }
-
-    return { sources: null, error: "No sourceUrls in response" };
-  } catch (err) {
-    return {
-      sources: null,
-      error: `Direct crypto failed: ${err instanceof Error ? err.message : String(err)}`,
-    };
+  // Fallback: legacy unsigned query.
+  const legacy = await legacyEpisodeQuery(showId, episodeString, translationType);
+  if (legacy.sources && legacy.sources.length > 0) {
+    setCached(cacheKey, legacy.sources);
+    return { sources: legacy.sources, cached: false, error: undefined };
   }
+
+  return {
+    sources: null,
+    error: [signed.error, legacy.error].filter(Boolean).join(" | ") || "no sources",
+  };
 }

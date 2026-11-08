@@ -33,7 +33,7 @@ import {
 } from "../../lib/anilist";
 import { useRecentlyVisited } from "../../hooks/useRecentlyVisited";
 import { useBookmarks } from "../../hooks/useBookmarks";
-import { useWatchHistory } from "../../hooks/useSettings";
+import { useWatchHistory, clampProgressPct } from "../../hooks/useSettings";
 import { useDebounce } from "../../hooks/useDebounce";
 import { lockBodyScroll, unlockBodyScroll } from "../../lib/bodyScrollLock";
 
@@ -417,7 +417,10 @@ export function CommandMenu() {
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .slice(0, 5)
           .map((item) => {
-            const progress = item.duration > 0 ? Math.min(100, Math.round((item.timestamp / item.duration) * 100)) : 0;
+            // BUG 10 FIX: guarded + clamped via the shared helper — a
+            // malformed duration (0/NaN/Infinity) can no longer produce a
+            // NaN% or >100% label.
+            const progress = clampProgressPct(item.timestamp, item.duration);
             return {
               id: `cont-${item.animeId}-${item.episode}`,
               label: item.title,

@@ -10,7 +10,6 @@ import { CommandMenu } from "./components/command/CommandMenu";
 import { useSettings, applyTheme, applyThemePreset, applyRuntimeFlags, type MoodPreference, type DurationPreference } from "./hooks/useSettings";
 import { OnboardingSheet } from "./components/OnboardingSheet";
 import { AlertCircle } from "lucide-react";
-
 // B7 FIX: route-level code splitting. All 13 routes used to land in ONE
 // initial bundle (the 500 kB+ chunk warning on every build) even though a
 // typical session touches 3-4 of them. Landing + Home stay eager (entry
@@ -38,27 +37,69 @@ function RouteFallback() {
   );
 }
 
-// H-8 FIX: Error Boundary — prevents white-screen crashes when a component
-// throws during render (e.g. undefined.map() from a malformed API response).
-// Shows a retry button instead of a blank page.
-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false };
-  static getDerivedStateFromError() { return { hasError: true }; }
+// BUG 12 FIX: GLOBAL route error boundary. Any uncaught render error in a
+// lazy route used to crash the ENTIRE React tree to a blank screen with no
+// recovery path. <AppErrorBoundary /> wraps the whole app and renders a
+// styled glass fallback with TWO recovery exits: "Reload App" (hard
+// refresh) and "Back to Home" (soft reset to the landing route, which
+// remounts the crashed subtree without a page reload).
+//
+// Reset-on-navigate: while the fallback is showing, the boundary listens
+// for SPA route changes; if the user escapes via in-app links (or the Back
+// to Home button), state resets and the tree remounts fresh.
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; resetKey: string }> {
+  state = { hasError: false, resetKey: window.location.pathname };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: unknown) {
+    // Keep a console trace — useful when a malformed API payload slips
+    // past the runtime guards.
+    console.error("[XAN] Uncaught render error:", error);
+  }
+  componentDidMount() {
+    window.addEventListener("xan:routechange", this.handleRouteChange);
+  }
+  componentWillUnmount() {
+    window.removeEventListener("xan:routechange", this.handleRouteChange);
+  }
+  handleRouteChange = () => {
+    const path = window.location.pathname;
+    this.setState((prev) =>
+      prev.hasError && path !== prev.resetKey
+        ? { hasError: false, resetKey: path }
+        : { hasError: prev.hasError, resetKey: path },
+    );
+  };
   render() {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center min-h-screen text-center px-6">
-          <AlertCircle className="h-12 w-12 text-xan-crimson mb-4" />
-          <h2 className="text-xl font-bold text-foreground mb-2">Something went wrong</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            An unexpected error occurred. Try refreshing the page.
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-xan-crimson/15 border border-xan-crimson/30 mb-5">
+            <AlertCircle className="h-8 w-8 text-xan-crimson" />
+          </div>
+          <h2 className="font-display text-2xl font-bold text-foreground mb-2">Something went wrong</h2>
+          <p className="max-w-md text-sm leading-relaxed text-muted-foreground mb-6">
+            An unexpected error crashed this page. Reload the app, or head back
+            to the home feed — your settings, history and lists are safe.
           </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-xan-crimson to-xan-violet text-white font-semibold shadow-lg"
-          >
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="btn-aurora inline-flex h-11 items-center gap-2 px-6 text-sm font-bold"
+            >
+              Reload App
+            </button>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, resetKey: "/" });
+                window.location.assign("/");
+              }}
+              className="glass inline-flex h-11 items-center gap-2 rounded-full px-6 text-sm font-bold text-foreground transition-colors hover:bg-white/10"
+            >
+              Back to Home
+            </button>
+          </div>
         </div>
       );
     }
@@ -70,6 +111,9 @@ function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
     window.scrollTo(0, 0);
+    // BUG 12 FIX: notify AppErrorBoundary so its fallback resets when the
+    // user navigates away from a crashed route.
+    window.dispatchEvent(new CustomEvent("xan:routechange"));
   }, [pathname]);
   return null;
 }
@@ -166,10 +210,10 @@ function AppShell() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ErrorBoundary>
+    <AppErrorBoundary>
       <BrowserRouter>
         <AppShell />
       </BrowserRouter>
-    </ErrorBoundary>
+    </AppErrorBoundary>
   </StrictMode>,
 );

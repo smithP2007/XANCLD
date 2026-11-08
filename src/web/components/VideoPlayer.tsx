@@ -90,6 +90,11 @@ export function VideoPlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // BUG 8 FIX: loading watchdog. A stream that never starts (dead CDN, huge
+  // queue) used to spin the loading spinner forever; the timer also leaked
+  // across unmounts. Arm it on every stream load, disarm on 'playing' /
+  // error / cleanup.
+  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHistoryWriteRef = useRef(0);
   const resumeAppliedRef = useRef(false);
   const lastTapRef = useRef(0);
@@ -115,7 +120,10 @@ export function VideoPlayer({
   const [playbackRate, setPlaybackRate] = useState(settings.playbackRate);
   const [showSettings, setShowSettings] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"main" | "speed" | "quality">("main");
+  const [settingsTab, setSettingsTab] = useState<"main" | "speed" | "quality" | "subs">("main");
+  // Soft-subtitle selection (AnimeX per-episode sources ship VTT tracks).
+  // -1 = off; otherwise the index into stream.tracks.
+  const [activeTrackIndex, setActiveTrackIndex] = useState(-1);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [qualityLevels, setQualityLevels] = useState<{ height: number; index: number }[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
@@ -127,13 +135,40 @@ export function VideoPlayer({
   const [showEnhancer, setShowEnhancer] = useState(false);
   const enhancer = useVideoEnhancer();
 
-  // L-15 FIX: pending timers were never cleared on unmount — the controls
-  // auto-hide timer and the single-tap togglePlay timer could fire after the
-  // player was gone (e.g. mid navigation to the next episode).
+  // BUG 8 FIX: full teardown on unmount. Navigating away from /watch while
+  // a stream was loading or playing used to leave the playback watchdog AND
+  // the pending control timers active, left the HLS worker downloading
+  // fragments (destroy() alone doesn't stop an in-flight fragment fetch or
+  // detach the <video> element), kept fullscreen locked on
+  // document.fullscreenElement, and left the decoder's media buffers
+  // attached to a dead element. Everything is released here, in order.
   useEffect(() => {
     return () => {
+      if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
       if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+      // Exit fullscreen if the user navigates away while fullscreen is active
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => { /* ignore */ });
+      }
+      // HLS: stop the loader FIRST (aborts in-flight fragment downloads),
+      // then detach media (unbinds from the <video>), then destroy.
+      const hls = hlsRef.current;
+      if (hls) {
+        try { hls.stopLoad(); } catch { /* ignore */ }
+        try { hls.detachMedia(); } catch { /* ignore */ }
+        hls.destroy();
+        hlsRef.current = null;
+      }
+      // Blank the video element so the browser releases decoder buffers
+      const video = videoRef.current;
+      if (video) {
+        try {
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+        } catch { /* ignore */ }
+      }
     };
   }, []);
 
@@ -161,7 +196,20 @@ export function VideoPlayer({
     setDuration(0);
     setBuffered(0);
 
+    // BUG 8 FIX: arm the loading watchdog for THIS stream. 20s with no
+    // playback → explicit error state instead of an eternal spinner.
+    if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
+    playbackTimeoutRef.current = setTimeout(() => {
+      setLoading(false);
+      setError("This stream took too long to start. Try another server.");
+    }, 20000);
+
+    // BUG 8 FIX (episode-change path): same teardown discipline as unmount —
+    // stop in-flight fragment downloads and detach the old media element
+    // BEFORE destroying, so switching episodes never overlaps two loaders.
     if (hlsRef.current) {
+      try { hlsRef.current.stopLoad(); } catch { /* ignore */ }
+      try { hlsRef.current.detachMedia(); } catch { /* ignore */ }
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
@@ -188,6 +236,15 @@ export function VideoPlayer({
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
+          // Full context — which fragment/level failed and why. Invaluable
+          // when a proxy mis-serves a disguised CDN segment (.txt = TS).
+          console.error(
+            `[hls] fatal ${data.details}`,
+            "frag:", data.frag?.url?.split("/").pop() ?? "-",
+            "level:", data.level,
+            "resp:", data.response?.code,
+            "reason:", data.reason ?? "-",
+          );
           setError(`Playback error: ${data.details}`);
           setLoading(false);
         }
@@ -202,7 +259,15 @@ export function VideoPlayer({
     }
 
     return () => {
+      // BUG 8 FIX: episode-change cleanup — clear the watchdog + release the
+      // HLS pipeline fully before the next stream loads.
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
       if (hlsRef.current) {
+        try { hlsRef.current.stopLoad(); } catch { /* ignore */ }
+        try { hlsRef.current.detachMedia(); } catch { /* ignore */ }
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
@@ -210,6 +275,32 @@ export function VideoPlayer({
   }, [stream.url, stream.type]);
 
   // ─── Apply settings ───
+  // New stream → reset the subtitle selection to the track the source marked
+  // default (AnimeX yuki/sora mark English), or off when there are none.
+  useEffect(() => {
+    const tracks = stream.tracks ?? [];
+    if (tracks.length === 0) {
+      setActiveTrackIndex(-1);
+      return;
+    }
+    const defIdx = tracks.findIndex((t) => t.isDefault);
+    setActiveTrackIndex(defIdx >= 0 ? defIdx : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stream.url]);
+
+  // Mirror activeTrackIndex onto the native text tracks whenever it changes
+  // (and after the new stream's <track> elements mount).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const tt = video.textTracks;
+    for (let i = 0; i < tt.length; i++) {
+      const track = tt[i];
+      if (track.kind !== "subtitles") continue;
+      track.mode = i === activeTrackIndex ? "showing" : "disabled";
+    }
+  }, [activeTrackIndex, stream.url]);
+
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = settings.volume / 100;
@@ -229,13 +320,27 @@ export function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
 
-    const onPlay = () => { setPlaying(true); setLoading(false); };
+    // BUG 8 FIX: the first successful play disarms the loading watchdog.
+    const onPlay = () => {
+      setPlaying(true);
+      setLoading(false);
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
+    };
     const onPause = () => setPlaying(false);
     const onWaiting = () => setLoading(true);
     const onCanPlay = () => setLoading(false);
     const onLoaded = () => {
       setDuration(video.duration || 0);
       setLoading(false);
+      // BUG 8 FIX: metadata arrived — disarm the watchdog (the stream is
+      // alive even if autoplay is policy-blocked).
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
       if (!resumeAppliedRef.current && resumeTime && resumeTime > 5 && video.duration > resumeTime) {
         try {
           video.currentTime = resumeTime;
@@ -645,7 +750,19 @@ export function VideoPlayer({
         } : undefined}
         playsInline
         onClick={handleVideoClick}
-      />
+      >
+        {/* Soft-subtitle tracks (proxied VTT from the AnimeX providers).
+            Visibility is driven imperatively by activeTrackIndex. */}
+        {stream.tracks?.map((t, i) => (
+          <track
+            key={`${stream.url}-${i}`}
+            src={t.url}
+            kind="subtitles"
+            label={t.label}
+            srcLang={t.lang || "en"}
+          />
+        ))}
+      </video>
 
       {/* Loading spinner — YouTube-style border spinner */}
       {loading && !error && (
@@ -1006,6 +1123,20 @@ export function VideoPlayer({
                   </span>
                 </button>
               )}
+              {(stream.tracks?.length ?? 0) > 0 && (
+                <button
+                  onClick={() => setSettingsTab("subs")}
+                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors border-t border-white/5"
+                >
+                  <span>Subtitles</span>
+                  <span className="flex items-center gap-1.5 text-white/70">
+                    {activeTrackIndex < 0
+                      ? "Off"
+                      : stream.tracks?.[activeTrackIndex]?.label || "On"}
+                    <ChevronRight className="h-4 w-4" />
+                  </span>
+                </button>
+              )}
               <button
                 onClick={() => { setShowSettings(false); setShowShortcuts(true); }}
                 className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors border-t border-white/5"
@@ -1072,6 +1203,37 @@ export function VideoPlayer({
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {settingsTab === "subs" && (
+            <div>
+              <div className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-white/5">
+                <button onClick={() => setSettingsTab("main")} className="p-1 rounded hover:bg-white/10">
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="font-medium flex-1">Subtitles</span>
+                <button onClick={() => setShowSettings(false)} className="sm:hidden p-1 rounded hover:bg-white/10">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <button
+                onClick={() => { setActiveTrackIndex(-1); setSettingsTab("main"); }}
+                className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
+              >
+                <span>Off</span>
+                {activeTrackIndex === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
+              </button>
+              {(stream.tracks ?? []).map((t, i) => (
+                <button
+                  key={`${t.url}-${i}`}
+                  onClick={() => { setActiveTrackIndex(i); setSettingsTab("main"); }}
+                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
+                >
+                  <span className="truncate pr-3">{t.label}</span>
+                  {activeTrackIndex === i && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
+                </button>
+              ))}
             </div>
           )}
 

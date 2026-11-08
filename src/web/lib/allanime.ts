@@ -25,11 +25,22 @@ export interface SourceUrl {
   type: string;
 }
 
+/** Soft-subtitle track (proxied VTT) attached to a stream source. */
+export interface StreamTrack {
+  url: string;
+  label: string;
+  lang: string;
+  isDefault?: boolean;
+}
+
 export interface StreamResult {
   url: string;
   type: "hls" | "mp4" | "iframe";
   quality: string | null;
   sourceName: string;
+  // AnimeX per-episode providers attach soft-subtitle VTT tracks; all other
+  // providers leave this undefined.
+  tracks?: StreamTrack[];
 }
 
 export interface AllAnimeShow {

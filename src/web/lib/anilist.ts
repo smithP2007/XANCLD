@@ -33,6 +33,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// BUG 13 FIX (1): DEDUPLICATION OF CONCURRENT IDENTICAL QUERIES.
+// Multiple components mounting at once (Home's hero + rows + command menu
+// all asking for trending) used to fire the SAME GraphQL body over the wire
+// simultaneously — multiplying rate-limit pressure for zero benefit.
+// Identical in-flight requests now share one promise.
+const inFlight = new Map<string, Promise<unknown>>();
+
+// BUG 13 FIX (3): BOUNDED RESPONSE CACHE. Long sessions used to grow the
+// in-memory cache Map without limit (every search keystroke page, every
+// schedule page). We cap entries and evict the OLDEST (insertion order —
+// Map preserves it) when the cap is hit.
+const cache = new Map<string, unknown>();
+const MAX_MEMORY_CACHE_ENTRIES = 150;
+
+function cacheGet<T>(key: string): T | undefined {
+  // LRU-ish touch: delete + re-set moves the key to the newest position
+  const hit = cache.get(key);
+  if (hit !== undefined) {
+    cache.delete(key);
+    cache.set(key, hit);
+  }
+  return hit as T | undefined;
+}
+
+function cacheSet(key: string, value: unknown): void {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > MAX_MEMORY_CACHE_ENTRIES) {
+    // Evict the oldest entry (first key in insertion order)
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
 // ─── Types ─────────────────────────────────────────────────────
 export interface AnimeCard {
   id: number;
@@ -75,16 +110,31 @@ export interface AnimeDetail extends AnimeCard {
 }
 
 // ─── GraphQL fetcher with rate-limit handling + retry ──────────
+// BUG 13 FIX (2): retries now ALSO cover 502/503/504 gateway failures
+// (previously only bare >=500 with no distinction — and 502s from
+// Cloudflare-fronted AniList are transient) and honor Retry-After on 429.
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T | null> {
   const MAX_RETRIES = 3;
   const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff: 1s, 2s, 4s
 
+  const body = JSON.stringify({ query, variables });
+  const cacheKey = `${query}::${JSON.stringify(variables)}`;
+
+  // BUG 13 FIX (3): serve cache hits without touching the network
+  const cached = cacheGet<T>(cacheKey);
+  if (cached !== undefined) return cached;
+
+  // BUG 13 FIX (1): share one promise across identical concurrent callers
+  const pending = inFlight.get(cacheKey);
+  if (pending) return pending as Promise<T | null>;
+
+  const run = (async (): Promise<T | null> => {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const res = await fetch(ANILIST_GRAPHQL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ query, variables }),
+        body,
       });
 
       // Handle rate-limiting (HTTP 429) — retry after backoff
@@ -100,7 +150,17 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
         return null;
       }
 
-      // Handle server errors (5xx) — retry
+      // BUG 13 FIX (2): retry transient gateway failures specifically
+      // (502 Bad Gateway / 503 Service Unavailable / 504 Gateway Timeout)
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < MAX_RETRIES) {
+        const retryAfter = parseInt(res.headers.get("Retry-After") || "0", 10);
+        const delay = retryAfter > 0 ? retryAfter * 1000 : RETRY_DELAYS[attempt] ?? 4000;
+        console.warn(`[AniList] Gateway error ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+        await sleep(delay);
+        continue;
+      }
+
+      // Handle other server errors (5xx) — retry
       if (res.status >= 500 && attempt < MAX_RETRIES) {
         console.warn(`[AniList] Server error ${res.status}, retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
         await sleep(RETRY_DELAYS[attempt] ?? 4000);
@@ -119,9 +179,12 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
         // Don't retry on GraphQL errors — they're query syntax issues, not transient
         return null;
       }
-      return (json?.data as T) ?? null;
+      const data = (json?.data as T) ?? null;
+      // BUG 13 FIX (3): only cache successful, non-null payloads
+      if (data !== null) cacheSet(cacheKey, data);
+      return data;
     } catch (err) {
-      // Network error — retry with backoff
+      // Network error (TypeError) — retry with backoff
       if (attempt < MAX_RETRIES) {
         console.warn(`[AniList] Network error, retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, err);
         await sleep(RETRY_DELAYS[attempt] ?? 4000);
@@ -132,6 +195,25 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
     }
   }
   return null;
+  })();
+
+  inFlight.set(cacheKey, run);
+  try {
+    return await run;
+  } finally {
+    // BUG 13 FIX (1): always clear the in-flight entry — success or failure
+    inFlight.delete(cacheKey);
+  }
+}
+
+// ─── BUG 11 FIX: external URL protocol guard ───────────────────
+// AniList `externalLinks` (and any future third-party URL field) used to be
+// rendered straight into <a href>. A malformed or hostile entry
+// (`javascript:`, `data:`, whitespace-padded schemes) would execute in the
+// page context. Only genuine http(s) URLs may pass.
+export function isSafeExternalUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return /^https?:\/\//i.test(url.trim());
 }
 
 // ─── API ───────────────────────────────────────────────────────

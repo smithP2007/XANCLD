@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { History as HistoryIcon, Play, Trash2, Film, ArrowRight } from "lucide-react";
+import { History as HistoryIcon, Play, Trash2, Film, ArrowRight, CheckCircle2 } from "lucide-react";
 import {
   removeFromHistory,
   clearHistory,
@@ -9,6 +9,7 @@ import {
 } from "../hooks/useSettings";
 import { formatTimeAgo } from "../hooks/useCountdownTick";
 import { XaniMascot } from "../components/XaniMascot";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 interface GroupedHistory {
   animeId: number;
@@ -50,6 +51,21 @@ export function History() {
 
   const grouped = useMemo(() => groupByAnime(history), [history]);
 
+  // BUG 6 FIX: "Clear All" used to call window.confirm(), which modern
+  // sandboxed iframes silently BLOCK (the button just did nothing) and
+  // which looked jarring against the dark glass UI. A glassmorphic
+  // <ConfirmDialog /> modal replaces it, and clearing now confirms with a
+  // toast instead of silence.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Auto-dismiss the confirmation toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const removeGroup = (animeId: number) => {
     for (const ep of history.filter((e) => e.animeId === animeId)) {
       removeFromHistory(animeId, ep.episode);
@@ -61,9 +77,13 @@ export function History() {
   };
 
   const clearAll = () => {
-    if (confirm("Clear all watch history? This cannot be undone.")) {
-      clearHistory();
-    }
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmClear = () => {
+    clearHistory();
+    setConfirmOpen(false);
+    setToast("Watch history cleared");
   };
 
   if (!history) {
@@ -245,6 +265,30 @@ export function History() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* BUG 6 FIX: glassmorphic confirmation dialog replaces window.confirm() */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Clear all watch history?"
+        description="Every episode entry will be removed. This cannot be undone."
+        confirmLabel="Clear All"
+        destructive
+        onConfirm={handleConfirmClear}
+        onCancel={() => setConfirmOpen(false)}
+      />
+
+      {/* BUG 6 FIX: confirmation toast after clearing */}
+      {toast && (
+        <div
+          role="status"
+          className="fixed bottom-24 md:bottom-8 left-1/2 z-[110] -translate-x-1/2 animate-panel-up"
+        >
+          <div className="flex items-center gap-2 rounded-full glass-strong border border-xan-border px-4 py-2.5 text-sm font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.5)]">
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            {toast}
+          </div>
         </div>
       )}
     </div>

@@ -11,6 +11,12 @@ compatibility_flags = ["nodejs_compat"]
 ALLANIME_API = "https://api.allanime.day/api"
 MKISSA_ORIGIN = "https://mkissa.to"
 ZEN_HOST = "https://flixcloud.cc"
+# mkissa.net signed episode API (aaReq scheme) — bump AA_BUILD_ID when the
+# frontend deploy rotates its build (see src/worker/allanimeCrypto.ts header)
+AA_API = "https://api.mkissa.net/api"
+AA_BOOTSTRAP = "https://api.mkissa.net/client-crypto/v1/bootstrap"
+AA_BUILD_ID = "186"
+AA_LANE = "k7"
 
 [assets]
 directory = "dist"

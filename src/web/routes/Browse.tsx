@@ -137,6 +137,22 @@ export function Browse() {
     setSearchParams(next, { replace: true });
   }, [debouncedQuery, genres, sort, format, year, page, setSearchParams]);
 
+  // BUG 9 FIX: the tab title used to stay stuck on the last search query
+  // after the user cleared the filters back to plain /browse (and after
+  // leaving the page entirely). Reflect every filter state, reset to the
+  // page default when no filters are active, and restore the app title on
+  // unmount.
+  useEffect(() => {
+    const parts: string[] = [];
+    if (debouncedQuery) parts.push(`"${debouncedQuery}"`);
+    if (genres.length > 0) parts.push(genres.join(" + "));
+    if (format) parts.push(format);
+    document.title = parts.length > 0 ? `Search: ${parts.join(" · ")} — XAN` : "Browse Anime — XAN";
+    return () => {
+      document.title = "XAN — Stream Anime";
+    };
+  }, [debouncedQuery, genres, format]);
+
   // ─── Fetch results ───
   const [results, setResults] = useState<AnimeCard[]>([]);
   const [total, setTotal] = useState(0);

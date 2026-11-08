@@ -39,7 +39,7 @@ import { VideoEnhancerPanel } from "../components/VideoEnhancerPanel";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { EpisodePickerSheet } from "../components/EpisodePickerSheet";
 import { EpisodePanel } from "../components/EpisodePanel";
-import { ProviderSelector, type ProviderChip, type SourceChip } from "../components/ProviderSelector";
+import { ProviderSelector, type ServerChip } from "../components/ProviderSelector";
 
 // L-21 FIX: "demo" is its own provider tier so the Big Buck Bunny fallback
 // no longer masquerades under the "AllAnime" group in the Servers panel.
@@ -694,95 +694,102 @@ export function Watch() {
   // episode exists; a wrong guess lands on the (now retryable) error state.
   const hasNextEpisode = anime ? (anime.episodes ? episode < anime.episodes : true) : false;
 
-  // ─── Provider chips for the animex.one-style selector under the player ───
-  // Unified players first (ANMX = AllAnime, ZEN, KOTO — always available),
-  // then the per-episode servers reported by pp.animex.one for the current
-  // audio mode. Status dots on the per-episode chips mirror providerStatus.
-  const providerChips = useMemo<ProviderChip[]>(() => {
-    const unified: ProviderChip[] = [
-      { key: "allanime", label: "ANMX" },
-      { key: "zen", label: "ZEN" },
-      { key: "koto", label: "KOTO" },
-    ];
-    const familyAttempted = provider === "animex" || providerStatus.animex !== "idle";
-    const perEpisode: ProviderChip[] = animexServers.map((s) => ({
-      key: s.id,
-      label: animexProviderDisplayName(s.id),
-      tip: s.tip,
-      // Per-server dot: what THIS server's aggregated load returned. Falls
-      // back to the family-level status until per-server results exist.
-      status: animexServerStatus[s.id] ?? (familyAttempted ? providerStatus.animex : "idle"),
-    }));
-    return [...unified, ...perEpisode];
-  }, [animexServers, provider, providerStatus.animex, animexServerStatus]);
-
-  const activeChipKey = provider === "animex" ? animexProviderId : provider;
-
-  // ─── Source chips — every resolved stream, in the same Sources panel ───
-  // The old sidebar "Servers" panel lived here as a separate portion; the
-  // sources now ride in the ProviderSelector under the player instead.
-  // Deduped by streamIdentity — raw URL dedup kept TWO chips for the same
-  // AnimeX stream because every /sources call returns a freshly-signed token.
-  const sourceChips = useMemo<SourceChip[]>(() => {
+  // ─── ONE server-named grid: every resolved stream IS a server chip ───
+  // Exactly like animex.one's servers panel — no separate "Sources" cards
+  // row, no provider-family rows. Built from three tiers:
+  //   1. concrete resolved streams (deduped by streamIdentity — raw URL
+  //      dedup used to keep TWO chips for the same AnimeX stream because
+  //      every /sources call returns a freshly-signed token),
+  //   2. per-episode AnimeX servers whose upstream died — retryable chips
+  //      with their own status dot, like a dead server on animex.one,
+  //   3. unified providers (ANMX/ZEN/KOTO) only while they have produced
+  //      nothing — their real server-named chips replace them on resolve.
+  const serverChips = useMemo<ServerChip[]>(() => {
+    const chips: ServerChip[] = [];
     const seen = new Set<string>();
-    const out: SourceChip[] = [];
+
+    // 1. Every concrete resolved stream, named by its server
     for (const s of filteredSources) {
       const id = streamIdentity(s);
       if (seen.has(id)) continue;
       seen.add(id);
-      const providerLabel =
-        s.provider === "allanime" ? "ANMX"
-        : s.provider === "animex" ? "AnimeX"
-        : s.provider === "demo" ? "Demo"
-        : s.provider.charAt(0).toUpperCase() + s.provider.slice(1);
-      const label = s.quality && s.quality !== "auto"
-        ? `${s.sourceName} (${s.quality})`
-        : s.sourceName;
-      out.push({
+      chips.push({
         key: id,
-        label,
-        providerLabel,
-        type: s.type,
-        tip: `${providerLabel} — ${s.sourceName}${s.quality ? ` (${s.quality})` : ""} · ${s.type}`,
+        label: s.sourceName,
+        tip: `${s.sourceName}${s.quality ? ` · ${s.quality}` : ""} · ${s.type}`,
+        status: "done",
       });
     }
-    return out;
-  }, [filteredSources]);
 
-  const activeSourceKey = stream ? streamIdentity(stream) : null;
+    // 2. Per-episode AnimeX servers with no resolved stream this episode
+    const familyAttempted = provider === "animex" || providerStatus.animex !== "idle";
+    for (const srv of animexServers) {
+      const covered = filteredSources.some(
+        (s) => s.provider === "animex" && s.providerId === srv.id,
+      );
+      if (covered) continue;
+      chips.push({
+        key: `animex:${srv.id}`,
+        label: animexProviderDisplayName(srv.id),
+        tip: srv.tip,
+        status:
+          animexServerStatus[srv.id] ??
+          (familyAttempted ? providerStatus.animex : "idle"),
+      });
+    }
 
-  const handleSourceSelect = useCallback(
+    // 3. Unified providers that produced nothing yet — keep their family
+    // chip so they stay reachable; once they resolve, tier 1 replaces them
+    // entirely (no ANMX/ZEN/KOTO duplicates next to their own servers).
+    const unified: { key: Provider; label: string; status: "idle" | "loading" | "done" | "error" }[] = [
+      { key: "allanime", label: "ANMX", status: providerStatus.allanime },
+      { key: "zen", label: "ZEN", status: providerStatus.zen },
+      { key: "koto", label: "KOTO", status: providerStatus.koto },
+    ];
+    for (const u of unified) {
+      if (isProviderFullyDisabled(u.key, settings.disabledSources)) continue;
+      const hasStreams = filteredSources.some((s) => s.provider === u.key);
+      if (hasStreams || u.status === "done") continue;
+      chips.push({ key: u.key, label: u.label, status: u.status });
+    }
+
+    return chips;
+  }, [filteredSources, animexServers, provider, providerStatus, animexServerStatus, settings.disabledSources]);
+
+  // Active chip = the stream actually playing; while it is still resolving,
+  // the selected provider / per-episode server stays highlighted instead.
+  const activeServerKey = useMemo(() => {
+    if (stream) return streamIdentity(stream);
+    if (provider === "animex") return `animex:${animexProviderId}`;
+    return provider;
+  }, [stream, provider, animexProviderId]);
+
+  // Chip click — ONE handler for the merged grid:
+  //   stream identity key → play that stream instantly (no reload);
+  //   animex:<id>         → switch to that per-episode server (re-resolves
+  //                         via the load effect; a stream identity never
+  //                         collides because it always ends in ":<path>");
+  //   provider family key → resolve that provider.
+  const handleServerSelect = useCallback(
     (key: string) => {
+      // 1. Concrete resolved stream — instant playback switch
       const source = filteredSources.find((s) => streamIdentity(s) === key);
-      if (source) setStream(source);
-    },
-    [filteredSources],
-  );
-
-  // Chip click — unified providers switch the provider (full reload via the
-  // load effect); per-episode servers switch inside the animex family and
-  // shortcut to an already-resolved source when one is cached.
-  const handleChipSelect = useCallback(
-    (key: string) => {
-      if (key === "allanime" || key === "zen" || key === "koto") {
-        if (provider !== key) setProvider(key as Provider);
+      if (source) {
+        setStream(source);
         return;
       }
-      // Per-episode server — switch into the animex family (the provider
-      // change is what re-runs the load effect), then shortcut to an
-      // already-resolved source when one is cached.
-      const cached = allSources.find(
-        (s) => s.provider === "animex" && s.providerId === key,
-      );
-      setAnimexProviderId(key);
-      if (provider !== "animex") {
-        setProvider("animex");
-      } else if (cached) {
-        // Already playing this family — just swap the stream, no reload
-        setStream(cached);
+      // 2. Per-episode AnimeX server — switch into that server
+      if (key.startsWith("animex:")) {
+        setAnimexProviderId(key.slice("animex:".length));
+        if (provider !== "animex") setProvider("animex");
+        return;
+      }
+      // 3. Provider family chip — resolve that provider
+      if (key === "allanime" || key === "zen" || key === "koto") {
+        if (provider !== key) setProvider(key as Provider);
       }
     },
-    [provider, allSources],
+    [filteredSources, provider],
   );
 
   // L-13 FIX: these handlers used to be inline arrows passed to VideoPlayer,
@@ -1145,20 +1152,18 @@ export function Watch() {
             )
           ) : null}
 
-          {/* AnimeX-style Sub/Dub + server chips — sits right under the
-              player like on animex.one. Always rendered (even while loading)
-              so a stuck stream can be fixed by switching servers without a
-              page reload. */}
+          {/* AnimeX-style Sub/Dub + ONE server-named grid — sits right under
+              the player like on animex.one. Every resolved stream is a server
+              chip in the same grid (no separate Sources cards). Always
+              rendered (even while loading) so a stuck stream can be fixed by
+              switching servers without a page reload. */}
           <ProviderSelector
             mode={mode}
             onModeChange={setMode}
-            chips={providerChips}
-            activeKey={activeChipKey}
-            onSelect={handleChipSelect}
+            chips={serverChips}
+            activeKey={activeServerKey}
+            onSelect={handleServerSelect}
             serversLoading={animexServersLoading}
-            sourceChips={sourceChips}
-            activeSourceKey={activeSourceKey}
-            onSelectSource={handleSourceSelect}
           />
 
           {/* H-7 FIX: when every provider fails the page used to silently

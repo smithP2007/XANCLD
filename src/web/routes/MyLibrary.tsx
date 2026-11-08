@@ -23,6 +23,8 @@ import {
   STATUS_ORDER,
 } from "../hooks/useAnimeList";
 import { XaniMascot } from "../components/XaniMascot";
+import { ExpandingCardTitle } from "../components/ExpandingCardTitle";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 // Status icons + colors for section headers in the "All" tab
 const STATUS_ICONS: Record<AnimeStatus, React.ComponentType<{ className?: string }>> = {
@@ -48,14 +50,26 @@ export function MyLibrary() {
   const { bookmarks, removeBookmark, clearBookmarks } = useBookmarks();
   const { list, remove, clearAll } = useAnimeList();
 
+  // BUG 14a FIX: O(1) entry lookup. Every status count / onRemove lookup
+  // used to walk the full list (5 × filter passes per render for the counts
+  // + `list.find(...)` inside each card's remove callback). Build the map
+  // ONCE per list change and derive everything from it.
+  const watchlistMap = useMemo(() => {
+    const m = new Map<number, import("../hooks/useAnimeList").ListEntry>();
+    for (const entry of list) m.set(entry.animeId, entry);
+    return m;
+  }, [list]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = {
-      all: list.length,
+      all: watchlistMap.size,
       bookmarks: bookmarks.length,
     };
-    for (const s of STATUS_ORDER) c[s] = list.filter((e) => e.status === s).length;
+    // Single pass over the map values instead of one filter per status.
+    for (const s of STATUS_ORDER) c[s] = 0;
+    for (const entry of watchlistMap.values()) c[entry.status] = (c[entry.status] ?? 0) + 1;
     return c;
-  }, [list, bookmarks]);
+  }, [watchlistMap, bookmarks]);
 
   // Custom status order for the "All" tab: Plan to Watch → Watching →
   // Completed → On Hold → Dropped. This groups anime by their list status
@@ -97,12 +111,19 @@ export function MyLibrary() {
     { id: "DROPPED", label: "Dropped", icon: X },
   ];
 
+  // BUG 6 FIX: native `confirm()` is silently swallowed inside sandboxed
+  // iframes (and looks jarring against the dark glass UI). All destructive
+  // actions route through the glassmorphic <ConfirmDialog /> instead.
+  const [confirmAction, setConfirmAction] = useState<"bookmarks" | "list" | null>(null);
+
   const handleClearAll = () => {
-    if (tab === "bookmarks") {
-      if (confirm("Remove all bookmarks? This cannot be undone.")) clearBookmarks();
-    } else {
-      if (confirm("Clear entire anime list? This cannot be undone.")) clearAll();
-    }
+    setConfirmAction(tab === "bookmarks" ? "bookmarks" : "list");
+  };
+
+  const handleConfirmClear = () => {
+    if (confirmAction === "bookmarks") clearBookmarks();
+    else clearAll();
+    setConfirmAction(null);
   };
 
   const handleRemove = (animeId: number) => {
@@ -252,8 +273,13 @@ export function MyLibrary() {
                       <Play className="h-5 w-5 text-white fill-white ml-0.5" />
                     </div>
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 p-3">
-                    <h3 className="font-medium text-sm text-white line-clamp-2 leading-snug">{b.title}</h3>
+                  <div className="absolute bottom-0 left-0 right-0 z-10 p-3 anime-card-title-anchor">
+                    {/* BUG 5 FIX: hardcoded `line-clamp-2` title replaced with
+                        <ExpandingCardTitle /> so the user's Expanding Title
+                        Hover setting works in their Library too. The overlay
+                        is bottom-anchored inside the overflow-hidden poster
+                        frame, so expansion glides up over the artwork. */}
+                    <ExpandingCardTitle title={b.title} onArtwork />
                   </div>
                 </div>
               </Link>
@@ -364,6 +390,17 @@ export function MyLibrary() {
           </div>
         )
       )}
+
+      {/* BUG 6 FIX: glassmorphic confirmation dialog replaces window.confirm() */}
+      <ConfirmDialog
+        open={confirmAction !== null}
+        title={confirmAction === "bookmarks" ? "Remove all bookmarks?" : "Clear entire anime list?"}
+        description="This cannot be undone."
+        confirmLabel={confirmAction === "bookmarks" ? "Remove All" : "Clear List"}
+        destructive
+        onConfirm={handleConfirmClear}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   );
 }
@@ -420,11 +457,18 @@ function ListCard({
             </div>
           )}
           {/* Bottom content */}
-          <div className="absolute bottom-0 left-0 right-0 p-3">
-            <h3 className="font-medium text-sm text-white line-clamp-2 leading-snug">{entry.title}</h3>
-            {entry.progress != null && (
-              <p className="text-[11px] text-white/60 mt-1">EP {entry.progress}</p>
-            )}
+          <div className="absolute bottom-0 left-0 right-0 z-10 p-3 anime-card-title-anchor">
+            {/* BUG 5 FIX: <ExpandingCardTitle /> instead of a hardcoded
+                truncated title paragraph — hover-unfold works here now. */}
+            <ExpandingCardTitle
+              title={entry.title}
+              onArtwork
+              meta={
+                entry.progress != null ? (
+                  <p className="text-[11px] text-white/60 mt-1">EP {entry.progress}</p>
+                ) : undefined
+              }
+            />
           </div>
         </div>
       </Link>

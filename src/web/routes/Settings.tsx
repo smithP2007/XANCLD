@@ -29,10 +29,12 @@ import {
   Trash2,
   Bookmark,
   ChevronDown,
+  CheckCircle2,
 } from "lucide-react";
 import { useSettings, clearHistory, getHistory } from "../hooks/useSettings";
 import { ThemePicker } from "../components/ThemePicker";
 import { LogoMark } from "../components/Logo";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   useVideoEnhancer,
   ENHANCER_PRESETS as ENHANCER_PRESET_LIST,
@@ -54,7 +56,7 @@ const SECTIONS: Section[] = [
   // L-5 FIX: added keywords per section. The search input's own placeholder
   // promised "e.g. theme, autoplay, subtitles" but only section LABELS were
   // matched — searching "autoplay" or "volume" returned nothing.
-  { id: "appearance", label: "Appearance", icon: Palette, keywords: ["theme", "dark", "light", "color", "accent", "preset", "reduced motion"] },
+  { id: "appearance", label: "Appearance", icon: Palette, keywords: ["theme", "dark", "light", "color", "accent", "preset", "reduced motion", "title", "hover", "expanding"] },
   { id: "playback", label: "Playback", icon: Play, keywords: ["autoplay", "auto play", "autoplay next", "skip intro", "resume", "speed", "default mode", "sub", "dub", "tv mode"] },
   { id: "audio", label: "Audio & Subtitles", icon: Languages, keywords: ["volume", "mute", "subtitles", "subs", "audio", "language", "dub"] },
   { id: "enhancer", label: "Video Enhancer", icon: Sliders, keywords: ["brightness", "contrast", "saturation", "sharpen", "blur", "filter", "gamma", "preset"] },
@@ -79,6 +81,18 @@ export function Settings() {
   const [searchQuery, setSearchQuery] = useState("");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const enhancer = useVideoEnhancer();
+  // BUG 6 FIX: window.confirm() is silently blocked in sandboxed iframes —
+  // both destructive actions route through <ConfirmDialog /> now, and
+  // clearing history confirms with a toast instead of an alert().
+  const [confirmAction, setConfirmAction] = useState<"history" | "cache" | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Auto-dismiss the confirmation toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Scroll-spy: highlight current section in nav
   useEffect(() => {
@@ -103,10 +117,19 @@ export function Settings() {
   }, []);
 
   const clearHistoryAction = () => {
-    if (confirm("Clear all watch history? This cannot be undone.")) {
+    setConfirmAction("history");
+  };
+
+  const handleConfirmAction = () => {
+    if (confirmAction === "history") {
       clearHistory();
-      alert("History cleared.");
+      setToast("Watch history cleared");
+    } else if (confirmAction === "cache") {
+      localStorage.clear();
+      location.reload();
+      return;
     }
+    setConfirmAction(null);
   };
 
   const exportHistory = () => {
@@ -123,10 +146,7 @@ export function Settings() {
   };
 
   const clearCache = () => {
-    if (confirm("Clear all cached data? This will reset settings to defaults.")) {
-      localStorage.clear();
-      location.reload();
-    }
+    setConfirmAction("cache");
   };
 
   const scrollToSection = (id: string) => {
@@ -251,6 +271,17 @@ export function Settings() {
                 onSelect={(preset) => update({ themePreset: preset })}
               />
             </div>
+          </Row>
+
+          {/* ─── PART 2: Expanding Title Hover engine ─── */}
+          <Row
+            label="Expanding title hover"
+            desc="Anime card titles unfold to their full multi-line text on hover instead of truncating"
+          >
+            <Toggle
+              checked={settings.expandingTitleHover}
+              onChange={(v) => update({ expandingTitleHover: v })}
+            />
           </Row>
           <Row
             label="Reduced motion"
@@ -755,6 +786,39 @@ export function Settings() {
           </div>
         </Section>
       </div>
+
+      {/* BUG 6 FIX: glassmorphic confirmation dialogs replace window.confirm() */}
+      <ConfirmDialog
+        open={confirmAction === "history"}
+        title="Clear all watch history?"
+        description="Every episode entry will be removed. This cannot be undone."
+        confirmLabel="Clear History"
+        destructive
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
+      <ConfirmDialog
+        open={confirmAction === "cache"}
+        title="Clear all cached data?"
+        description="Settings, history, bookmarks and lists will be reset to defaults. This cannot be undone."
+        confirmLabel="Reset All"
+        destructive
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+      />
+
+      {/* BUG 6 FIX: confirmation toast after clearing history */}
+      {toast && (
+        <div
+          role="status"
+          className="fixed bottom-24 md:bottom-8 left-1/2 z-[110] -translate-x-1/2 animate-panel-up"
+        >
+          <div className="flex items-center gap-2 rounded-full glass-strong border border-xan-border px-4 py-2.5 text-sm font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.5)]">
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            {toast}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

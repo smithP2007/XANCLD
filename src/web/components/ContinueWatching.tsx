@@ -1,7 +1,10 @@
 import { useRef } from "react";
 import { Link } from "react-router-dom";
 import { History, Play, ChevronLeft, ChevronRight } from "lucide-react";
-import { useWatchHistory, type HistoryEntry } from "../hooks/useSettings";
+// BUG 10 FIX: progress math centralized in clampProgressPct — the local
+// copy missed Number.isFinite (NaN/Infinity durations produced NaN% or
+// >100% widths) and didn't clamp currentTime overruns.
+import { useWatchHistory, clampProgressPct, type HistoryEntry } from "../hooks/useSettings";
 import { formatTimeAgo } from "../hooks/useCountdownTick";
 
 interface Grouped {
@@ -35,8 +38,8 @@ function groupByAnime(history: HistoryEntry[]): Grouped[] {
 }
 
 function formatProgress(timestamp: number, duration: number): number {
-  if (!duration || duration <= 0) return 0;
-  return Math.min(100, Math.max(0, (timestamp / duration) * 100));
+  // BUG 10 FIX: delegate to the shared guarded + clamped helper
+  return clampProgressPct(timestamp, duration);
 }
 
 // v4 ROSA: NEW FORM — the progress bar moved to the TOP edge of the card

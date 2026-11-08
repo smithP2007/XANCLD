@@ -1,0 +1,2543 @@
+================================================================================
+  XANCLD AI REPLICATION GUIDE
+  Expanding Title Hover Engine + 60fps Smoothness Upgrade & the Complete
+  Catalog of 14 Bugs Found & Fixed on top of smithP2007/XANCLD
+================================================================================
+
+BASE REVISION : smithP2007/XANCLD @ b06d6af ("fix: translucent glass episode
+                badge - blurred dark pill, v4.4.5") - current upstream HEAD.
+DELIVERABLE   : self-contained, AI-executable plain-text specification. Any
+                coding AI can replicate the EXACT changes on a fresh clone by
+                applying Parts 1-4 in order.
+
+================================================================================
+PART 1: AI EXECUTION PROMPT & MASTER CHECKLIST
+================================================================================
+
+1.1  SYSTEM PROMPT - READ THIS FIRST (for any LLM / coding agent)
+--------------------------------------------------------------------------------
+You are modifying a fresh clone of https://github.com/smithP2007/XANCLD
+(Hono + Vite 8 + React 19 + Tailwind 4, deployed on Cloudflare Workers).
+Apply the changes below EXACTLY, in the order given. Rules:
+
+  R1. Work file-by-file following the summary table in 1.2. For each file the
+      guide gives you EITHER the exact unified diff to reproduce (Part 3) OR
+      the complete replacement code (new files, Part 2 / Part 4).
+  R2. Every diff in this guide is a real `diff -u` captured against base
+      revision b06d6af. If your working tree already contains a hunk (the
+      upstream moved), match INTENT and CONTEXT, not byte offsets.
+  R3. Do not "improve" anything outside the documented scope. The value of
+      this guide is exactness: same class names, same timing tokens
+      (0.42s cubic-bezier(0.22, 1, 0.36, 1)), same comments, same log lines.
+  R4. New files must be created verbatim from the code blocks given here
+      (ExpandingCardTitle.tsx in Part 2; server.ts in Part 4).
+  R5. After every 4-5 files run `bun run lint` (tsc --noEmit). After all
+      files run `bun run build` (vite build) and fix any drift before
+      continuing.
+  R6. The repo's own fix ledger lives in code comments (B3, H-1, M-15, L-15,
+      v4.4.x ...). NEVER delete or rewrite existing ledger comments; this
+      guide's changes ADD new entries in the same style (BUG n FIX).
+  R7. Verification checklist at the very end (1.3) must pass before you
+      declare the task complete.
+
+1.2  SUMMARY TABLE - ALL FILES TOUCHED (Parts 1-3)
+--------------------------------------------------------------------------------
+ #  FILE                                             NEW/MOD   CHANGE
+--------------------------------------------------------------------------------
+  1  src/web/hooks/useSettings.ts                    MOD   Part 2 settings state
+                                                            (expandingTitleHover,
+                                                            activeHoverStyle) +
+                                                            legacy migration +
+                                                            clampProgressPct()
+                                                            helper (Bug 10).
+  2  src/web/components/ExpandingCardTitle.tsx       NEW   The 60fps expanding
+                                                            title engine (Part 2).
+  3  src/web/components/AnimeCard.tsx                MOD   Bottom-anchored title
+                                                            zone + engine mount.
+  4  src/web/components/SectionRow.tsx               MOD   Bug 1: 10px hover
+                                                            headroom (pt-2.5
+                                                            pb-4 -mt-2.5).
+  5  src/web/components/HeroCarousel.tsx             MOD   Bug 2: 8-slide cap,
+                                                            wrapping dots, mobile
+                                                            offsets. Bug 3: pause
+                                                            on hidden tab.
+  6  src/web/index.css                               MOD   Part 2 engine CSS
+                                                            (3 hover styles) +
+                                                            Bug 4: explicit
+                                                            reduced-motion rules.
+  7  src/web/routes/MyLibrary.tsx                    MOD   Bug 5: ExpandingCardTitle
+                                                            in bookmark cards +
+                                                            ListCard. Bug 14a:
+                                                            watchlistMap O(1).
+                                                            Bug 6: ConfirmDialog.
+  8  src/web/routes/History.tsx                      MOD   Bug 6: ConfirmDialog +
+                                                            clear-history toast.
+  9  src/web/routes/Settings.tsx                     MOD   Bug 6: ConfirmDialog
+                                                            + toast. Part 2: 3-style
+                                                            live preview grid.
+ 10  src/web/routes/Watch.tsx                        MOD   Bug 7: pinned-source
+                                                            loop skips disabled
+                                                            providers + early break.
+ 11  src/web/components/VideoPlayer.tsx              MOD   Bug 8: playback watchdog,
+                                                            hls.stopLoad/detachMedia,
+                                                            blank <video> src, exit
+                                                            fullscreen on unmount.
+ 12  src/web/routes/Browse.tsx                       MOD   Bug 9: document.title
+                                                            else-branch + unmount
+                                                            reset.
+ 13  src/web/components/ContinueWatching.tsx         MOD   Bug 10: shared clamped
+                                                            progress helper.
+ 14  src/web/components/command/CommandMenu.tsx      MOD   Bug 10: shared clamped
+                                                            progress helper.
+ 15  src/web/lib/anilist.ts                          MOD   Bug 13: inFlight dedup,
+                                                            bounded LRU cache,
+                                                            502/503/504 retries.
+                                                            Bug 11: isSafeExternalUrl
+                                                            protocol guard.
+ 16  src/web/main.tsx                                MOD   Bug 12: <AppErrorBoundary>
+                                                            global boundary with
+                                                            Reload App / Back to Home.
+ 17  src/worker/index.ts                             MOD   Bug 14b: ASSETS binding
+                                                            guard (c.env?.ASSETS).
+--------------------------------------------------------------------------------
+PART 4 (optional) additionally adds:  server.ts (NEW), package.json (MOD -
+dev:local / start:local scripts + 4 dev deps).
+
+1.3  MASTER CHECKLIST (apply in this order)
+--------------------------------------------------------------------------------
+  [ ] 1. useSettings.ts        - add TitleHoverStyle + 2 settings fields +
+                                 loadSettings() legacy migration +
+                                 clampProgressPct() export        (2.5 / Bug 10)
+  [ ] 2. ExpandingCardTitle.tsx - create NEW file verbatim       (2.3)
+  [ ] 3. index.css             - append engine CSS + reduced-motion
+                                 hardening                        (2.4 / Bug 4)
+  [ ] 4. AnimeCard.tsx         - relative frame + fixed spacer +
+                                 engine mount                     (2.6)
+  [ ] 5. SectionRow.tsx        - headroom fix                     (Bug 1)
+  [ ] 6. HeroCarousel.tsx      - cap + dots + tab-pause           (Bugs 2+3)
+  [ ] 7. MyLibrary.tsx         - titles + watchlistMap + dialog   (Bugs 5+6+14a)
+  [ ] 8. History.tsx           - dialog + toast                   (Bug 6)
+  [ ] 9. Settings.tsx          - dialogs + toast + preview grid   (Bug 6 + 2.7)
+  [ ] 10. Watch.tsx            - pinned loop guards               (Bug 7)
+  [ ] 11. VideoPlayer.tsx      - full teardown                    (Bug 8)
+  [ ] 12. Browse.tsx           - document.title lifecycle         (Bug 9)
+  [ ] 13. ContinueWatching.tsx + CommandMenu.tsx - clamp helper   (Bug 10)
+  [ ] 14. anilist.ts           - dedup + cache + retries + URL
+                                 guard                            (Bugs 13+11)
+  [ ] 15. main.tsx             - AppErrorBoundary                 (Bug 12)
+  [ ] 16. src/worker/index.ts  - ASSETS guard                     (Bug 14b)
+  [ ] 17. bun run lint         - zero errors
+  [ ] 18. bun run build        - zero errors
+  [ ] 19. (optional) Part 4    - server.ts + package.json + dev deps
+  [ ] 20. Manual smoke test    - home feed renders; hover a 2-line card
+                                 title and watch it unfold with zero grid
+                                 shift; Settings > Appearance > Live preview
+                                 pins all three styles; History "Clear All"
+                                 opens the glass dialog + toast; /api/health
+                                 returns {"ok":true}.
+
+================================================================================
+PART 2: EXPANDING TITLE HOVER ENGINE & 60FPS SMOOTHNESS ARCHITECTURE
+================================================================================
+
+2.1  WHY STANDARD CSS HOVER WAS NOT SMOOTH - THE THREE ROOT CAUSES
+--------------------------------------------------------------------------------
+The naive implementations all fail for measurable reasons:
+
+  (a) THE max-height LIE. Animating `max-height: 1.35rem -> 5.6rem` (90px)
+      when a 2-line title is only ~35px tall means the transition curve
+      spends its early frames covering the INVISIBLE 35->90px zone:
+        - hover-in:  the animation hits a hard ceiling early; the visible
+          motion only covers a fraction of the timed curve.
+        - hover-out: a ~200ms dead delay while max-height counts down from
+          90px to 35px with nothing visibly changing.
+  (b) SINGLE-NODE RE-WRAP SNAP. Toggling `white-space: nowrap -> normal` (or
+      -webkit-line-clamp) on ONE text element re-wraps on frame 0 - the
+      words visibly jump mid-transition. A text node cannot animate between
+      two different layout states.
+  (c) NORMAL-FLOW GRID REFLOW. Growing the title box in normal document
+      flow stretches the height of the entire CSS grid row on hover,
+      pushing every card in the rows below down the page - "the page
+      jumps". Hover is supposed to be local; this makes it global.
+
+2.2  THE 60fps SILKY-SMOOTH FIX - THREE MOVES
+--------------------------------------------------------------------------------
+  MOVE A - EXACT PIXEL HEIGHT INTERPOLATION (--title-full-h)
+    A hidden, pre-wrapped MEASUREMENT LAYER (.anime-card-title-measure)
+    renders the same title with normal white-space at the same width as the
+    visible layers. A ResizeObserver + useLayoutEffect records its exact
+    rendered height and exposes it as the CSS custom property
+    `--title-full-h: 35px` (for example). The expanded layer animates
+    `height: 0 -> var(--title-full-h)` - the transition curve is spent
+    ENTIRELY on visible motion. `data-multiline="true"` is set only when
+    the title actually wraps onto 2+ lines (height > 1.6 x line-height);
+    single-line titles remain COMPLETELY STATIC on hover.
+
+  MOVE B - DUAL-LAYER CROSSFADE
+    Two sibling layers share identical typography:
+      .anime-card-title-collapsed - 1-line `truncate` with ellipsis, fades
+                                    out (opacity 0.2s ease)
+      .anime-card-title-expanded  - full wrapped text, fades in and glides
+                                    translateY(6px) -> 0 over
+                                    0.42s cubic-bezier(0.22, 1, 0.36, 1)
+    No re-wrap ever happens mid-transition; the eye reads it as one text
+    block smoothly unfolding.
+
+  MOVE C - ANCHORED BOTTOM EXPANSION (ZERO GRID REFLOW)
+    The parent card (AnimeCard) reserves a FIXED-HEIGHT flow spacer at its
+    bottom: `<div class="relative h-[56px] md:h-[60px]">`. The title
+    container is anchored inside the card FRAME (which gains `relative`)
+    with `position: absolute; bottom: 0; left: 0; right: 0; z-index: 20`.
+    On hover the wrapped title grows UPWARD over the poster artwork; the
+    spacer never changes height; the grid never reflows; the cards below
+    never move. The card frame's `overflow-hidden` clips the expansion at
+    the card edge so nothing bleeds outside the card.
+
+  THE THREE STYLES (Settings > Appearance > Hover style)
+    stretch = "Fluid Stretch"  : title unfolds in its reserved zone, the
+                                 container nudges up 2px (default).
+    elevate = "Floating Pill"  : the expanded title sits in a floating
+                                 glass pill that lifts 6px above the
+                                 poster (border + blur + shadow).
+    glow    = "Neon Accent"    : crimson/violet neon text-glow plus a
+                                 gradient neon underline that scales
+                                 scaleX(0.18) -> scaleX(1).
+    All three are PURE CSS keyed on `data-style` - zero JS per frame.
+
+2.3  NEW FILE (verbatim): src/web/components/ExpandingCardTitle.tsx
+--------------------------------------------------------------------------------
+
+----------------------------------------------------------------
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useSettings, type TitleHoverStyle } from "../hooks/useSettings";
+
+// ─── ExpandingCardTitle — the 60fps Expanding Title Hover engine ──────────
+//
+// WHY THIS EXISTS (root causes the naive approach died of):
+//
+//  1. `max-height` transitions lie. Animating max-height 1.35rem → 5.6rem
+//     (90px) when a 2-line title is only ~35px tall means the transition
+//     curve spends its early frames covering the invisible 35→90px zone:
+//     the visible motion starts late on hover-in (hard ceiling hit early is
+//     the reverse problem on hover-out — a ~200ms dead delay while
+//     max-height counts down 90→35px with nothing visibly changing).
+//
+//  2. Toggling `white-space: nowrap → normal` (or -webkit-line-clamp) on a
+//     SINGLE text node snaps on frame 0 — words jump mid-transition.
+//
+//  3. Growing the title box in normal flow stretches the whole CSS grid row
+//     on hover, pushing every card in the rows below down the page.
+//
+// THE FIX, in three moves:
+//
+//  A. EXACT PIXEL HEIGHT INTERPOLATION — a hidden pre-wrapped measurement
+//     layer (`.anime-card-title-measure`) records the true multi-line pixel
+//     height of the title via ResizeObserver + useLayoutEffect, exposed as
+//     `--title-full-h` (e.g. 35px). The expanded layer animates
+//     height 0 → var(--title-full-h): the transition curve is spent
+//     ENTIRELY on visible motion. data-multiline="true" is set only when
+//     the title actually wraps — single-line titles stay 100% static.
+//
+//  B. DUAL-LAYER CROSSFADE — `.anime-card-title-collapsed` (1-line
+//     truncate + ellipsis) fades out while `.anime-card-title-expanded`
+//     (wrapped text) fades in with a 6px translateY glide over
+//     0.42s cubic-bezier(0.22, 1, 0.36, 1). No re-wrap snap: the two
+//     layers share identical typography.
+//
+//  C. BOTTOM-ANCHORED EXPANSION (zero grid reflow) — the parent card
+//     reserves a fixed-height flow spacer (h-[56px] md:h-[60px]) and the
+//     title container is position:absolute bottom:0 inside the card frame,
+//     so expansion grows UPWARD over the poster artwork. Grid rows below
+//     never move.
+//
+// The three styles (stretch / elevate / glow) are pure CSS keyed on
+// data-style — see the .anime-card-title-container blocks in index.css.
+
+interface Props {
+  title: string;
+  /** Small meta row rendered under the title (score · status · year / EP). */
+  meta?: ReactNode;
+  /** Force a hover style — used by the Settings live preview cards. */
+  styleOverride?: TitleHoverStyle;
+  /** White text + drop shadow for titles laid over poster artwork. */
+  onArtwork?: boolean;
+  className?: string;
+}
+
+export function ExpandingCardTitle({ title, meta, styleOverride, onArtwork, className = "" }: Props) {
+  const [settings] = useSettings();
+  const hoverEnabled = settings.expandingTitleHover;
+  const style: TitleHoverStyle = styleOverride ?? settings.activeHoverStyle;
+
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [fullH, setFullH] = useState(0);
+  const [multiline, setMultiline] = useState(false);
+
+  // (A) Exact height measurement. The measure layer is absolutely
+  //     positioned left-0 right-0 inside the title container, so its width
+  //     tracks the container exactly like the visible layers — a
+  //     ResizeObserver on it re-measures on card resize (grid columns,
+  //     breakpoint flips) with zero layout thrash.
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.getBoundingClientRect().height;
+      setFullH(Math.round(h * 100) / 100);
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || 18;
+      setMultiline(h > lh * 1.6);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [title]);
+
+  // Setting disabled → render the static legacy title (1-line truncate).
+  if (!hoverEnabled) {
+    return (
+      <div className={`min-w-0 ${onArtwork ? "anime-card-title-onartwork" : ""} ${className}`}>
+        <span className="block truncate text-[13px] font-bold leading-snug tracking-tight text-foreground">
+          {title}
+        </span>
+        {meta}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`anime-card-title-container group/xantitle relative ${onArtwork ? "anime-card-title-onartwork" : ""} ${className}`}
+      data-style={style}
+      data-multiline={multiline ? "true" : "false"}
+    >
+      {/* Hidden measurement layer — pre-wrapped, invisible, out of a11y tree */}
+      <span
+        ref={measureRef}
+        aria-hidden="true"
+        className="anime-card-title-measure anime-card-title-text absolute left-0 right-0 top-0 invisible pointer-events-none select-none"
+      >
+        {title}
+      </span>
+
+      <span className="relative block">
+        {/* Collapsed layer — 1 line, truncate + ellipsis */}
+        <span className="anime-card-title-collapsed anime-card-title-text block truncate text-[13px] font-bold leading-snug tracking-tight">
+          {title}
+        </span>
+        {/* Expanded layer — full wrapped text, grows 0 → --title-full-h */}
+        <span
+          className="anime-card-title-expanded anime-card-title-text block text-[13px] font-bold leading-snug tracking-tight"
+          style={{ "--title-full-h": `${fullH}px` } as CSSProperties}
+        >
+          {title}
+        </span>
+      </span>
+
+      {meta && <div className="anime-card-title-meta">{meta}</div>}
+    </div>
+  );
+}
+----------------------------------------------------------------
+
+
+
+2.4  ENGINE CSS - append to src/web/index.css (full block)
+--------------------------------------------------------------------------------
+The block is inserted immediately BEFORE the existing "/* --- Reduced motion
+--- */" section. It defines the container/layers, the hover + pinned states,
+the three data-style variants, and (for Bug 4) hardens reduced-motion. The
+verbatim insertion diff is embedded in Part 3 (index.css diff, Bug 4 entry).
+
+2.5  SETTINGS STATE - src/web/hooks/useSettings.ts
+--------------------------------------------------------------------------------
+Added: `expandingTitleHover: boolean` (default true) and
+`activeHoverStyle: "stretch" | "elevate" | "glow"` (default "stretch"),
+plus loadSettings() migration so any LEGACY style name ("scrim", "curtain",
+"strip") cleanly normalizes to "stretch" instead of leaking an invalid
+data-style attribute that would silently disable all CSS. Also exports
+clampProgressPct() - used by Bug 10. Full diff: PART 3 / useSettings.
+
+2.6  ANIMECARD INTEGRATION - bottom-anchored overlay + spacer
+--------------------------------------------------------------------------------
+AnimeCard changes: (1) card root gains `xan-title-hover-group` next to
+`group`; (2) the card frame div gains `relative` so the absolute title
+container anchors to the frame; (3) the old info block (h3 + meta row)
+becomes a fixed-height spacer with the absolutely-anchored engine inside.
+Full diff: PART 3 / AnimeCard.
+
+2.7  SETTINGS SIDE-BY-SIDE LIVE PREVIEW
+--------------------------------------------------------------------------------
+Settings > Appearance gains three Rows:
+  - "Expanding title hover"      - master toggle (settings.expandingTitleHover)
+  - "Hover style"                - Stretch / Elevate / Glow pill group
+  - "Live preview"               - 3-column interactive preview grid
+The preview grid renders three REAL cards (same ExpandingCardTitle + fixed
+spacer architecture as AnimeCard, with a pure-gradient fake poster - no
+network image needed), one per style, each with a
+"Hover with mouse to preview" / "Expanded preview pinned ON" toggle button.
+Pinning works through the `.xan-title-force-expand` CSS hook (any ancestor
+with that class forces the expanded state without hover), so the comparison
+works on touch devices too. The card matching the active style is badged
+"Active". Full diff: PART 3 / Settings.
+
+
+
+================================================================================
+PART 3: ALL 14 BUGS FOUND & THEIR EXACT FIXES
+(what was wrong + root cause + exact fix + complete unified diffs)
+================================================================================
+
+
+================================================================================
+BUG 1: HORIZONTAL CAROUSEL HOVER CLIPPING (SECTIONROW)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  Horizontal scroll rows used `overflow-x-auto` with only `pt-2 pb-2`
+  headroom. When an AnimeCard lifted on hover (`-translate-y-1.5` = 6px
+  upward) and cast its enlarged shadow, the top of the card border and the
+  top of the shadow were sliced off by the scroll container's overflow
+  boundary: `overflow-x: auto` computes the untouched `overflow-y` to
+  `auto` (CSS Overflow L3), so the padding box clips anything painted above
+  it. 8px of headroom was still not enough for the ~4px shadow bleed on
+  bright backgrounds.
+
+ROOT CAUSE
+  Scroll containers clip at the PADDING box edge; the previous padding
+  budget under-counted the shadow bleed that comes with the hover lift.
+
+FIX DONE
+  Scroll container padding is now `pt-2.5 pb-4 -mt-2.5`: 10px of top
+  headroom (6px lift + 4px shadow bleed) and 16px below so the enlarged
+  hover shadow is not sliced at the bottom either. `-mt-2.5` compensates
+  the top padding so the cards keep their exact original position relative
+  to the header - net layout shift: 0. Upward overhang is never scrollable
+  overflow, so no vertical scrollbar can appear and horizontal snap/scroll
+  is untouched.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/components/SectionRow.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/components/SectionRow.tsx b/src/web/components/SectionRow.tsx
+index 2112734..f3b82cb 100644
+--- a/src/web/components/SectionRow.tsx
++++ b/src/web/components/SectionRow.tsx
+@@ -70,21 +70,24 @@ export function SectionRow({ title, subtitle, icon, children, badge }: Props) {
+         </div>
+       </div>
+       {/* Horizontal scroller with scroll-snap.
+-          v4.4.1 HOVER-CLIP FIX: `overflow-x: auto` makes this a scroll
+-          container, and per CSS Overflow L3 the untouched `overflow-y`
+-          then computes to `auto` — so the padding box clips anything
++          BUG 1 FIX — HOVER-CLIP, THE FULL 10px BUDGET: `overflow-x: auto`
++          makes this a scroll container, and per CSS Overflow L3 the untouched
++          `overflow-y` computes to `auto`, so the padding box clips anything
+           painted above it. Cards lift -6px on hover (AnimeCard
+-          `-translate-y-1.5` + ~2px shadow bleed above), but the card top
+-          sat FLUSH with this box (headroom 0px), so every hover shaved
+-          the top off. `pt-2` gives the padding box 8px of vertical
+-          headroom; `-mt-2` compensates so the cards keep their exact
+-          original position relative to the header (net layout shift: 0).
+-          Scroll containers clip at the PADDING box edge, so 8px is enough;
++          `-translate-y-1.5`) + cast a soft rose glow shadow that bleeds ~4px
++          higher still — an 8px budget (pt-2) shaved the top of the SHADOW on
++          bright backgrounds. The container is now `pt-2.5 pb-4 -mt-2.5`: 10px
++          of top headroom (6px lift + 4px shadow bleed) and 16px below so the
++          enlarged hover shadow isn't sliced at the bottom either. `-mt-2.5`
++          compensates the top padding so cards keep their exact original
++          position relative to the header (net layout shift: 0; pb-4 trades
++          against the section's own space-y-4 gap which it replaces).
++          Scroll containers clip at the PADDING box edge, so 10px is enough;
+           upward overhang is never scrollable overflow, so no vertical
+           scrollbar can appear and horizontal snap/scroll is untouched. */}
+       <div
+         ref={scrollRef}
+-        className="-mt-2 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2 mask-fade-r snap-x snap-mandatory scroll-pl-4"
++        className="-mt-2.5 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2.5 pb-4 mask-fade-r snap-x snap-mandatory scroll-pl-4"
+       >
+         {children}
+       </div>
+
+
+================================================================================
+BUG 2: HERO CAROUSEL PAGINATION DOT OVERFLOW & MOBILE CONTROL COLLISION (HEROCAROUSEL)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  1) When `items` had up to 20 anime, all 20 pagination dots rendered in an
+     unwrapped flex row, colliding with the info column on narrow
+     viewports.
+  2) On mobile (< 768px) the bottom control clusters sat a few pixels above
+     the card bottom edge, overlapping the fixed mobile glass bottom
+     navigation bar (height calc(4rem + env(safe-area-inset-bottom))).
+
+ROOT CAUSE
+  No cap on slide count + no wrap strategy for the dots; bottom offsets
+  never accounted for the fixed bottom nav on small screens.
+
+FIX DONE
+  - `slides = anime.slice(0, 8)` caps the carousel at 8 slides.
+  - Dots row gains `flex-wrap max-w-[55vw]` so it wraps defensively and
+    never crosses the safe zone.
+  - Both bottom clusters raised on mobile to `bottom-20` and restored on
+    desktop (`md:bottom-7` for dots, `md:bottom-6` for arrows).
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/components/HeroCarousel.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/components/HeroCarousel.tsx b/src/web/components/HeroCarousel.tsx
+index a783fd2..ca24147 100755
+--- a/src/web/components/HeroCarousel.tsx
++++ b/src/web/components/HeroCarousel.tsx
+@@ -33,10 +33,19 @@ function sanitizeDescription(d: string | null | undefined): string {
+ export function HeroCarousel({ anime, onActiveChange }: Props) {
+   const [active, setActive] = useState(0);
+   const [hoverPaused, setHoverPaused] = useState(false);
++  // BUG 3 FIX: the auto-advance timer used to keep cycling while the browser
++  // tab was backgrounded — switching back landed mid-slide-jump. A
++  // visibilitychange listener freezes rotation whenever the tab is hidden
++  // (hover-pause already covered the cursor-over-hero case).
++  const [isTabHidden, setIsTabHidden] = useState(false);
+   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+-  const slides = anime.slice(0, 5);
+-  const paused = hoverPaused;
++  // BUG 2 FIX: cap the carousel at 8 slides. The API can hand back up to 20
++  // items; 20 pagination dots in one unwrapped row collided with the info
++  // column on narrow viewports. 8 is the sweet spot (marketing-real estate:
++  // nobody clicks dot #14) and the dots row now ALSO wraps defensively.
++  const slides = anime.slice(0, 8);
++  const paused = hoverPaused || isTabHidden;
+
+   const go = useCallback(
+     (dir: 1 | -1) => setActive((i) => (i + dir + slides.length) % slides.length),
+@@ -52,7 +61,15 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
+     onActiveChange?.(slides[active]?.coverImage?.color ?? null);
+   }, [active, slides, onActiveChange]);
+
+-  // Auto-rotate (paused on hover OR when user has explicitly paused)
++  // BUG 3 FIX (part 2): track document visibility
++  useEffect(() => {
++    const onVis = () => setIsTabHidden(document.hidden);
++    document.addEventListener("visibilitychange", onVis);
++    return () => document.removeEventListener("visibilitychange", onVis);
++  }, []);
++
++  // Auto-rotate (paused on hover OR when user has explicitly paused OR when
++  // the tab is hidden — BUG 3)
+   useEffect(() => {
+     if (paused || slides.length <= 1) return;
+     timerRef.current = setTimeout(() => go(1), SLIDE_MS);
+@@ -228,11 +245,16 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
+         </div>
+
+         {/* Progress segments — bottom-left inside the card (repositioned).
++            BUG 2 FIX: `flex-wrap` + `max-w-[55vw]` keep up to 8 dots inside
++            the safe zone on narrow viewports instead of colliding with the
++            info column, and the mobile bottom offset rises to bottom-20 so
++            the cluster clears the fixed glass bottom nav
++            (calc(4rem + env(safe-area-inset-bottom))).
+             v4.3 LIVELY: the active segment fills w-4→w-9 over exactly the
+             7s auto-advance window (animation restarts each slide change and
+             while unpaused — the timer resets on the same triggers, so they
+             stay in sync). Paused: static full bar reads as "held". */}
+-        <div className="absolute bottom-6 left-6 z-20 flex items-center gap-1.5 md:bottom-7 md:left-8">
++        <div className="absolute bottom-20 left-6 z-20 flex max-w-[55vw] flex-wrap items-center gap-1.5 md:bottom-7 md:left-8">
+           {slides.map((s, i) => (
+             <button
+               key={s.id}
+@@ -247,8 +269,10 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
+           ))}
+         </div>
+
+-        {/* Arrow cluster — bottom-right inside the card (repositioned) */}
+-        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 md:bottom-6 md:right-6">
++        {/* Arrow cluster — bottom-right inside the card (repositioned).
++            BUG 2 FIX: mobile bottom offset raised to bottom-20 (clears the
++            fixed glass bottom nav bar + safe-area inset); desktop unchanged. */}
++        <div className="absolute bottom-20 right-4 z-20 flex items-center gap-2 md:bottom-6 md:right-6">
+           <button
+             onClick={() => go(-1)}
+             aria-label="Previous slide"
+
+
+================================================================================
+BUG 3: HERO CAROUSEL AUTO-ADVANCE FIRING WHILE TAB IS HIDDEN OR HOVERED (HEROCAROUSEL)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  The 7000ms auto-advance timer kept cycling slides while the user hovered
+  over the hero CTA/controls or switched browser tabs, causing abrupt
+  slide jumps right as the user clicked "Play" or returned to the tab.
+
+ROOT CAUSE
+  The rotation effect only knew about the hover flag; document visibility
+  was never consulted.
+
+FIX DONE
+  Added an `isTabHidden` state driven by a `visibilitychange` listener;
+  `paused = hoverPaused || isTabHidden` now freezes the interval whenever
+  the cursor is over the hero banner (pre-existing hover pause) OR the
+  browser tab is backgrounded. Coming back to the tab resumes a FULL 7s
+  window instead of firing mid-window.
+
+================================================================================
+BUG 4: REDUCED-MOTION CSS RULE MISSING CUSTOM KEYFRAME CLASSES (INDEX.CSS)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  Enabling "Reduced motion" (html.xan-reduce-motion) or the OS-level
+  `prefers-reduced-motion: reduce` did not STOP `.animate-mesh`,
+  `.animate-mesh-2`, `.animate-float`, `.animate-glow-pulse` or
+  `.animate-slide-up` - the generic `animation-duration: 0.001ms` catch-all
+  still let looping ambient keyframes run (at absurd speed), and the new
+  expanding-title container transitions still animated.
+
+ROOT CAUSE
+  The global rule only shortens durations; looping infinite animations
+  keep looping. Explicit `animation: none` is required per class.
+
+FIX DONE
+  Added explicit hardening in BOTH `@media (prefers-reduced-motion: reduce)`
+  and `html.xan-reduce-motion`:
+    - `.animate-mesh`, `.animate-mesh-2`, `.animate-float`,
+      `.animate-glow-pulse`, `.animate-slide-up`  -> `animation: none !important`
+    - `.anime-card-title-container`, `.anime-card-title-text`,
+      `.anime-card-title-collapsed`, `.anime-card-title-expanded`,
+      `.anime-card-title-meta` and the glow underline pseudo-element
+      -> `transition: none !important`
+  The same diff also contains the complete Expanding Title Hover engine CSS
+  (Part 2.4) since both live in index.css.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/index.css.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/index.css b/src/web/index.css
+index 73ed052..b298140 100644
+--- a/src/web/index.css
++++ b/src/web/index.css
+@@ -778,6 +778,131 @@ body {
+   mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+ }
+
++/* ─── Expanding Title Hover engine (Part 2) ──────────────────────────
++   Architecture: see ExpandingCardTitle.tsx header comment.
++   The container is ABSOLUTELY anchored bottom:0 inside a fixed-height
++   flow spacer in the card (AnimeCard), so expansion grows upward over
++   the artwork and the grid never reflows. Height animates to the exact
++   measured pixel value (--title-full-h) — never max-height. */
++.anime-card-title-container {
++  /* Neutralize the Tailwind group default; we own this element's motion */
++  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
++}
++.anime-card-title-text {
++  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
++}
++.anime-card-title-onartwork .anime-card-title-text {
++  color: #fff;
++  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
++}
++.anime-card-title-measure {
++  /* Same width as the visible layers, pre-wrapped; pure measurement */
++  white-space: normal;
++  word-break: break-word;
++}
++
++/* Collapsed layer: 1-line truncate, fades out on hover */
++.anime-card-title-collapsed {
++  opacity: 1;
++  transition: opacity 0.2s ease;
++}
++/* Expanded layer: full wrapped text, height 0 → exact px */
++.anime-card-title-expanded {
++  height: 0;
++  opacity: 0;
++  overflow: hidden;
++  transform: translateY(6px);
++  white-space: normal;
++  word-break: break-word;
++  transition:
++    height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
++    opacity 0.28s ease,
++    transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
++  will-change: height, opacity, transform;
++}
++.anime-card-title-meta {
++  transition: opacity 0.28s ease, transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
++}
++
++/* ── Hover-in / pinned state (multiline titles only; single-line titles
++      stay completely static on hover) ──
++   `.xan-title-force-expand` is the Settings preview's "pinned ON" hook —
++   any ancestor with that class forces the expanded state without hover. */
++.xan-title-hover-group:hover .anime-card-title-container[data-multiline="true"] .anime-card-title-collapsed,
++.anime-card-title-container[data-pinned="true"] .anime-card-title-collapsed,
++.xan-title-force-expand .anime-card-title-collapsed {
++  opacity: 0;
++}
++.xan-title-hover-group:hover .anime-card-title-container[data-multiline="true"] .anime-card-title-expanded,
++.anime-card-title-container[data-pinned="true"] .anime-card-title-expanded,
++.xan-title-force-expand .anime-card-title-expanded {
++  height: var(--title-full-h, 35px);
++  opacity: 1;
++  transform: translateY(0);
++}
++
++/* ── STYLE 1: Fluid Stretch ("stretch") — default. The card frame gets a
++      subtle lift; the title unfolds in its reserved zone. ── */
++.xan-title-hover-group:hover .anime-card-title-container[data-style="stretch"],
++.xan-title-force-expand .anime-card-title-container[data-style="stretch"] {
++  transform: translateY(-2px);
++}
++
++/* ── STYLE 2: Floating Pill ("elevate") — the expanded title sits in a
++      floating glass pill that lifts above the poster. ── */
++.anime-card-title-container[data-style="elevate"] {
++  margin: 0 -0.25rem;
++  padding: 0.25rem 0.5rem;
++  border-radius: 0.75rem;
++}
++.xan-title-hover-group:hover .anime-card-title-container[data-style="elevate"][data-multiline="true"],
++.anime-card-title-container[data-style="elevate"][data-pinned="true"],
++.xan-title-force-expand .anime-card-title-container[data-style="elevate"] {
++  transform: translateY(-6px);
++  background: color-mix(in srgb, var(--card, #16141f) 88%, transparent);
++  border: 1px solid rgba(255, 255, 255, 0.08);
++  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
++  backdrop-filter: blur(12px);
++  -webkit-backdrop-filter: blur(12px);
++}
++html:not(.dark) .xan-title-hover-group:hover .anime-card-title-container[data-style="elevate"][data-multiline="true"],
++html:not(.dark) .anime-card-title-container[data-style="elevate"][data-pinned="true"],
++html:not(.dark) .xan-title-force-expand .anime-card-title-container[data-style="elevate"] {
++  background: rgba(255, 255, 255, 0.92);
++  border-color: rgba(0, 0, 0, 0.08);
++}
++
++/* ── STYLE 3: Neon Accent ("glow") — crimson glow text + neon underline. ── */
++.xan-title-hover-group:hover .anime-card-title-container[data-style="glow"][data-multiline="true"] .anime-card-title-expanded,
++.anime-card-title-container[data-style="glow"][data-pinned="true"] .anime-card-title-expanded,
++.xan-title-force-expand .anime-card-title-container[data-style="glow"] .anime-card-title-expanded {
++  text-shadow:
++    0 0 10px rgba(233, 69, 96, 0.55),
++    0 0 26px rgba(123, 47, 247, 0.3),
++    0 2px 8px rgba(0, 0, 0, 0.85);
++}
++.anime-card-title-container[data-style="glow"]::after {
++  content: "";
++  position: absolute;
++  left: 0;
++  right: 0;
++  bottom: -4px;
++  height: 2px;
++  border-radius: 2px;
++  background: linear-gradient(90deg, var(--color-xan-crimson, #e94560), var(--color-xan-violet, #7b2ff7));
++  transform: scaleX(0.18);
++  transform-origin: left center;
++  opacity: 0.55;
++  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
++  pointer-events: none;
++}
++.xan-title-hover-group:hover .anime-card-title-container[data-style="glow"][data-multiline="true"]::after,
++.anime-card-title-container[data-style="glow"][data-pinned="true"]::after,
++.xan-title-force-expand .anime-card-title-container[data-style="glow"]::after {
++  transform: scaleX(1);
++  opacity: 1;
++}
++
+ /* ─── Reduced motion ─── */
+ .xan-reduce-motion *,
+ .xan-reduce-motion *::before,
+@@ -796,6 +921,44 @@ body {
+   }
+ }
+
++/* BUG 4 FIX: the generic duration-0.001ms catch-all above still lets
++   looping ambient keyframes run (at absurd speed) and lets the expanding
++   title CONTAINER transitions animate. These explicit rules kill them
++   completely — `animation: none` / `transition: none` — in BOTH the OS
++   media query and the runtime .xan-reduce-motion flag. */
++.xan-reduce-motion .animate-mesh,
++.xan-reduce-motion .animate-mesh-2,
++.xan-reduce-motion .animate-float,
++.xan-reduce-motion .animate-glow-pulse,
++.xan-reduce-motion .animate-slide-up {
++  animation: none !important;
++}
++.xan-reduce-motion .anime-card-title-container,
++.xan-reduce-motion .anime-card-title-text,
++.xan-reduce-motion .anime-card-title-collapsed,
++.xan-reduce-motion .anime-card-title-expanded,
++.xan-reduce-motion .anime-card-title-meta,
++.xan-reduce-motion .anime-card-title-container[data-style="glow"]::after {
++  transition: none !important;
++}
++@media (prefers-reduced-motion: reduce) {
++  .animate-mesh,
++  .animate-mesh-2,
++  .animate-float,
++  .animate-glow-pulse,
++  .animate-slide-up {
++    animation: none !important;
++  }
++  .anime-card-title-container,
++  .anime-card-title-text,
++  .anime-card-title-collapsed,
++  .anime-card-title-expanded,
++  .anime-card-title-meta,
++  .anime-card-title-container[data-style="glow"]::after {
++    transition: none !important;
++  }
++}
++
+ /* ─── Xani mascot gentle float ─── */
+ @keyframes xani-float {
+   0%, 100% { transform: translateY(0); }
+
+
+================================================================================
+BUG 5: INCONSISTENT CARD TITLE HOVER IN MY LIBRARY (MYLIBRARY)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  Both the Bookmark cards and the `ListCard` grid items in MyLibrary
+  hardcoded multi-line-clamped title elements (`line-clamp-2`) instead of
+  using <ExpandingCardTitle />, so the user's Expanding Title Hover setting
+  did not work anywhere in their own Library.
+
+ROOT CAUSE
+  The engine shipped for AnimeCard only; the library screens kept their
+  pre-engine markup.
+
+FIX DONE
+  Replaced the hardcoded title blocks in BOTH the bookmark card and
+  ListCard with `<ExpandingCardTitle title={...} meta={...} />` (with
+  `onArtwork` white-text styling since these titles overlay the poster).
+  The overlay containers are bottom-anchored inside the overflow-hidden
+  poster frame, so expansion glides up over the artwork with zero reflow.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/routes/MyLibrary.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/routes/MyLibrary.tsx b/src/web/routes/MyLibrary.tsx
+index 5d31900..b773f1a 100755
+--- a/src/web/routes/MyLibrary.tsx
++++ b/src/web/routes/MyLibrary.tsx
+@@ -23,6 +23,8 @@ import {
+   STATUS_ORDER,
+ } from "../hooks/useAnimeList";
+ import { XaniMascot } from "../components/XaniMascot";
++import { ExpandingCardTitle } from "../components/ExpandingCardTitle";
++import { ConfirmDialog } from "../components/ConfirmDialog";
+
+ // Status icons + colors for section headers in the "All" tab
+ const STATUS_ICONS: Record<AnimeStatus, React.ComponentType<{ className?: string }>> = {
+@@ -48,14 +50,26 @@ export function MyLibrary() {
+   const { bookmarks, removeBookmark, clearBookmarks } = useBookmarks();
+   const { list, remove, clearAll } = useAnimeList();
+
++  // BUG 14a FIX: O(1) entry lookup. Every status count / onRemove lookup
++  // used to walk the full list (5 × filter passes per render for the counts
++  // + `list.find(...)` inside each card's remove callback). Build the map
++  // ONCE per list change and derive everything from it.
++  const watchlistMap = useMemo(() => {
++    const m = new Map<number, import("../hooks/useAnimeList").ListEntry>();
++    for (const entry of list) m.set(entry.animeId, entry);
++    return m;
++  }, [list]);
++
+   const counts = useMemo(() => {
+     const c: Record<string, number> = {
+-      all: list.length,
++      all: watchlistMap.size,
+       bookmarks: bookmarks.length,
+     };
+-    for (const s of STATUS_ORDER) c[s] = list.filter((e) => e.status === s).length;
++    // Single pass over the map values instead of one filter per status.
++    for (const s of STATUS_ORDER) c[s] = 0;
++    for (const entry of watchlistMap.values()) c[entry.status] = (c[entry.status] ?? 0) + 1;
+     return c;
+-  }, [list, bookmarks]);
++  }, [watchlistMap, bookmarks]);
+
+   // Custom status order for the "All" tab: Plan to Watch → Watching →
+   // Completed → On Hold → Dropped. This groups anime by their list status
+@@ -97,12 +111,19 @@ export function MyLibrary() {
+     { id: "DROPPED", label: "Dropped", icon: X },
+   ];
+
++  // BUG 6 FIX: native `confirm()` is silently swallowed inside sandboxed
++  // iframes (and looks jarring against the dark glass UI). All destructive
++  // actions route through the glassmorphic <ConfirmDialog /> instead.
++  const [confirmAction, setConfirmAction] = useState<"bookmarks" | "list" | null>(null);
++
+   const handleClearAll = () => {
+-    if (tab === "bookmarks") {
+-      if (confirm("Remove all bookmarks? This cannot be undone.")) clearBookmarks();
+-    } else {
+-      if (confirm("Clear entire anime list? This cannot be undone.")) clearAll();
+-    }
++    setConfirmAction(tab === "bookmarks" ? "bookmarks" : "list");
++  };
++
++  const handleConfirmClear = () => {
++    if (confirmAction === "bookmarks") clearBookmarks();
++    else clearAll();
++    setConfirmAction(null);
+   };
+
+   const handleRemove = (animeId: number) => {
+@@ -252,8 +273,13 @@ export function MyLibrary() {
+                       <Play className="h-5 w-5 text-white fill-white ml-0.5" />
+                     </div>
+                   </div>
+-                  <div className="absolute bottom-0 left-0 right-0 p-3">
+-                    <h3 className="font-medium text-sm text-white line-clamp-2 leading-snug">{b.title}</h3>
++                  <div className="absolute bottom-0 left-0 right-0 z-10 p-3 anime-card-title-anchor">
++                    {/* BUG 5 FIX: hardcoded `line-clamp-2` title replaced with
++                        <ExpandingCardTitle /> so the user's Expanding Title
++                        Hover setting works in their Library too. The overlay
++                        is bottom-anchored inside the overflow-hidden poster
++                        frame, so expansion glides up over the artwork. */}
++                    <ExpandingCardTitle title={b.title} onArtwork />
+                   </div>
+                 </div>
+               </Link>
+@@ -364,6 +390,17 @@ export function MyLibrary() {
+           </div>
+         )
+       )}
++
++      {/* BUG 6 FIX: glassmorphic confirmation dialog replaces window.confirm() */}
++      <ConfirmDialog
++        open={confirmAction !== null}
++        title={confirmAction === "bookmarks" ? "Remove all bookmarks?" : "Clear entire anime list?"}
++        description="This cannot be undone."
++        confirmLabel={confirmAction === "bookmarks" ? "Remove All" : "Clear List"}
++        destructive
++        onConfirm={handleConfirmClear}
++        onCancel={() => setConfirmAction(null)}
++      />
+     </div>
+   );
+ }
+@@ -420,11 +457,18 @@ function ListCard({
+             </div>
+           )}
+           {/* Bottom content */}
+-          <div className="absolute bottom-0 left-0 right-0 p-3">
+-            <h3 className="font-medium text-sm text-white line-clamp-2 leading-snug">{entry.title}</h3>
+-            {entry.progress != null && (
+-              <p className="text-[11px] text-white/60 mt-1">EP {entry.progress}</p>
+-            )}
++          <div className="absolute bottom-0 left-0 right-0 z-10 p-3 anime-card-title-anchor">
++            {/* BUG 5 FIX: <ExpandingCardTitle /> instead of a hardcoded
++                truncated title paragraph — hover-unfold works here now. */}
++            <ExpandingCardTitle
++              title={entry.title}
++              onArtwork
++              meta={
++                entry.progress != null ? (
++                  <p className="text-[11px] text-white/60 mt-1">EP {entry.progress}</p>
++                ) : undefined
++              }
++            />
+           </div>
+         </div>
+       </Link>
+
+
+================================================================================
+BUG 6: NATIVE BROWSER CONFIRM() DIALOGS BLOCKED IN IFRAME/EMBEDDED CONTEXTS (HISTORY, SETTINGS & MYLIBRARY)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  Clicking "Clear All" in History, "Clear History" / "Reset All" in
+  Settings, or "Clear Bookmarks / Clear List" in MyLibrary called
+  `window.confirm()` (and Settings even followed with `alert()`), which is
+  silently BLOCKED by modern sandboxed iframes - the button appears to do
+  nothing - and looks jarring against the dark glass UI.
+
+ROOT CAUSE
+  Native browser dialogs cannot be styled, cannot participate in the app's
+  focus system, and are vetoed by iframe sandbox policies.
+
+FIX DONE
+  The existing (previously unwired) glassmorphic <ConfirmDialog /> component
+  is now wired in all three routes:
+    - History: "Clear all watch history?" (destructive) + a confirmation
+      TOAST ("Watch history cleared", auto-dismiss 2.6s) after clearing.
+    - Settings: separate dialogs for "Clear all watch history?" and
+      "Clear all cached data?" + the same toast; alert() removed.
+    - MyLibrary: one dialog switching on bookmarks/list + Escape key +
+      backdrop click + focus trap come from ConfirmDialog itself.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/routes/History.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/routes/History.tsx b/src/web/routes/History.tsx
+index d5e6967..5b06b74 100755
+--- a/src/web/routes/History.tsx
++++ b/src/web/routes/History.tsx
+@@ -1,6 +1,6 @@
+-import { useMemo } from "react";
++import { useEffect, useMemo, useState } from "react";
+ import { Link } from "react-router-dom";
+-import { History as HistoryIcon, Play, Trash2, Film, ArrowRight } from "lucide-react";
++import { History as HistoryIcon, Play, Trash2, Film, ArrowRight, CheckCircle2 } from "lucide-react";
+ import {
+   removeFromHistory,
+   clearHistory,
+@@ -9,6 +9,7 @@ import {
+ } from "../hooks/useSettings";
+ import { formatTimeAgo } from "../hooks/useCountdownTick";
+ import { XaniMascot } from "../components/XaniMascot";
++import { ConfirmDialog } from "../components/ConfirmDialog";
+
+ interface GroupedHistory {
+   animeId: number;
+@@ -50,6 +51,21 @@ export function History() {
+
+   const grouped = useMemo(() => groupByAnime(history), [history]);
+
++  // BUG 6 FIX: "Clear All" used to call window.confirm(), which modern
++  // sandboxed iframes silently BLOCK (the button just did nothing) and
++  // which looked jarring against the dark glass UI. A glassmorphic
++  // <ConfirmDialog /> modal replaces it, and clearing now confirms with a
++  // toast instead of silence.
++  const [confirmOpen, setConfirmOpen] = useState(false);
++  const [toast, setToast] = useState<string | null>(null);
++
++  // Auto-dismiss the confirmation toast
++  useEffect(() => {
++    if (!toast) return;
++    const t = setTimeout(() => setToast(null), 2600);
++    return () => clearTimeout(t);
++  }, [toast]);
++
+   const removeGroup = (animeId: number) => {
+     for (const ep of history.filter((e) => e.animeId === animeId)) {
+       removeFromHistory(animeId, ep.episode);
+@@ -61,9 +77,13 @@ export function History() {
+   };
+
+   const clearAll = () => {
+-    if (confirm("Clear all watch history? This cannot be undone.")) {
+-      clearHistory();
+-    }
++    setConfirmOpen(true);
++  };
++
++  const handleConfirmClear = () => {
++    clearHistory();
++    setConfirmOpen(false);
++    setToast("Watch history cleared");
+   };
+
+   if (!history) {
+@@ -247,6 +267,30 @@ export function History() {
+           })}
+         </div>
+       )}
++
++      {/* BUG 6 FIX: glassmorphic confirmation dialog replaces window.confirm() */}
++      <ConfirmDialog
++        open={confirmOpen}
++        title="Clear all watch history?"
++        description="Every episode entry will be removed. This cannot be undone."
++        confirmLabel="Clear All"
++        destructive
++        onConfirm={handleConfirmClear}
++        onCancel={() => setConfirmOpen(false)}
++      />
++
++      {/* BUG 6 FIX: confirmation toast after clearing */}
++      {toast && (
++        <div
++          role="status"
++          className="fixed bottom-24 md:bottom-8 left-1/2 z-[110] -translate-x-1/2 animate-panel-up"
++        >
++          <div className="flex items-center gap-2 rounded-full glass-strong border border-xan-border px-4 py-2.5 text-sm font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.5)]">
++            <CheckCircle2 className="h-4 w-4 text-green-500" />
++            {toast}
++          </div>
++        </div>
++      )}
+     </div>
+   );
+ }
+
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/routes/Settings.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/routes/Settings.tsx b/src/web/routes/Settings.tsx
+index b546bf2..90f3dad 100755
+--- a/src/web/routes/Settings.tsx
++++ b/src/web/routes/Settings.tsx
+@@ -29,10 +29,13 @@ import {
+   Trash2,
+   Bookmark,
+   ChevronDown,
++  CheckCircle2,
+ } from "lucide-react";
+-import { useSettings, clearHistory, getHistory } from "../hooks/useSettings";
++import { useSettings, clearHistory, getHistory, type TitleHoverStyle } from "../hooks/useSettings";
+ import { ThemePicker } from "../components/ThemePicker";
+ import { LogoMark } from "../components/Logo";
++import { ConfirmDialog } from "../components/ConfirmDialog";
++import { ExpandingCardTitle } from "../components/ExpandingCardTitle";
+ import {
+   useVideoEnhancer,
+   ENHANCER_PRESETS as ENHANCER_PRESET_LIST,
+@@ -54,7 +57,7 @@ const SECTIONS: Section[] = [
+   // L-5 FIX: added keywords per section. The search input's own placeholder
+   // promised "e.g. theme, autoplay, subtitles" but only section LABELS were
+   // matched — searching "autoplay" or "volume" returned nothing.
+-  { id: "appearance", label: "Appearance", icon: Palette, keywords: ["theme", "dark", "light", "color", "accent", "preset", "reduced motion"] },
++  { id: "appearance", label: "Appearance", icon: Palette, keywords: ["theme", "dark", "light", "color", "accent", "preset", "reduced motion", "title", "hover", "expanding"] },
+   { id: "playback", label: "Playback", icon: Play, keywords: ["autoplay", "auto play", "autoplay next", "skip intro", "resume", "speed", "default mode", "sub", "dub", "tv mode"] },
+   { id: "audio", label: "Audio & Subtitles", icon: Languages, keywords: ["volume", "mute", "subtitles", "subs", "audio", "language", "dub"] },
+   { id: "enhancer", label: "Video Enhancer", icon: Sliders, keywords: ["brightness", "contrast", "saturation", "sharpen", "blur", "filter", "gamma", "preset"] },
+@@ -79,6 +82,18 @@ export function Settings() {
+   const [searchQuery, setSearchQuery] = useState("");
+   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+   const enhancer = useVideoEnhancer();
++  // BUG 6 FIX: window.confirm() is silently blocked in sandboxed iframes —
++  // both destructive actions route through <ConfirmDialog /> now, and
++  // clearing history confirms with a toast instead of an alert().
++  const [confirmAction, setConfirmAction] = useState<"history" | "cache" | null>(null);
++  const [toast, setToast] = useState<string | null>(null);
++
++  // Auto-dismiss the confirmation toast
++  useEffect(() => {
++    if (!toast) return;
++    const t = setTimeout(() => setToast(null), 2600);
++    return () => clearTimeout(t);
++  }, [toast]);
+
+   // Scroll-spy: highlight current section in nav
+   useEffect(() => {
+@@ -103,10 +118,19 @@ export function Settings() {
+   }, []);
+
+   const clearHistoryAction = () => {
+-    if (confirm("Clear all watch history? This cannot be undone.")) {
++    setConfirmAction("history");
++  };
++
++  const handleConfirmAction = () => {
++    if (confirmAction === "history") {
+       clearHistory();
+-      alert("History cleared.");
++      setToast("Watch history cleared");
++    } else if (confirmAction === "cache") {
++      localStorage.clear();
++      location.reload();
++      return;
+     }
++    setConfirmAction(null);
+   };
+
+   const exportHistory = () => {
+@@ -123,10 +147,7 @@ export function Settings() {
+   };
+
+   const clearCache = () => {
+-    if (confirm("Clear all cached data? This will reset settings to defaults.")) {
+-      localStorage.clear();
+-      location.reload();
+-    }
++    setConfirmAction("cache");
+   };
+
+   const scrollToSection = (id: string) => {
+@@ -252,6 +273,50 @@ export function Settings() {
+               />
+             </div>
+           </Row>
++
++          {/* ─── PART 2: Expanding Title Hover engine ─── */}
++          <Row
++            label="Expanding title hover"
++            desc="Anime card titles unfold to their full multi-line text on hover instead of truncating"
++          >
++            <Toggle
++              checked={settings.expandingTitleHover}
++              onChange={(v) => update({ expandingTitleHover: v })}
++            />
++          </Row>
++          <Row
++            label="Hover style"
++            desc="Which animation plays when a card title expands (only while Expanding title hover is on)"
++          >
++            <div className="flex gap-1.5 bg-xan-card/60 p-1 rounded-lg border border-xan-border">
++              {([
++                { id: "stretch", label: "Stretch" },
++                { id: "elevate", label: "Elevate" },
++                { id: "glow", label: "Glow" },
++              ] as const).map((s) => (
++                <button
++                  key={s.id}
++                  onClick={() => update({ activeHoverStyle: s.id })}
++                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
++                    settings.activeHoverStyle === s.id
++                      ? "bg-gradient-to-r from-xan-crimson to-xan-violet text-white shadow"
++                      : "text-muted-foreground hover:text-foreground"
++                  }`}
++                >
++                  {s.label}
++                </button>
++              ))}
++            </div>
++          </Row>
++          {settings.expandingTitleHover && (
++            <Row
++              label="Live preview"
++              desc="Compare all three styles side-by-side on real cards. The middle card below is a 2-line title — exactly the case the engine was built for."
++              fullWidth
++            >
++              <TitleHoverPreviewGrid activeStyle={settings.activeHoverStyle} />
++            </Row>
++          )}
+           <Row
+             label="Reduced motion"
+             desc="Disable Ken Burns, ambient blobs, card animations for accessibility"
+@@ -755,6 +820,138 @@ export function Settings() {
+           </div>
+         </Section>
+       </div>
++
++      {/* BUG 6 FIX: glassmorphic confirmation dialogs replace window.confirm() */}
++      <ConfirmDialog
++        open={confirmAction === "history"}
++        title="Clear all watch history?"
++        description="Every episode entry will be removed. This cannot be undone."
++        confirmLabel="Clear History"
++        destructive
++        onConfirm={handleConfirmAction}
++        onCancel={() => setConfirmAction(null)}
++      />
++      <ConfirmDialog
++        open={confirmAction === "cache"}
++        title="Clear all cached data?"
++        description="Settings, history, bookmarks and lists will be reset to defaults. This cannot be undone."
++        confirmLabel="Reset All"
++        destructive
++        onConfirm={handleConfirmAction}
++        onCancel={() => setConfirmAction(null)}
++      />
++
++      {/* BUG 6 FIX: confirmation toast after clearing history */}
++      {toast && (
++        <div
++          role="status"
++          className="fixed bottom-24 md:bottom-8 left-1/2 z-[110] -translate-x-1/2 animate-panel-up"
++        >
++          <div className="flex items-center gap-2 rounded-full glass-strong border border-xan-border px-4 py-2.5 text-sm font-medium text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.5)]">
++            <CheckCircle2 className="h-4 w-4 text-green-500" />
++            {toast}
++          </div>
++        </div>
++      )}
++    </div>
++  );
++}
++
++// ─── PART 2: Settings side-by-side live preview ──────────────────
++// Three real cards (same ExpandingCardTitle + spacer architecture as
++// AnimeCard) — one per hover style. Each has a "Hover with mouse to
++// preview" / "Expanded preview pinned ON" toggle so users can compare
++// without a mouse (mobile, touchpads).
++const PREVIEW_TITLE_2LINE =
++  "A Very Long Anime Title That Definitely Wraps Onto Two Lines";
++const PREVIEW_META = (
++  <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
++    <span className="flex items-center gap-1 font-bold text-xan-crimson">85%</span>
++    <span>Airing</span>
++    <span>2026</span>
++  </div>
++);
++
++function TitleHoverPreviewGrid({ activeStyle }: { activeStyle: TitleHoverStyle }) {
++  return (
++    <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
++      <TitleHoverPreview
++        style="stretch"
++        label="Fluid Stretch"
++        desc="Title unfolds upward in its reserved zone"
++        highlight={activeStyle === "stretch"}
++      />
++      <TitleHoverPreview
++        style="elevate"
++        label="Floating Pill"
++        desc="Expanded title lifts in a glass pill"
++        highlight={activeStyle === "elevate"}
++      />
++      <TitleHoverPreview
++        style="glow"
++        label="Neon Accent"
++        desc="Crimson neon glow + underline"
++        highlight={activeStyle === "glow"}
++      />
++    </div>
++  );
++}
++
++function TitleHoverPreview({
++  style,
++  label,
++  desc,
++  highlight,
++}: {
++  style: TitleHoverStyle;
++  label: string;
++  desc: string;
++  highlight: boolean;
++}) {
++  const [pinned, setPinned] = useState(false);
++  return (
++    <div className="space-y-2">
++      <div
++        className={`xan-title-hover-group relative overflow-hidden rounded-[18px] border bg-xan-card transition-colors ${
++          highlight ? "border-xan-crimson/50" : "border-xan-border"
++        } ${pinned ? "xan-title-force-expand" : ""}`}
++      >
++        {/* Fake poster (pure gradient — no network image needed) */}
++        <div className="relative aspect-[2/3] bg-gradient-to-br from-xan-crimson/30 via-xan-violet/20 to-transparent">
++          <div className="absolute inset-0 flex items-center justify-center">
++            <LogoMark className="h-10 w-10 rounded-xl opacity-40" />
++          </div>
++          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
++        </div>
++        {/* Fixed-height title zone — same as AnimeCard */}
++        <div className="relative h-[56px] md:h-[60px]">
++          <div className="anime-card-title-anchor absolute inset-x-0 bottom-0 z-20 px-2.5 pb-2.5 md:px-3 md:pb-3">
++            <ExpandingCardTitle title={PREVIEW_TITLE_2LINE} styleOverride={style} meta={PREVIEW_META} />
++          </div>
++        </div>
++      </div>
++      <div>
++        <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
++          {label}
++          {highlight && (
++            <span className="rounded-full bg-xan-crimson/15 border border-xan-crimson/30 px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-xan-crimson">
++              Active
++            </span>
++          )}
++        </p>
++        <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
++      </div>
++      <button
++        onClick={() => setPinned((v) => !v)}
++        aria-pressed={pinned}
++        className={`w-full rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
++          pinned
++            ? "bg-xan-crimson/15 border-xan-crimson/40 text-xan-crimson"
++            : "bg-xan-card border-xan-border text-muted-foreground hover:text-foreground"
++        }`}
++      >
++        {pinned ? "Expanded preview pinned ON" : "Hover with mouse to preview"}
++      </button>
+     </div>
+   );
+ }
+
+
+================================================================================
+BUG 7: PINNED SOURCE LOOKUP IGNORING DISABLED PROVIDERS & OVER-FETCHING (WATCH)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  When `settings.pinnedSource` was set, Watch looped through `allProviders`
+  and queried EVERY provider sequentially - including providers the user
+  had explicitly disabled in Settings > Source filters - and kept fetching
+  the remaining providers even after the pinned source was already found.
+
+ROOT CAUSE
+  The pinned path predates the disabled-source feature and never got the
+  skip/break treatment.
+
+FIX DONE
+  In the pinned loop:
+    (a) `if (isProviderFullyDisabled(prov, settings.disabledSources)) continue;`
+        before querying each provider;
+    (b) an early `break` as soon as
+        `provSources.some((s) => s.sourceName === settings.pinnedSource)`
+        is satisfied - no over-fetching of the remaining providers.
+  The not-found error message additionally reports whether the loop ended
+  because sources ran out (found=false).
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/routes/Watch.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/routes/Watch.tsx b/src/web/routes/Watch.tsx
+index e6ea151..e7bf89c 100755
+--- a/src/web/routes/Watch.tsx
++++ b/src/web/routes/Watch.tsx
+@@ -289,18 +289,28 @@ export function Watch() {
+           return;
+         }
+
+-        // When a source is pinned, we need to try ALL providers to find it —
+-        // the pinned source might come from a different provider than the one
+-        // that returns results first (e.g. "Koto" comes from the koto provider,
+-        // not AllAnime). So we load ALL providers, collect all sources, then
+-        // filter for the pinned one.
++        // When a source is pinned, we need to find it. BUG 7 FIX: the old
++        // loop walked EVERY provider sequentially — including providers the
++        // user explicitly disabled in Settings > Source filters — and kept
++        // querying the remaining providers even after the pinned source was
++        // already in hand. Now: disabled providers are skipped up-front, and
++        // the loop breaks the moment the pinned source is found.
+         if (settings.pinnedSource) {
+-          console.log(`[Watch] Pinned source "${settings.pinnedSource}" — loading all providers to find it`);
++          console.log(`[Watch] Pinned source "${settings.pinnedSource}" — searching providers for it`);
+           let allCollectedSources: UnifiedSource[] = [];
++          let pinnedFound = false;
+           for (const prov of allProviders) {
++            // BUG 7 FIX (a): never query a provider whose sources are all disabled
++            if (isProviderFullyDisabled(prov, settings.disabledSources)) continue;
+             const provSources = await loadFromProvider(prov, title, isStale);
+             if (isStale()) return;
+             allCollectedSources = [...allCollectedSources, ...provSources];
++            // BUG 7 FIX (b): stop the moment the pinned source is available —
++            // no over-fetching of the remaining providers
++            if (provSources.some((s) => s.sourceName === settings.pinnedSource)) {
++              pinnedFound = true;
++              break;
++            }
+           }
+
+           // Deduplicate by URL
+@@ -316,7 +326,7 @@ export function Watch() {
+           // Filter for the pinned source
+           const pinnedSources = allCollectedSources.filter((s) => s.sourceName === settings.pinnedSource);
+           if (pinnedSources.length === 0) {
+-            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available from any provider`);
++            console.log(`[Watch] Pinned source "${settings.pinnedSource}" not available from any enabled provider (found=${pinnedFound})`);
+             setError(`Pinned source "${settings.pinnedSource}" is not available for this episode. Unpin it in Settings to use other sources.`);
+             setLoading(false);
+             return;
+
+
+================================================================================
+BUG 8: VIDEO PLAYER MEMORY LEAK, STALE TIMEOUTS & FULLSCREEN LOCK ON UNMOUNT (VIDEOPLAYER)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  Navigating away from /watch/:id/:ep while a stream was loading or playing
+  left the loading watchdog and the controls auto-hide timer active, left
+  fullscreen locked on document.fullscreenElement, and did NOT call
+  hls.stopLoad() / hls.detachMedia() before hls.destroy() - so in-flight
+  fragment downloads and the media element binding survived - and never
+  blanked the <video> src to release decoder buffers. A stream that never
+  started also spun the loading spinner forever.
+
+ROOT CAUSE
+  Teardown only called hls.destroy() (which neither aborts an in-flight
+  fragment fetch nor detaches the media element), and only cleared two of
+  the timers.
+
+FIX DONE  (component owns the player internals in this snapshot, so the
+  fix lands in VideoPlayer.tsx)
+  - playbackTimeoutRef: a 20s loading watchdog, armed on every stream load,
+    disarmed on loadedmetadata + on first 'playing'; firing sets an
+    explicit "stream took too long to start" error instead of an eternal
+    spinner.
+  - Unmount cleanup now: clears playbackTimeoutRef + controlsTimeoutRef +
+    singleTapTimerRef; exits fullscreen if document.fullscreenElement is
+    set; calls hls.stopLoad() -> hls.detachMedia() -> hls.destroy(); then
+    video.pause() + video.removeAttribute("src") + video.load().
+  - Episode-change path (the load effect's own cleanup) does the same
+    stopLoad/detachMedia/destroy + watchdog clear so switching episodes
+    never overlaps two loaders.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/components/VideoPlayer.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/components/VideoPlayer.tsx b/src/web/components/VideoPlayer.tsx
+index ec0afc2..043c423 100755
+--- a/src/web/components/VideoPlayer.tsx
++++ b/src/web/components/VideoPlayer.tsx
+@@ -90,6 +90,11 @@ export function VideoPlayer({
+   const containerRef = useRef<HTMLDivElement>(null);
+   const hlsRef = useRef<Hls | null>(null);
+   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
++  // BUG 8 FIX: loading watchdog. A stream that never starts (dead CDN, huge
++  // queue) used to spin the loading spinner forever; the timer also leaked
++  // across unmounts. Arm it on every stream load, disarm on 'playing' /
++  // error / cleanup.
++  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const lastHistoryWriteRef = useRef(0);
+   const resumeAppliedRef = useRef(false);
+   const lastTapRef = useRef(0);
+@@ -127,13 +132,40 @@ export function VideoPlayer({
+   const [showEnhancer, setShowEnhancer] = useState(false);
+   const enhancer = useVideoEnhancer();
+
+-  // L-15 FIX: pending timers were never cleared on unmount — the controls
+-  // auto-hide timer and the single-tap togglePlay timer could fire after the
+-  // player was gone (e.g. mid navigation to the next episode).
++  // BUG 8 FIX: full teardown on unmount. Navigating away from /watch while
++  // a stream was loading or playing used to leave the playback watchdog AND
++  // the pending control timers active, left the HLS worker downloading
++  // fragments (destroy() alone doesn't stop an in-flight fragment fetch or
++  // detach the <video> element), kept fullscreen locked on
++  // document.fullscreenElement, and left the decoder's media buffers
++  // attached to a dead element. Everything is released here, in order.
+   useEffect(() => {
+     return () => {
++      if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
+       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+       if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
++      // Exit fullscreen if the user navigates away while fullscreen is active
++      if (document.fullscreenElement) {
++        document.exitFullscreen().catch(() => { /* ignore */ });
++      }
++      // HLS: stop the loader FIRST (aborts in-flight fragment downloads),
++      // then detach media (unbinds from the <video>), then destroy.
++      const hls = hlsRef.current;
++      if (hls) {
++        try { hls.stopLoad(); } catch { /* ignore */ }
++        try { hls.detachMedia(); } catch { /* ignore */ }
++        hls.destroy();
++        hlsRef.current = null;
++      }
++      // Blank the video element so the browser releases decoder buffers
++      const video = videoRef.current;
++      if (video) {
++        try {
++          video.pause();
++          video.removeAttribute("src");
++          video.load();
++        } catch { /* ignore */ }
++      }
+     };
+   }, []);
+
+@@ -161,7 +193,20 @@ export function VideoPlayer({
+     setDuration(0);
+     setBuffered(0);
+
++    // BUG 8 FIX: arm the loading watchdog for THIS stream. 20s with no
++    // playback → explicit error state instead of an eternal spinner.
++    if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
++    playbackTimeoutRef.current = setTimeout(() => {
++      setLoading(false);
++      setError("This stream took too long to start. Try another server.");
++    }, 20000);
++
++    // BUG 8 FIX (episode-change path): same teardown discipline as unmount —
++    // stop in-flight fragment downloads and detach the old media element
++    // BEFORE destroying, so switching episodes never overlaps two loaders.
+     if (hlsRef.current) {
++      try { hlsRef.current.stopLoad(); } catch { /* ignore */ }
++      try { hlsRef.current.detachMedia(); } catch { /* ignore */ }
+       hlsRef.current.destroy();
+       hlsRef.current = null;
+     }
+@@ -202,7 +247,15 @@ export function VideoPlayer({
+     }
+
+     return () => {
++      // BUG 8 FIX: episode-change cleanup — clear the watchdog + release the
++      // HLS pipeline fully before the next stream loads.
++      if (playbackTimeoutRef.current) {
++        clearTimeout(playbackTimeoutRef.current);
++        playbackTimeoutRef.current = null;
++      }
+       if (hlsRef.current) {
++        try { hlsRef.current.stopLoad(); } catch { /* ignore */ }
++        try { hlsRef.current.detachMedia(); } catch { /* ignore */ }
+         hlsRef.current.destroy();
+         hlsRef.current = null;
+       }
+@@ -229,13 +282,27 @@ export function VideoPlayer({
+     const video = videoRef.current;
+     if (!video) return;
+
+-    const onPlay = () => { setPlaying(true); setLoading(false); };
++    // BUG 8 FIX: the first successful play disarms the loading watchdog.
++    const onPlay = () => {
++      setPlaying(true);
++      setLoading(false);
++      if (playbackTimeoutRef.current) {
++        clearTimeout(playbackTimeoutRef.current);
++        playbackTimeoutRef.current = null;
++      }
++    };
+     const onPause = () => setPlaying(false);
+     const onWaiting = () => setLoading(true);
+     const onCanPlay = () => setLoading(false);
+     const onLoaded = () => {
+       setDuration(video.duration || 0);
+       setLoading(false);
++      // BUG 8 FIX: metadata arrived — disarm the watchdog (the stream is
++      // alive even if autoplay is policy-blocked).
++      if (playbackTimeoutRef.current) {
++        clearTimeout(playbackTimeoutRef.current);
++        playbackTimeoutRef.current = null;
++      }
+       if (!resumeAppliedRef.current && resumeTime && resumeTime > 5 && video.duration > resumeTime) {
+         try {
+           video.currentTime = resumeTime;
+
+
+================================================================================
+BUG 9: STALE DOCUMENT.TITLE PERSISTING AFTER LEAVING BROWSE (BROWSE)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  Browse never touched document.title at all in this snapshot - the tab
+  title stayed stuck on whatever the last page set, and while filtering
+  there was no per-search title either.
+
+ROOT CAUSE
+  No title effect existed (the audited fork HAD one, but its else-branch
+  was missing, leaving `Search: <q> - XAN` stuck after clearing filters;
+  both halves are fixed here).
+
+FIX DONE
+  A complete document.title lifecycle effect:
+    - active filters  -> `Search: "query" - XAN` (query + genres + format)
+    - no filters      -> `Browse Anime - XAN`  (the else branch)
+    - on unmount      -> restore `XAN - Stream Anime`
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/routes/Browse.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/routes/Browse.tsx b/src/web/routes/Browse.tsx
+index 1a24586..e70bee0 100755
+--- a/src/web/routes/Browse.tsx
++++ b/src/web/routes/Browse.tsx
+@@ -137,6 +137,22 @@ export function Browse() {
+     setSearchParams(next, { replace: true });
+   }, [debouncedQuery, genres, sort, format, year, page, setSearchParams]);
+
++  // BUG 9 FIX: the tab title used to stay stuck on the last search query
++  // after the user cleared the filters back to plain /browse (and after
++  // leaving the page entirely). Reflect every filter state, reset to the
++  // page default when no filters are active, and restore the app title on
++  // unmount.
++  useEffect(() => {
++    const parts: string[] = [];
++    if (debouncedQuery) parts.push(`"${debouncedQuery}"`);
++    if (genres.length > 0) parts.push(genres.join(" + "));
++    if (format) parts.push(format);
++    document.title = parts.length > 0 ? `Search: ${parts.join(" · ")} — XAN` : "Browse Anime — XAN";
++    return () => {
++      document.title = "XAN — Stream Anime";
++    };
++  }, [debouncedQuery, genres, format]);
++
+   // ─── Fetch results ───
+   const [results, setResults] = useState<AnimeCard[]>([]);
+   const [total, setTotal] = useState(0);
+
+
+================================================================================
+BUG 10: NAN / OVERFLOW PROGRESS BAR WIDTHS ON INVALID DURATION (HISTORY, HOME & ANIMEDETAIL SURFACES)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  If `entry.duration` was 0, NaN, negative or Infinity (malformed history
+  entries from older builds, live streams, etc.), the raw progress math
+  `Math.round((entry.currentTime / entry.duration) * 100)` produced NaN or
+  Infinity, or values > 100% when currentTime slightly exceeded duration -
+  rendered as NaN% labels and overflowing progress bars.
+
+ROOT CAUSE
+  Each surface had its own local, weaker guard (truthiness check only -
+  NaN passes `!duration` but Infinity does not; no clamp of the result).
+
+FIX DONE
+  A single shared, hardened helper exported from useSettings.ts:
+
+      export function clampProgressPct(currentTime: number, duration: number): number {
+        if (!Number.isFinite(duration) || duration <= 0) return 0;
+        if (!Number.isFinite(currentTime) || currentTime <= 0) return 0;
+        return Math.min(100, Math.max(0, Math.round((currentTime / duration) * 100)));
+      }
+
+  and every progress surface now routes through it: ContinueWatching.tsx
+  (the Home page "Airing Today / Continue Watching" cards) and
+  CommandMenu.tsx (the command palette's Continue Watching entries). The
+  watch-page resume lookup already guarded with `duration > 0`; the helper
+  is the canonical implementation everywhere else.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/components/ContinueWatching.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/components/ContinueWatching.tsx b/src/web/components/ContinueWatching.tsx
+index c7d788f..4f4f6a5 100644
+--- a/src/web/components/ContinueWatching.tsx
++++ b/src/web/components/ContinueWatching.tsx
+@@ -1,7 +1,10 @@
+ import { useRef } from "react";
+ import { Link } from "react-router-dom";
+ import { History, Play, ChevronLeft, ChevronRight } from "lucide-react";
+-import { useWatchHistory, type HistoryEntry } from "../hooks/useSettings";
++// BUG 10 FIX: progress math centralized in clampProgressPct — the local
++// copy missed Number.isFinite (NaN/Infinity durations produced NaN% or
++// >100% widths) and didn't clamp currentTime overruns.
++import { useWatchHistory, clampProgressPct, type HistoryEntry } from "../hooks/useSettings";
+ import { formatTimeAgo } from "../hooks/useCountdownTick";
+
+ interface Grouped {
+@@ -35,8 +38,8 @@ function groupByAnime(history: HistoryEntry[]): Grouped[] {
+ }
+
+ function formatProgress(timestamp: number, duration: number): number {
+-  if (!duration || duration <= 0) return 0;
+-  return Math.min(100, Math.max(0, (timestamp / duration) * 100));
++  // BUG 10 FIX: delegate to the shared guarded + clamped helper
++  return clampProgressPct(timestamp, duration);
+ }
+
+ // v4 ROSA: NEW FORM — the progress bar moved to the TOP edge of the card
+
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/components/command/CommandMenu.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/components/command/CommandMenu.tsx b/src/web/components/command/CommandMenu.tsx
+index e3d41d9..e548fe8 100755
+--- a/src/web/components/command/CommandMenu.tsx
++++ b/src/web/components/command/CommandMenu.tsx
+@@ -33,7 +33,7 @@ import {
+ } from "../../lib/anilist";
+ import { useRecentlyVisited } from "../../hooks/useRecentlyVisited";
+ import { useBookmarks } from "../../hooks/useBookmarks";
+-import { useWatchHistory } from "../../hooks/useSettings";
++import { useWatchHistory, clampProgressPct } from "../../hooks/useSettings";
+ import { useDebounce } from "../../hooks/useDebounce";
+ import { lockBodyScroll, unlockBodyScroll } from "../../lib/bodyScrollLock";
+
+@@ -417,7 +417,10 @@ export function CommandMenu() {
+           .sort((a, b) => b.updatedAt - a.updatedAt)
+           .slice(0, 5)
+           .map((item) => {
+-            const progress = item.duration > 0 ? Math.min(100, Math.round((item.timestamp / item.duration) * 100)) : 0;
++            // BUG 10 FIX: guarded + clamped via the shared helper — a
++            // malformed duration (0/NaN/Infinity) can no longer produce a
++            // NaN% or >100% label.
++            const progress = clampProgressPct(item.timestamp, item.duration);
+             return {
+               id: `cont-${item.animeId}-${item.episode}`,
+               label: item.title,
+
+
+================================================================================
+BUG 11: UNVALIDATED EXTERNAL URLS IN OFFICIAL STREAMING LINKS (ANIMEDETAIL)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  AniList `media.externalLinks` were rendered straight into
+  `<a href={link.url}>` without verifying the URL protocol, allowing
+  malformed or `javascript:` / `data:` URIs to execute in the page context.
+
+ROOT CAUSE
+  Trusting a third-party API field as an href.
+
+FIX DONE
+  A strict protocol filter is exported from the AniList client and MUST be
+  applied before rendering any external link:
+
+      export function isSafeExternalUrl(url: string | null | undefined): boolean {
+        if (!url) return false;
+        return /^https?:\/\//i.test(url.trim());
+      }
+
+  Usage: `media.externalLinks?.filter((l) => isSafeExternalUrl(l.url))` (or
+  inside the map, render nothing when the guard fails). In this upstream
+  snapshot the detail query does not select externalLinks yet, so the
+  guard ships as the canonical helper next to the fetch layer - the moment
+  the field is rendered, this exact filter applies. The watch-page resume
+  logic and all internal links are unaffected.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/lib/anilist.ts.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/lib/anilist.ts b/src/web/lib/anilist.ts
+index 088bade..2f3fd66 100755
+--- a/src/web/lib/anilist.ts
++++ b/src/web/lib/anilist.ts
+@@ -33,6 +33,41 @@ function sleep(ms: number): Promise<void> {
+   return new Promise((resolve) => setTimeout(resolve, ms));
+ }
+
++// BUG 13 FIX (1): DEDUPLICATION OF CONCURRENT IDENTICAL QUERIES.
++// Multiple components mounting at once (Home's hero + rows + command menu
++// all asking for trending) used to fire the SAME GraphQL body over the wire
++// simultaneously — multiplying rate-limit pressure for zero benefit.
++// Identical in-flight requests now share one promise.
++const inFlight = new Map<string, Promise<unknown>>();
++
++// BUG 13 FIX (3): BOUNDED RESPONSE CACHE. Long sessions used to grow the
++// in-memory cache Map without limit (every search keystroke page, every
++// schedule page). We cap entries and evict the OLDEST (insertion order —
++// Map preserves it) when the cap is hit.
++const cache = new Map<string, unknown>();
++const MAX_MEMORY_CACHE_ENTRIES = 150;
++
++function cacheGet<T>(key: string): T | undefined {
++  // LRU-ish touch: delete + re-set moves the key to the newest position
++  const hit = cache.get(key);
++  if (hit !== undefined) {
++    cache.delete(key);
++    cache.set(key, hit);
++  }
++  return hit as T | undefined;
++}
++
++function cacheSet(key: string, value: unknown): void {
++  if (cache.has(key)) cache.delete(key);
++  cache.set(key, value);
++  while (cache.size > MAX_MEMORY_CACHE_ENTRIES) {
++    // Evict the oldest entry (first key in insertion order)
++    const oldest = cache.keys().next().value;
++    if (oldest === undefined) break;
++    cache.delete(oldest);
++  }
++}
++
+ // ─── Types ─────────────────────────────────────────────────────
+ export interface AnimeCard {
+   id: number;
+@@ -75,16 +110,31 @@ export interface AnimeDetail extends AnimeCard {
+ }
+
+ // ─── GraphQL fetcher with rate-limit handling + retry ──────────
++// BUG 13 FIX (2): retries now ALSO cover 502/503/504 gateway failures
++// (previously only bare >=500 with no distinction — and 502s from
++// Cloudflare-fronted AniList are transient) and honor Retry-After on 429.
+ async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T | null> {
+   const MAX_RETRIES = 3;
+   const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff: 1s, 2s, 4s
+
++  const body = JSON.stringify({ query, variables });
++  const cacheKey = `${query}::${JSON.stringify(variables)}`;
++
++  // BUG 13 FIX (3): serve cache hits without touching the network
++  const cached = cacheGet<T>(cacheKey);
++  if (cached !== undefined) return cached;
++
++  // BUG 13 FIX (1): share one promise across identical concurrent callers
++  const pending = inFlight.get(cacheKey);
++  if (pending) return pending as Promise<T | null>;
++
++  const run = (async (): Promise<T | null> => {
+   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+     try {
+       const res = await fetch(ANILIST_GRAPHQL, {
+         method: "POST",
+         headers: { "Content-Type": "application/json", Accept: "application/json" },
+-        body: JSON.stringify({ query, variables }),
++        body,
+       });
+
+       // Handle rate-limiting (HTTP 429) — retry after backoff
+@@ -100,7 +150,17 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
+         return null;
+       }
+
+-      // Handle server errors (5xx) — retry
++      // BUG 13 FIX (2): retry transient gateway failures specifically
++      // (502 Bad Gateway / 503 Service Unavailable / 504 Gateway Timeout)
++      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < MAX_RETRIES) {
++        const retryAfter = parseInt(res.headers.get("Retry-After") || "0", 10);
++        const delay = retryAfter > 0 ? retryAfter * 1000 : RETRY_DELAYS[attempt] ?? 4000;
++        console.warn(`[AniList] Gateway error ${res.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
++        await sleep(delay);
++        continue;
++      }
++
++      // Handle other server errors (5xx) — retry
+       if (res.status >= 500 && attempt < MAX_RETRIES) {
+         console.warn(`[AniList] Server error ${res.status}, retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+         await sleep(RETRY_DELAYS[attempt] ?? 4000);
+@@ -119,9 +179,12 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
+         // Don't retry on GraphQL errors — they're query syntax issues, not transient
+         return null;
+       }
+-      return (json?.data as T) ?? null;
++      const data = (json?.data as T) ?? null;
++      // BUG 13 FIX (3): only cache successful, non-null payloads
++      if (data !== null) cacheSet(cacheKey, data);
++      return data;
+     } catch (err) {
+-      // Network error — retry with backoff
++      // Network error (TypeError) — retry with backoff
+       if (attempt < MAX_RETRIES) {
+         console.warn(`[AniList] Network error, retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, err);
+         await sleep(RETRY_DELAYS[attempt] ?? 4000);
+@@ -132,6 +195,25 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
+     }
+   }
+   return null;
++  })();
++
++  inFlight.set(cacheKey, run);
++  try {
++    return await run;
++  } finally {
++    // BUG 13 FIX (1): always clear the in-flight entry — success or failure
++    inFlight.delete(cacheKey);
++  }
++}
++
++// ─── BUG 11 FIX: external URL protocol guard ───────────────────
++// AniList `externalLinks` (and any future third-party URL field) used to be
++// rendered straight into <a href>. A malformed or hostile entry
++// (`javascript:`, `data:`, whitespace-padded schemes) would execute in the
++// page context. Only genuine http(s) URLs may pass.
++export function isSafeExternalUrl(url: string | null | undefined): boolean {
++  if (!url) return false;
++  return /^https?:\/\//i.test(url.trim());
+ }
+
+ // ─── API ───────────────────────────────────────────────────────
+
+
+================================================================================
+BUG 12: MISSING GLOBAL ROUTE ERROR BOUNDARY (MAIN.TSX)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  A minimal boundary existed but its fallback offered only a bare "Refresh"
+  button styled with raw Tailwind, no reset-on-navigate, and no soft
+  recovery path - any uncaught render error in a lazy route still ended in
+  a dead end the user could only escape by reloading.
+
+ROOT CAUSE
+  The boundary predates the route-splitting architecture it must protect.
+
+FIX DONE
+  Replaced with <AppErrorBoundary>, a top-level class component that:
+    - renders the app's glass fallback UI (icon tile, headline, copy that
+      reassures the user their data is safe);
+    - exposes TWO recovery exits: "Reload App" (window.location.reload())
+      and "Back to Home" (soft reset + navigate to "/");
+    - resets automatically when the SPA route changes while the fallback
+      is visible: ScrollToTop dispatches a `xan:routechange` event, the
+      boundary listens, and a navigation away from the crashed route clears
+      hasError and remounts the tree;
+    - logs the caught error to console.error("[XAN] Uncaught render error:",
+      error) so a malformed payload is still traceable.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/main.tsx.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/main.tsx b/src/web/main.tsx
+index 162e0b2..bfd940e 100755
+--- a/src/web/main.tsx
++++ b/src/web/main.tsx
+@@ -10,7 +10,6 @@ import { CommandMenu } from "./components/command/CommandMenu";
+ import { useSettings, applyTheme, applyThemePreset, applyRuntimeFlags, type MoodPreference, type DurationPreference } from "./hooks/useSettings";
+ import { OnboardingSheet } from "./components/OnboardingSheet";
+ import { AlertCircle } from "lucide-react";
+-
+ // B7 FIX: route-level code splitting. All 13 routes used to land in ONE
+ // initial bundle (the 500 kB+ chunk warning on every build) even though a
+ // typical session touches 3-4 of them. Landing + Home stay eager (entry
+@@ -38,27 +37,69 @@ function RouteFallback() {
+   );
+ }
+
+-// H-8 FIX: Error Boundary — prevents white-screen crashes when a component
+-// throws during render (e.g. undefined.map() from a malformed API response).
+-// Shows a retry button instead of a blank page.
+-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+-  state = { hasError: false };
+-  static getDerivedStateFromError() { return { hasError: true }; }
++// BUG 12 FIX: GLOBAL route error boundary. Any uncaught render error in a
++// lazy route used to crash the ENTIRE React tree to a blank screen with no
++// recovery path. <AppErrorBoundary /> wraps the whole app and renders a
++// styled glass fallback with TWO recovery exits: "Reload App" (hard
++// refresh) and "Back to Home" (soft reset to the landing route, which
++// remounts the crashed subtree without a page reload).
++//
++// Reset-on-navigate: while the fallback is showing, the boundary listens
++// for SPA route changes; if the user escapes via in-app links (or the Back
++// to Home button), state resets and the tree remounts fresh.
++class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; resetKey: string }> {
++  state = { hasError: false, resetKey: window.location.pathname };
++  static getDerivedStateFromError() {
++    return { hasError: true };
++  }
++  componentDidCatch(error: unknown) {
++    // Keep a console trace — useful when a malformed API payload slips
++    // past the runtime guards.
++    console.error("[XAN] Uncaught render error:", error);
++  }
++  componentDidMount() {
++    window.addEventListener("xan:routechange", this.handleRouteChange);
++  }
++  componentWillUnmount() {
++    window.removeEventListener("xan:routechange", this.handleRouteChange);
++  }
++  handleRouteChange = () => {
++    const path = window.location.pathname;
++    this.setState((prev) =>
++      prev.hasError && path !== prev.resetKey
++        ? { hasError: false, resetKey: path }
++        : { hasError: prev.hasError, resetKey: path },
++    );
++  };
+   render() {
+     if (this.state.hasError) {
+       return (
+         <div className="flex flex-col items-center justify-center min-h-screen text-center px-6">
+-          <AlertCircle className="h-12 w-12 text-xan-crimson mb-4" />
+-          <h2 className="text-xl font-bold text-foreground mb-2">Something went wrong</h2>
+-          <p className="text-sm text-muted-foreground mb-4">
+-            An unexpected error occurred. Try refreshing the page.
++          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-xan-crimson/15 border border-xan-crimson/30 mb-5">
++            <AlertCircle className="h-8 w-8 text-xan-crimson" />
++          </div>
++          <h2 className="font-display text-2xl font-bold text-foreground mb-2">Something went wrong</h2>
++          <p className="max-w-md text-sm leading-relaxed text-muted-foreground mb-6">
++            An unexpected error crashed this page. Reload the app, or head back
++            to the home feed — your settings, history and lists are safe.
+           </p>
+-          <button
+-            onClick={() => window.location.reload()}
+-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-xan-crimson to-xan-violet text-white font-semibold shadow-lg"
+-          >
+-            Refresh
+-          </button>
++          <div className="flex flex-wrap items-center justify-center gap-3">
++            <button
++              onClick={() => window.location.reload()}
++              className="btn-aurora inline-flex h-11 items-center gap-2 px-6 text-sm font-bold"
++            >
++              Reload App
++            </button>
++            <button
++              onClick={() => {
++                this.setState({ hasError: false, resetKey: "/" });
++                window.location.assign("/");
++              }}
++              className="glass inline-flex h-11 items-center gap-2 rounded-full px-6 text-sm font-bold text-foreground transition-colors hover:bg-white/10"
++            >
++              Back to Home
++            </button>
++          </div>
+         </div>
+       );
+     }
+@@ -70,6 +111,9 @@ function ScrollToTop() {
+   const { pathname } = useLocation();
+   useEffect(() => {
+     window.scrollTo(0, 0);
++    // BUG 12 FIX: notify AppErrorBoundary so its fallback resets when the
++    // user navigates away from a crashed route.
++    window.dispatchEvent(new CustomEvent("xan:routechange"));
+   }, [pathname]);
+   return null;
+ }
+@@ -166,10 +210,10 @@ function AppShell() {
+
+ createRoot(document.getElementById("root")!).render(
+   <StrictMode>
+-    <ErrorBoundary>
++    <AppErrorBoundary>
+       <BrowserRouter>
+         <AppShell />
+       </BrowserRouter>
+-    </ErrorBoundary>
++    </AppErrorBoundary>
+   </StrictMode>,
+ );
+
+
+================================================================================
+BUG 13: ANILIST GRAPHQL 429 RATE-LIMIT FAILURES, DUPLICATE IN-FLIGHT QUERIES & UNBOUNDED CACHE (ANILIST.TS)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  1) Concurrent components requesting the same GraphQL query fired
+     duplicate network requests simultaneously.
+  2) HTTP 429 retried (pre-existing), but 502/503/504 gateway failures
+     were lumped into a generic 5xx retry without honoring Retry-After,
+     and the failure path of every query returned null with no memory.
+  3) There was NO response cache at all - long sessions re-fetched the
+     same trending/schedule payloads again and again (rate-limit pressure).
+  4) Landing's cold-load no longer double-fires in this snapshot (upstream
+     v4.2.3 already reduced it to a single on-click fetchTrending(20)), so
+     the remaining fix is the client-side dedup + cache below.
+
+ROOT CAUSE
+  The fetcher was retry-aware but not dedupe-aware, not cache-aware, and
+  not bounded.
+
+FIX DONE  (all inside gql() / module scope of anilist.ts)
+  1) `inFlight` Map keyed by `query::variables` - identical concurrent
+     requests share ONE promise; the entry is always cleared in a finally
+     block (success OR failure).
+  2) Explicit 502/503/504 retry branch (up to 3 attempts, exponential
+     backoff 1s/2s/4s, honoring Retry-After headers) on top of the
+     existing 429 + network-TypeError retries.
+  3) Bounded response cache: successful non-null payloads stored in a Map
+     capped at MAX_MEMORY_CACHE_ENTRIES = 150 with OLDEST-ENTRY eviction
+     and an LRU-ish touch on read; cache hits never touch the network.
+
+  (the unified diff for src/web/lib/anilist.ts.patch is embedded at its first occurrence in
+   this Part - see the entry above; apply once per file)
+
+================================================================================
+BUG 14: O(N) WATCHLIST REMOVAL & WORKER MISSING-ASSETS CRASH (MYLIBRARY & WORKER/INDEX.TS)
+--------------------------------------------------------------------------------
+WHAT WAS WRONG
+  1) MyLibrary recomputed per-status counts with five separate
+     `list.filter(...)` passes per render and card callbacks had no O(1)
+     entry lookup - the audited fork's `watchlist.find(...)` inside each
+     ListCard's onRemove was the same O(N)-per-card pattern.
+  2) In src/worker/index.ts, `c.env.ASSETS.fetch(c.req.raw)` assumed the
+     ASSETS binding always exists, throwing a TypeError on EVERY page
+     request when the Hono worker runs under the Node/Express adapter
+     (Part 4) or in test environments without Cloudflare static assets.
+
+ROOT CAUSE
+  Linear scans where a map was available; an unguarded environment binding.
+
+FIX DONE
+  1) `watchlistMap` - a Map built ONCE per list change (useMemo);
+     counts are derived in a SINGLE pass over the map values, and any
+     entry lookup is `watchlistMap.get(id)` O(1).
+     (the complete MyLibrary.tsx unified diff, including this hunk AND the
+     Bug 5 title-engine hunks, is embedded under BUG 5 above - apply the
+     file once; it covers both bugs)
+  2) The SPA fallback route now guards the binding:
+         if (c.env?.ASSETS) return c.env.ASSETS.fetch(c.req.raw);
+         return c.json({ error: "Static assets binding (ASSETS) not
+                           available in this environment", ... }, 404);
+     and the Env interface declares `ASSETS?: Fetcher`. Part 4's server.ts
+     exercises exactly this path.
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/worker/index.ts.patch
+--------------------------------------------------------------------------------
+
+diff --git a/src/worker/index.ts b/src/worker/index.ts
+index 71ac28e..fb46f3d 100755
+--- a/src/worker/index.ts
++++ b/src/worker/index.ts
+@@ -16,7 +16,11 @@ import { initRuntimeConfig, RT, originAllowed } from "./runtimeConfig";
+
+ // ─── Environment bindings ──────────────────────────────────────
+ interface Env {
+-  ASSETS: Fetcher;
++  // BUG 14 FIX: ASSETS is only present when running under wrangler with the
++  // [assets] binding from wrangler.toml. Running the Hono app under a plain
++  // Node/Express adapter (see server.ts) or in tests has no such binding —
++  // the type is optional and every access is guarded.
++  ASSETS?: Fetcher;
+   // B8: provider domains come from wrangler.toml [vars] (runtimeConfig.ts
+   // applies defaults, so these stay optional).
+   ALLANIME_API?: string;
+@@ -437,11 +441,18 @@ app.get("*", async (c) => {
+   if (c.req.path.startsWith("/api/")) {
+     return c.json({ error: "Unknown API route", path: c.req.path }, 404);
+   }
+-  // Try to serve from assets first (for /assets/*, /logo.svg, /placeholder.svg, etc.)
+-  // The ASSETS binding handles this automatically when not_found_handling is set,
+-  // but we need to explicitly fall back to index.html for SPA routes.
+-  // (async for TS7: uniform Promise<Response> return type)
+-  return c.env.ASSETS.fetch(c.req.raw);
++  // BUG 14 FIX: c.env.ASSETS is UNDEFINED when the Hono worker runs outside
++  // Cloudflare (Node/Express adapter, unit tests, wrangler without the
++  // [assets] binding). The unguarded c.env.ASSETS.fetch() threw a TypeError
++  // on EVERY page request in those environments. Guard it and fall back to
++  // a JSON 404.
++  if (c.env?.ASSETS) {
++    return c.env.ASSETS.fetch(c.req.raw);
++  }
++  return c.json(
++    { error: "Static assets binding (ASSETS) not available in this environment", path: c.req.path },
++    404,
++  );
+ });
+
+ export default app;
+
+
+================================================================================
+PART 3 APPENDIX: REMAINING ENGINE DIFFS (Part 2 wiring)
+================================================================================
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/hooks/useSettings.ts
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/hooks/useSettings.ts b/src/web/hooks/useSettings.ts
+index 4459c2a..c35908d 100755
+--- a/src/web/hooks/useSettings.ts
++++ b/src/web/hooks/useSettings.ts
+@@ -2,6 +2,38 @@ import { useState, useEffect, useCallback } from "react";
+
+ export type ThemePreset = "classic" | "sakura" | "neon" | "sunset" | "ocean" | "royal";
+
++/** Expanding Title Hover animation style (Settings > Appearance > Titles).
++ *  "stretch" = Fluid Stretch (title unfolds upward in its reserved zone),
++ *  "elevate" = Floating Pill (glass pill lifts above the poster),
++ *  "glow"    = Neon Accent (crimson neon underline + glow). */
++export type TitleHoverStyle = "stretch" | "elevate" | "glow";
++
++/** Every legacy name that ever shipped for the stretch style. loadSettings()
++ *  normalizes them so an old localStorage blob can't leak an invalid value
++ *  into data-style attributes (which would silently disable all CSS). */
++const LEGACY_TITLE_STYLE_NAMES = ["scrim", "curtain", "strip"] as const;
++
++function normalizeTitleHoverStyle(value: unknown): TitleHoverStyle {
++  if (value === "stretch" || value === "elevate" || value === "glow") return value;
++  if (typeof value === "string" && (LEGACY_TITLE_STYLE_NAMES as readonly string[]).includes(value)) {
++    return "stretch";
++  }
++  return "stretch";
++}
++
++/**
++ * Bug 10 FIX (shared): clamp a watch-progress percentage.
++ * `entry.duration` can be 0 / NaN / negative (malformed history entries from
++ * older builds) and `currentTime` can slightly exceed `duration` — the raw
++ * division then produced NaN, Infinity or >100% widths on progress bars.
++ * Every progress-bar site routes through this helper now.
++ */
++export function clampProgressPct(currentTime: number, duration: number): number {
++  if (!Number.isFinite(duration) || duration <= 0) return 0;
++  if (!Number.isFinite(currentTime) || currentTime <= 0) return 0;
++  return Math.min(100, Math.max(0, Math.round((currentTime / duration) * 100)));
++}
++
+ /** Onboarding mood preference (redesign plan §5). Used by recommend.ts. */
+ export type MoodPreference = "action" | "cozy" | "funny" | "romance" | "mystery" | "dark" | "surprise";
+ /** Onboarding duration preference (redesign plan §5). Used by recommend.ts. */
+@@ -46,6 +78,10 @@ export interface XanSettings {
+   pinnedSource: string | null;
+   // Enhancer
+   enhancerEnabled: boolean;
++  // Expanding Title Hover engine (Part 2) — anime card titles unfold to
++  // their full multi-line text on hover instead of truncating.
++  expandingTitleHover: boolean;
++  activeHoverStyle: TitleHoverStyle;
+   // Onboarding (redesign plan §5) — shown once, resettable from Settings > Data
+   hasSeenOnboarding: boolean;
+   moodPreference: MoodPreference | null;
+@@ -71,6 +107,8 @@ const DEFAULTS: XanSettings = {
+   disabledSources: [],
+   pinnedSource: null,
+   enhancerEnabled: false,
++  expandingTitleHover: true,
++  activeHoverStyle: "stretch",
+   hasSeenOnboarding: false,
+   moodPreference: null,
+   durationPreference: null,
+@@ -82,7 +120,11 @@ function loadSettings(): XanSettings {
+   try {
+     const raw = localStorage.getItem(STORAGE_KEY);
+     if (raw) {
+-      return { ...DEFAULTS, ...JSON.parse(raw) };
++      const merged: XanSettings = { ...DEFAULTS, ...JSON.parse(raw) };
++      // Legacy migration: pre-release style names ("scrim" / "curtain" /
++      // "strip") normalize to "stretch" so data-style attributes stay valid.
++      merged.activeHoverStyle = normalizeTitleHoverStyle(merged.activeHoverStyle);
++      return merged;
+     }
+   } catch {
+     // ignore
+
+
+--------------------------------------------------------------------------------
+  UNIFIED DIFF (diff -u, base b06d6af): src/web/components/AnimeCard.tsx
+--------------------------------------------------------------------------------
+
+diff --git a/src/web/components/AnimeCard.tsx b/src/web/components/AnimeCard.tsx
+index 18b0164..9c238c0 100755
+--- a/src/web/components/AnimeCard.tsx
++++ b/src/web/components/AnimeCard.tsx
+@@ -4,6 +4,7 @@ import { Star, Play, Bookmark } from "lucide-react";
+ import type { AnimeCard as AnimeCardT } from "../lib/anilist";
+ import { getTitle } from "../lib/anilist";
+ import { useIsBookmarked, useToggleBookmark } from "../hooks/useBookmarks";
++import { ExpandingCardTitle } from "./ExpandingCardTitle";
+
+ interface Props {
+   anime: AnimeCardT;
+@@ -51,11 +52,14 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
+
+   return (
+     <div
+-      className="group relative card-enter"
++      className="group xan-title-hover-group relative card-enter"
+       style={{ "--card-index": index } as React.CSSProperties}
+     >
+       <Link to={`/anime/${anime.id}`} className="block">
+-        <div className="overflow-hidden rounded-[18px] border border-xan-border bg-xan-card transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-xan-crimson/50 group-hover:shadow-[0_20px_44px_rgba(0,0,0,0.45)]">
++        {/* PART 2: `relative` on the card frame — the expanding title's
++            container anchors bottom:0 against THIS box so it can glide up
++            over the poster artwork without affecting anything outside. */}
++        <div className="relative overflow-hidden rounded-[18px] border border-xan-border bg-xan-card transition-all duration-300 group-hover:-translate-y-1.5 group-hover:border-xan-crimson/50 group-hover:shadow-[0_20px_44px_rgba(0,0,0,0.45)]">
+           {/* Poster */}
+           <div className="relative aspect-[2/3] overflow-hidden bg-xan-surface">
+             <img
+@@ -119,25 +123,37 @@ function AnimeCardBase({ anime, index = 0 }: Props) {
+             </div>
+           </div>
+
+-          {/* Info BELOW the poster on the card surface (new position) */}
+-          <div className="p-2.5 md:p-3">
+-            <h3 className="line-clamp-1 text-[13px] font-bold leading-snug tracking-tight text-foreground transition-colors group-hover:text-xan-crimson">
+-              {title}
+-            </h3>
+-            {/* v4.4.4 META — score · status · year, one line. The episode
+-                count no longer lives here (moved to the poster badge above),
+-                so the Clock icon is gone too. Still whitespace-nowrap and
+-                size-tuned so the shortest possible row stays on one line
+-                with room to spare on every card width. */}
+-            <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
+-              {score && (
+-                <span className="flex items-center gap-1 font-bold text-xan-crimson">
+-                  <Star className="h-2.5 w-2.5 shrink-0 fill-xan-crimson sm:h-3 sm:w-3" />
+-                  {score}
+-                </span>
+-              )}
+-              {status && <span>{status}</span>}
+-              {anime.seasonYear && <span>{anime.seasonYear}</span>}
++          {/* Info BELOW the poster on the card surface.
++
++              PART 2 — EXPANDING TITLE HOVER (zero-grid-reflow architecture):
++              this block is a FIXED-HEIGHT flow spacer (56px / 60px). The
++              title lives in an absolutely-anchored container pinned to the
++              spacer's bottom edge, so on hover the multi-line title
++              unfolds UPWARD over the poster instead of stretching this
++              spacer — the CSS grid row never changes height, and the cards
++              below never jump. See ExpandingCardTitle.tsx. */}
++          <div className="relative h-[56px] md:h-[60px]">
++            <div className="anime-card-title-anchor absolute inset-x-0 bottom-0 z-20 px-2.5 pb-2.5 md:px-3 md:pb-3">
++              <ExpandingCardTitle
++                title={title}
++                meta={
++                  /* v4.4.4 META — score · status · year, one line. The episode
++                      count no longer lives here (moved to the poster badge above),
++                      so the Clock icon is gone too. Still whitespace-nowrap and
++                      size-tuned so the shortest possible row stays on one line
++                      with room to spare on every card width. */
++                  <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold text-muted-foreground sm:text-[11px]">
++                    {score && (
++                      <span className="flex items-center gap-1 font-bold text-xan-crimson">
++                        <Star className="h-2.5 w-2.5 shrink-0 fill-xan-crimson sm:h-3 sm:w-3" />
++                        {score}
++                      </span>
++                    )}
++                    {status && <span>{status}</span>}
++                    {anime.seasonYear && <span>{anime.seasonYear}</span>}
++                  </div>
++                }
++              />
+             </div>
+           </div>
+         </div>
+
+
+--------------------------------------------------------------------------------
+  NOTE: all 19 modified/new files now have their complete `diff -u`
+  embedded in this guide: the 16 original repo files above (16 unique
+  file diffs across Bugs 1-14 + this appendix) plus the 2 new files
+  (ExpandingCardTitle.tsx in 2.3, server.ts in 4.2) and package.json in 4.3.
+--------------------------------------------------------------------------------
+
+================================================================================
+PART 4: OPTIONAL LOCAL NODE/EXPRESS SERVER WRAPPER
+================================================================================
+Purpose: run XANCLD outside Cloudflare Wrangler - plain Node + Express
+serving the built frontend (dist/) and mounting the Hono worker for every
+/api/* call through @hono/node-server's getRequestListener adapter. This is
+the environment where Bug 14b's ASSETS guard earns its keep (the binding is
+absent here; the SPA fallback below serves index.html instead).
+
+4.1  PREREQUISITES
+--------------------------------------------------------------------------------
+  bun add -d express @hono/node-server tsx @types/express
+  (already reflected in package.json - see 4.3)
+
+4.2  NEW FILE (verbatim): server.ts  (repository root)
+--------------------------------------------------------------------------------
+
+----------------------------------------------------------------
+// ─── OPTIONAL LOCAL NODE/EXPRESS SERVER WRAPPER (Part 4) ─────────────────
+//
+// Runs XANCLD outside Cloudflare Wrangler: plain Node + Express serving the
+// built frontend (dist/) and mounting the Hono worker for every /api/* call
+// via @hono/node-server's getRequestListener adapter.
+//
+//   bun run build          # build the frontend to dist/ first
+//   bunx tsx server.ts     # or: bun run dev:local
+//   → http://localhost:3000
+//
+// Requires the optional dev deps (see PART 4 of XANCLD_AI_REPLICATION_GUIDE.txt):
+//   express, @hono/node-server, tsx, @types/express
+//
+// Notes:
+//  - The worker's c.env.ASSETS is undefined here (BUG 14 FIX guard) — the
+//    SPA fallback below serves index.html instead, and /api/* keeps working
+//    through the Hono app (CORS proxy + AllAnime crypto resolver).
+//  - Worker env vars are provided via a shim so runtimeConfig.ts picks them
+//    up; override any of them with the same-named process env var.
+
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import express from "express";
+import { getRequestListener } from "@hono/node-server";
+// @ts-expect-error — the worker is a Cloudflare Worker module; Node runs it
+// fine at runtime (it only uses Web-standard APIs + fetch).
+import worker from "./src/worker/index";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DIST_DIR = path.join(__dirname, "dist");
+const PORT = Number(process.env.PORT || 3000);
+
+// Minimal Workers-env shim — mirrors wrangler.toml [vars]. Override via env.
+const envShim = {
+  ALLANIME_API: process.env.ALLANIME_API ?? "https://api.allanime.day/api",
+  MKISSA_ORIGIN: process.env.MKISSA_ORIGIN ?? "https://mkissa.to",
+  ZEN_HOST: process.env.ZEN_HOST ?? "https://flixcloud.cc",
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
+  // ASSETS intentionally ABSENT — exercises the BUG 14 guard path.
+};
+
+// Adapter: Node RequestListener wrapping the Hono app's fetch handler.
+// `worker` is the Hono instance itself (export default app), whose .fetch
+// matches (request, env, executionContext) — exactly what the adapter feeds.
+const apiHandler = getRequestListener(worker.fetch, {
+  // @ts-expect-error — the adapter accepts an env override payload.
+  env: envShim,
+});
+
+const app = express();
+app.disable("x-powered-by");
+
+// 1) API first — CORS proxy, AllAnime crypto resolver, Zen proxy, health.
+// Express 5 removed the '/api/*' wildcard syntax, so we match on req.path
+// inside a prefix-free middleware and restore req.originalUrl before handing
+// the request to the Hono adapter (Hono needs the full path to route).
+app.use((req, res, next) => {
+  if (req.path === "/api" || req.path.startsWith("/api/")) {
+    req.url = req.originalUrl;
+    return apiHandler(req, res);
+  }
+  next();
+});
+
+// 2) Built frontend assets (hashed /assets/*, logo.svg, placeholder.svg…)
+app.use(express.static(DIST_DIR, { index: "index.html", maxAge: "1h" }));
+
+// 3) SPA fallback — client-side router handles /anime/:id, /watch/:id, etc.
+// (Express 5: no more app.get('*') — a terminal middleware does the job.)
+app.use((req, res) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+  res.sendFile(path.join(DIST_DIR, "index.html"));
+});
+
+app.listen(PORT, () => {
+  console.log(`[XANCLD] Local server ready → http://localhost:${PORT}`);
+  console.log(`[XANCLD] Serving ${DIST_DIR} + Hono worker API on /api/*`);
+});
+----------------------------------------------------------------
+
+
+
+4.3  package.json CHANGES (scripts + optional dev dependencies)
+--------------------------------------------------------------------------------
+
+diff --git a/package.json b/package.json
+index e2be0e7..e1f1c81 100755
+--- a/package.json
++++ b/package.json
+@@ -20,9 +20,11 @@
+   "scripts": {
+     "dev": "vite",
+     "dev:worker": "wrangler dev --port 3003",
++    "dev:local": "bun run build && tsx server.ts",
+     "build": "vite build",
+     "build:worker": "wrangler deploy --dry-run --outdir=dist-worker",
+     "preview": "vite preview",
++    "start:local": "tsx server.ts",
+     "deploy": "vite build && wrangler deploy",
+     "lint": "tsc --noEmit"
+   },
+@@ -37,12 +39,16 @@
+   },
+   "devDependencies": {
+     "@cloudflare/workers-types": "^5.20261001.1",
++    "@hono/node-server": "^2.1.6",
+     "@tailwindcss/vite": "^4.3.3",
++    "@types/express": "^5.0.6",
+     "@types/node": "^26.6.3",
+     "@types/react": "^19.3.0",
+     "@types/react-dom": "^19.3.0",
+     "@vitejs/plugin-react": "^6.1.1",
++    "express": "^5.3.0",
+     "tailwindcss": "^4.3.3",
++    "tsx": "^4.23.15",
+     "typescript": "^7.0.2",
+     "vite": "^8.3.2",
+     "wrangler": "^4.145.0"
+
+
+4.4  USAGE
+--------------------------------------------------------------------------------
+  bun run build            # build frontend to dist/
+  bun run dev:local        # = build + tsx server.ts   -> http://localhost:3000
+  bun run start:local      # = tsx server.ts (dist must already exist)
+  PORT=3005 bunx tsx server.ts   # any port
+  # The worker's /api/health, /api/proxy, /api/allanime/episode and
+  # /api/stream-zen all respond through the Express mount; the SPA fallback
+  # serves index.html for /watch/:id, /anime/:id, etc. Bug 14b's ASSETS
+  # guard is what makes this work without Cloudflare bindings.
+
+
+================================================================================
+APPENDIX A - VERIFICATION (run after applying everything)
+================================================================================
+  $ bun run lint                 # tsc --noEmit      -> 0 errors
+  $ bun run build                # vite build        -> success
+  $ bun run dev:worker           # wrangler on :3003 -> /api/health {"ok":true}
+  $ bun run dev                  # vite on :3000     -> UI smoke test
+  #   - hover a 2-line card title: it unfolds UPWARD, rows below do not move
+  #   - single-line titles: completely static on hover
+  #   - Settings > Appearance: toggle + style pills + 3 preview cards;
+  #     "Expanded preview pinned ON" shows all three styles without a mouse
+  #   - History > Clear All: glass dialog + toast (no native confirm())
+  #   - Settings > Data: both destructive buttons open glass dialogs
+  #   - Settings > Reduced motion: ambient blobs freeze entirely
+  $ PORT=3005 bunx tsx server.ts # Part 4 wrapper    -> /api/health {"ok":true}
+  #                               and /watch/1 returns index.html (SPA 200)
+
+APPENDIX B - CHANGE LEDGER SUMMARY (14 bugs, 1 feature, 19 diffs)
+--------------------------------------------------------------------------------
+  FEATURE  Expanding Title Hover engine (60fps)      Part 2     files 1-3,6,9
+  BUG 1    SectionRow hover clipping                  Part 3.1   SectionRow
+  BUG 2    Hero dots overflow + mobile collision      Part 3.2   HeroCarousel
+  BUG 3    Auto-advance while hidden/hovered          Part 3.3   HeroCarousel
+  BUG 4    Reduced-motion rules for custom keyframes  Part 3.4   index.css
+  BUG 5    Library titles ignore hover setting        Part 3.5   MyLibrary
+  BUG 6    Native confirm() blocked in iframes        Part 3.6   History+Settings
+  BUG 7    Pinned source over-fetch + disabled leak   Part 3.7   Watch
+  BUG 8    Player leak / stale timers / fullscreen    Part 3.8   VideoPlayer
+  BUG 9    Stale document.title (Browse)              Part 3.9   Browse
+  BUG 10   NaN/overflow progress widths               Part 3.10  ContinueWatching
+                                                                  +CommandMenu
+  BUG 11   Unvalidated external URLs                  Part 3.11  anilist.ts
+  BUG 12   Missing global error boundary              Part 3.12  main.tsx
+  BUG 13   AniList 429/dedup/unbounded cache          Part 3.13  anilist.ts
+  BUG 14   O(N) list ops + missing-ASSETS crash       Part 3.14  MyLibrary+
+                                                                  worker/index.ts
+
+============================= END OF GUIDE (self-contained) =====================
+
