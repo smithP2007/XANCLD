@@ -684,6 +684,40 @@ export function Watch() {
     };
   }, [stream?.url, stream?.type, stream?.quality, stream?.sourceName, stream?.provider, stream?.tracks]);
 
+  // Player SERVERS tab (animex.one parity): flat provider-ordered rows with
+  // the same family labels as the sidebar Servers panel. Active row = the
+  // stream actually playing (streamIdentity — animex rotating-token safe).
+  const playerServers = useMemo(() => {
+    const providerOrder = ["allanime", "animex", "zen", "koto", "demo"] as const;
+    const providerLabel: Record<string, string> = {
+      allanime: "AllAnime",
+      animex: "AnimeX",
+      zen: "Zen",
+      koto: "Koto",
+      demo: "Demo",
+    };
+    return providerOrder.flatMap((p) =>
+      filteredSources
+        .filter((s) => s.provider === p)
+        .map((s) => ({
+          url: s.url,
+          label: s.sourceName,
+          type: s.type,
+          group: providerLabel[p] ?? p,
+          active: stream ? streamIdentity(stream) === streamIdentity(s) : false,
+        })),
+    );
+  }, [filteredSources, stream]);
+
+  // SERVERS-tab click — swap to that source without a reload.
+  const handlePlayerServerSelect = useCallback(
+    (url: string) => {
+      const next = filteredSources.find((x) => x.url === url);
+      if (next) setStream(next);
+    },
+    [filteredSources],
+  );
+
   // M-16 FIX: episode-count-unknown handling. `anime.episodes` is null for
   // most airing shows, which used to: hide the Next Episode page button on
   // EP 1 (the `(anime?.episodes || episode > 1)` gate was false), disable the
@@ -739,10 +773,10 @@ export function Watch() {
     [anime, animeId, episode],
   );
   const handleEnded = useCallback(() => {
-    if (settings.autoplay && hasNextEpisode) {
+    if (settings.autoNext && hasNextEpisode) {
       setAutoPlayNext(true);
     }
-  }, [settings.autoplay, hasNextEpisode]);
+  }, [settings.autoNext, hasNextEpisode]);
   const handleNext = useCallback(() => {
     if (hasNextEpisode) navigate(`/watch/${animeId}?ep=${episode + 1}`);
   }, [hasNextEpisode, navigate, animeId, episode]);
@@ -799,14 +833,14 @@ export function Watch() {
   const handleZenEnded = useCallback(() => {
     // Iframe players can't render XANCLD's autoplay overlay — mirror
     // reanime: give it a beat, then navigate to the next episode.
-    if (settings.autoplay && hasNextEpisode) {
+    if (settings.autoNext && hasNextEpisode) {
       if (zenEndedTimerRef.current !== null) window.clearTimeout(zenEndedTimerRef.current);
       zenEndedTimerRef.current = window.setTimeout(() => {
         zenEndedTimerRef.current = null;
         navigate(`/watch/${animeId}?ep=${episode + 1}`);
       }, 2000);
     }
-  }, [settings.autoplay, hasNextEpisode, navigate, animeId, episode]);
+  }, [settings.autoNext, hasNextEpisode, navigate, animeId, episode]);
   // Cancel on unmount AND on anime/episode change — route param changes do
   // NOT remount this component, so an unmount-only cleanup would miss it.
   useEffect(() => {
@@ -1048,6 +1082,8 @@ export function Watch() {
                     : undefined
                 }
                 onRetry={handleRetry}
+                servers={playerServers}
+                onServerSelect={handlePlayerServerSelect}
               />
             )
           ) : null}

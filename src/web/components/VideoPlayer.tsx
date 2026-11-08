@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import Hls from "hls.js";
 import {
   Play,
@@ -10,9 +10,6 @@ import {
   Minimize,
   Settings,
   AlertCircle,
-  Sun,
-  Eye,
-  EyeOff,
   Check,
   ChevronRight,
   ChevronLeft,
@@ -20,13 +17,32 @@ import {
   RotateCcw,
   Keyboard,
   X,
+  Captions,
+  Camera,
+  PictureInPicture2,
+  Cast,
 } from "lucide-react";
 import type { StreamResult } from "../lib/allanime";
 import { updateSettings, type XanSettings } from "../hooks/useSettings";
 import { KeyboardShortcutsOverlay } from "./KeyboardShortcutsOverlay";
 import { AutoPlayOverlay } from "./AutoPlayOverlay";
 import { VideoEnhancerPanel } from "./VideoEnhancerPanel";
-import { useVideoEnhancer } from "../hooks/useVideoEnhancer";
+import { useVideoEnhancer, ENHANCER_PRESETS } from "../hooks/useVideoEnhancer";
+import {
+  ANIME4K_PRESETS,
+  isWebGPUAvailable,
+  startAnime4k,
+} from "../lib/anime4kRenderer";
+
+/** One server row inside the player's SERVERS tab (built by Watch.tsx). */
+export interface PlayerServerItem {
+  url: string;
+  label: string;
+  type: "hls" | "mp4" | "iframe";
+  /** Provider-family label — AllAnime / AnimeX / Zen / Koto / Demo. */
+  group: string;
+  active: boolean;
+}
 
 interface VideoPlayerProps {
   stream: StreamResult;
@@ -45,6 +61,12 @@ interface VideoPlayerProps {
   nextEpisodeLabel?: string;
   /** L-12: called when the user clicks Retry on the playback-error overlay */
   onRetry?: () => void;
+  /** Server rows for the player's SERVERS tab (animex.one parity). */
+  servers?: PlayerServerItem[];
+  /** Click on a server row — parent swaps the stream (no page reload). */
+  onServerSelect?: (url: string) => void;
+  /** True while background providers are still resolving. */
+  serversLoading?: boolean;
 }
 
 interface SeekRipple {
@@ -71,6 +93,43 @@ const INTRO_END = 85;
 // natural 'ended' event (and the autoplay-next chain) still fires.
 const OUTRO_WINDOW = 90;
 
+/** Feature support — computed once, module level (SSR-safe). */
+const PIP_SUPPORTED =
+  typeof document !== "undefined" && "pictureInPictureEnabled" in document;
+const CAST_SUPPORTED =
+  typeof HTMLMediaElement !== "undefined" && "remote" in HTMLMediaElement.prototype;
+
+/** animex-style settings row with an iOS switch (used across the SETTINGS tab). */
+function SettingToggle({ label, hint, on, onChange, disabled }: {
+  label: string;
+  hint?: string;
+  on: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={() => !disabled && onChange(!on)}
+      className="flex items-center justify-between gap-3 w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors disabled:opacity-40"
+      disabled={disabled}
+      role="switch"
+      aria-checked={on}
+    >
+      <span className="min-w-0">
+        <span className="block text-[13px]">{label}</span>
+        {hint && <span className="block text-[10px] text-white/40 leading-snug">{hint}</span>}
+      </span>
+      <span
+        className={`relative flex-shrink-0 w-8 h-[18px] rounded-full transition-colors ${on ? "bg-xan-crimson" : "bg-white/20"}`}
+      >
+        <span
+          className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-all ${on ? "left-[16px]" : "left-[2px]"}`}
+        />
+      </span>
+    </button>
+  );
+}
+
 export function VideoPlayer({
   stream,
   title,
@@ -85,6 +144,9 @@ export function VideoPlayer({
   onAutoPlayCancel,
   nextEpisodeLabel,
   onRetry,
+  servers,
+  onServerSelect,
+  serversLoading,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -120,13 +182,20 @@ export function VideoPlayer({
   const [playbackRate, setPlaybackRate] = useState(settings.playbackRate);
   const [showSettings, setShowSettings] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"main" | "speed" | "quality" | "subs">("main");
+  // animex.one parity: the settings drawer has four persistent tabs plus an
+  // in-SETTINGS sub-page for the WebGPU renderer.
+  const [settingsTab, setSettingsTab] = useState<"quality" | "subs" | "settings" | "servers">("settings");
+  const [settingsPage, setSettingsPage] = useState<"main" | "renderer">("main");
+  const [aspectOpen, setAspectOpen] = useState(false);
   // Soft-subtitle selection (AnimeX per-episode sources ship VTT tracks).
   // -1 = off; otherwise the index into stream.tracks.
   const [activeTrackIndex, setActiveTrackIndex] = useState(-1);
   const [cursorVisible, setCursorVisible] = useState(true);
-  const [qualityLevels, setQualityLevels] = useState<{ height: number; index: number }[]>([]);
+  const [qualityLevels, setQualityLevels] = useState<{ height: number; index: number; bitrate: number }[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
+  // Height hls.js is ACTUALLY playing while in Auto mode — shown as
+  // "Auto (1080p)" in the Quality tab like animex does.
+  const [autoLevelHeight, setAutoLevelHeight] = useState(0);
   const [timeMode, setTimeMode] = useState<"duration" | "remaining">("duration");
   const [hoverPct, setHoverPct] = useState<number | null>(null);
   const [seekRipples, setSeekRipples] = useState<SeekRipple[]>([]);
@@ -134,6 +203,25 @@ export function VideoPlayer({
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showEnhancer, setShowEnhancer] = useState(false);
   const enhancer = useVideoEnhancer();
+  // ── WebGPU renderer (Anime4K) state ──
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const a4kSessionRef = useRef<{ destroy(): void } | null>(null);
+  const [a4kStatus, setA4kStatus] = useState<"off" | "starting" | "on" | "error">("off");
+  const [a4kError, setA4kError] = useState<string | null>(null);
+  const [videoRes, setVideoRes] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  // ── Audio boost (Web Audio gain > 100 %) ──
+  const audioBoostRef = useRef<{ ctx: AudioContext; gain: GainNode } | null>(null);
+  const [pipActive, setPipActive] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 2200);
+  }, []);
+
+  const webgpuSupported = useMemo(() => isWebGPUAvailable(), []);
 
   // BUG 8 FIX: full teardown on unmount. Navigating away from /watch while
   // a stream was loading or playing used to leave the playback watchdog AND
@@ -186,8 +274,10 @@ export function VideoPlayer({
     // M-17 FIX: nothing outside the manual toggle ever called play(), so the
     // "autoplay next episode" countdown AND the initial episode click both
     // landed on a paused player with the big center play button. Arm the
-    // one-shot autoplay for this new stream.
-    shouldAutoplayRef.current = true;
+    // one-shot autoplay for this new stream — now gated on the Autoplay
+    // toggle (animex "Autoplay" setting) so switching it off actually stops
+    // the player from starting on its own.
+    shouldAutoplayRef.current = settings.autoplay;
     setLoading(true);
     setError(null);
     // L-3 FIX: reset time/buffered state so the seekbar doesn't show the
@@ -221,7 +311,7 @@ export function VideoPlayer({
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         const levels = hls.levels
-          .map((l, i) => ({ height: l.height, index: i }))
+          .map((l, i) => ({ height: l.height, index: i, bitrate: l.bitrate }))
           .filter((l) => l.height > 0)
           .sort((a, b) => b.height - a.height);
         setQualityLevels(levels);
@@ -231,7 +321,10 @@ export function VideoPlayer({
       // user has pinned a manual quality. In Auto mode (currentQuality === -1)
       // overwriting it made the menu checkmark jump from "Auto" to "720p"
       // even though auto-level selection was still active.
+      // animex parity: in Auto mode the height is still shown as a live
+      // "Auto (1080p)" hint — autoLevelHeight tracks it unconditionally.
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => {
+        setAutoLevelHeight(hls.levels[data.level]?.height ?? 0);
         if (!hls.autoLevelEnabled) setCurrentQuality(data.level);
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -324,6 +417,9 @@ export function VideoPlayer({
     const onPlay = () => {
       setPlaying(true);
       setLoading(false);
+      // Audio boost: browsers suspend AudioContexts until a user gesture —
+      // resume on every play so boosted volume actually comes back.
+      if (audioBoostRef.current) audioBoostRef.current.ctx.resume().catch(() => { /* ignore */ });
       if (playbackTimeoutRef.current) {
         clearTimeout(playbackTimeoutRef.current);
         playbackTimeoutRef.current = null;
@@ -335,13 +431,15 @@ export function VideoPlayer({
     const onLoaded = () => {
       setDuration(video.duration || 0);
       setLoading(false);
+      // Native resolution — drives the Anime4K canvas sizing / rebuilds.
+      setVideoRes({ w: video.videoWidth, h: video.videoHeight });
       // BUG 8 FIX: metadata arrived — disarm the watchdog (the stream is
       // alive even if autoplay is policy-blocked).
       if (playbackTimeoutRef.current) {
         clearTimeout(playbackTimeoutRef.current);
         playbackTimeoutRef.current = null;
       }
-      if (!resumeAppliedRef.current && resumeTime && resumeTime > 5 && video.duration > resumeTime) {
+      if (!resumeAppliedRef.current && settings.autoResume && resumeTime && resumeTime > 5 && video.duration > resumeTime) {
         try {
           video.currentTime = resumeTime;
           resumeAppliedRef.current = true;
@@ -424,13 +522,121 @@ export function VideoPlayer({
   // these deps — a stale closure would have kept the OLD value if the
   // setting ever changed while the player stayed mounted. (skipIntro was
   // already here; skipOutro is the same class of dependency.)
-  }, [resumeTime, settings.skipIntro, settings.skipOutro, onProgress, onEnded]);
+  // settings.autoResume + settings.autoplay joined the same class — they are
+  // read inside onLoaded / the load effect respectively.
+  }, [resumeTime, settings.skipIntro, settings.skipOutro, settings.autoResume, onProgress, onEnded]);
 
   // ─── Fullscreen ───
   useEffect(() => {
     const onFsChange = () => setFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // ─── Picture-in-Picture state mirror ───
+  useEffect(() => {
+    if (!PIP_SUPPORTED) return;
+    const onEnter = () => setPipActive(true);
+    const onLeave = () => setPipActive(false);
+    const video = videoRef.current;
+    video?.addEventListener("enterpictureinpicture", onEnter);
+    video?.addEventListener("leavepictureinpicture", onLeave);
+    return () => {
+      video?.removeEventListener("enterpictureinpicture", onEnter);
+      video?.removeEventListener("leavepictureinpicture", onLeave);
+    };
+  }, []);
+
+  // ─── Audio boost (animex "Extra volume" 0–200 %) ───
+  // Web Audio gain chained after the media element. The MediaElementSource
+  // is created lazily ONCE per player lifetime (spec: only one per element),
+  // kept across stream switches — the <video> element itself never changes.
+  // boost ≤ 0 simply pins the gain to 1 (the node chain stays, but at unity).
+  useEffect(() => {
+    const boost = settings.audioBoost;
+    if (boost <= 0) {
+      if (audioBoostRef.current) audioBoostRef.current.gain.gain.value = 1;
+      return;
+    }
+    try {
+      if (!audioBoostRef.current) {
+        const video = videoRef.current;
+        if (!video) return;
+        const Ctor: typeof AudioContext | undefined =
+          window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Ctor) return;
+        const ctx = new Ctor();
+        const src = ctx.createMediaElementSource(video);
+        const gain = ctx.createGain();
+        src.connect(gain);
+        gain.connect(ctx.destination);
+        audioBoostRef.current = { ctx, gain };
+      }
+      const ab = audioBoostRef.current;
+      ab.ctx.resume().catch(() => { /* gesture-gated */ });
+      ab.gain.gain.value = 1 + boost / 100;
+    } catch {
+      // Web Audio unavailable — the boost slider becomes a no-op.
+    }
+  }, [settings.audioBoost]);
+
+  // ─── WebGPU renderer (Anime4K) lifecycle ───
+  // Restarted ("safely, playback never interrupted") whenever the toggle,
+  // the preset or the stream's native resolution changes — the <video>
+  // element is never touched, so audio + buffered data are unaffected.
+  useEffect(() => {
+    const want = settings.anime4kEnabled && webgpuSupported && stream.type !== "iframe";
+    let disposed = false;
+    (async () => {
+      a4kSessionRef.current?.destroy();
+      a4kSessionRef.current = null;
+      if (!want || !videoRes.w || !canvasRef.current || !videoRef.current) {
+        setA4kStatus("off");
+        setA4kError(null);
+        return;
+      }
+      setA4kStatus("starting");
+      setA4kError(null);
+      try {
+        const session = await startAnime4k({
+          video: videoRef.current,
+          canvas: canvasRef.current,
+          preset: settings.anime4kPreset,
+          onError: (msg) => {
+            setA4kStatus("error");
+            setA4kError(msg);
+            // Auto-restore the plain <video> so playback stays visible.
+            updateSettings({ anime4kEnabled: false });
+          },
+        });
+        if (disposed) {
+          session.destroy();
+          return;
+        }
+        a4kSessionRef.current = session;
+        setA4kStatus("on");
+      } catch (e) {
+        setA4kStatus("error");
+        setA4kError(e instanceof Error ? e.message : String(e));
+        updateSettings({ anime4kEnabled: false });
+      }
+    })();
+    return () => {
+      disposed = true;
+      a4kSessionRef.current?.destroy();
+      a4kSessionRef.current = null;
+    };
+  }, [settings.anime4kEnabled, settings.anime4kPreset, videoRes.w, videoRes.h, stream.url, stream.type, webgpuSupported]);
+
+  // ─── Toast timer + audio graph teardown on unmount ───
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (audioBoostRef.current) {
+        try { audioBoostRef.current.ctx.close(); } catch { /* ignore */ }
+        audioBoostRef.current = null;
+      }
+    };
   }, []);
 
   // ─── Controls auto-hide ───
@@ -554,6 +760,101 @@ export function VideoPlayer({
       setCurrentQuality(index);
     }
   }, []);
+
+  // ─── animex-parity control-bar actions ───
+  /** CC button — toggles between "off" and the first/default soft-sub track. */
+  const toggleSubtitles = useCallback(() => {
+    setActiveTrackIndex((idx) => {
+      if (idx >= 0) return -1;
+      const tracks = stream.tracks ?? [];
+      if (tracks.length === 0) {
+        showToast("This stream has no subtitle tracks");
+        return -1;
+      }
+      const defIdx = tracks.findIndex((t) => t.isDefault);
+      return defIdx >= 0 ? defIdx : 0;
+    });
+  }, [stream.tracks, showToast]);
+
+  /** Camera button — dump the current frame to a PNG download. */
+  const takeScreenshot = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth) {
+      showToast("Nothing to capture yet");
+      return;
+    }
+    try {
+      const c = document.createElement("canvas");
+      c.width = v.videoWidth;
+      c.height = v.videoHeight;
+      const g = c.getContext("2d");
+      if (!g) return;
+      g.drawImage(v, 0, 0, c.width, c.height);
+      c.toBlob((blob) => {
+        if (!blob) {
+          showToast("Screenshot failed");
+          return;
+        }
+        const safe = title.replace(/[^\w\- ]+/g, "").trim() || "XAN";
+        const a = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = `${safe} - EP${episode} - ${Math.floor(v.currentTime)}s.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        showToast("Screenshot saved");
+      }, "image/png");
+    } catch {
+      // drawImage on a tainted canvas (cross-origin without CORS) throws.
+      showToast("Screenshot blocked for this stream");
+    }
+  }, [title, episode, showToast]);
+
+  const togglePip = useCallback(async () => {
+    const v = videoRef.current as (HTMLVideoElement & { requestPictureInPicture?: () => Promise<void> }) | null;
+    if (!v) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await v.requestPictureInPicture?.();
+      }
+    } catch {
+      showToast("Picture-in-picture unavailable");
+    }
+  }, [showToast]);
+
+  const toggleCast = useCallback(async () => {
+    const v = videoRef.current as (HTMLVideoElement & { remote?: { prompt: () => Promise<void> } }) | null;
+    try {
+      await v?.remote?.prompt();
+    } catch {
+      // No devices / user cancelled — silently ignore.
+    }
+  }, []);
+
+  /** Display geometry for the <video>/<canvas> per the Aspect ratio setting. */
+  const aspectStyle = useMemo<React.CSSProperties>(() => {
+    switch (settings.aspectRatio) {
+      case "fill":
+      case "16:9":
+        return { objectFit: "fill" };
+      case "4:3":
+        // Container is aspect-video (16:9): a 4:3 box is 27/64 of its width.
+        return { width: "42.1875%", height: "100%", objectFit: "fill", display: "block", marginLeft: "auto", marginRight: "auto" };
+      default:
+        return {};
+    }
+  }, [settings.aspectRatio]);
+
+  /** Label for the Filters row — mirrors the enhancer's active state. */
+  const filtersLabel = !enhancer.rawActive
+    ? "Off"
+    : enhancer.matchedPresetId
+      ? ENHANCER_PRESETS[enhancer.matchedPresetId]?.label ?? "Custom"
+      : "Custom";
+
+  const presetLabel = ANIME4K_PRESETS.find((p) => p.id === settings.anime4kPreset)?.label ?? "Mode A";
 
   // M-7 FIX: stable "play next now" handler. The inline arrow used before was
   // a new identity on every parent render, which (a) restarted the
@@ -742,12 +1043,15 @@ export function VideoPlayer({
       <video
         ref={videoRef}
         className="w-full h-full object-contain"
-        style={enhancer.active ? {
-          filter: enhancer.filterCss,
-          willChange: "filter",
-          transform: "translateZ(0)",
-          backfaceVisibility: "hidden",
-        } : undefined}
+        style={{
+          ...aspectStyle,
+          ...(enhancer.active ? {
+            filter: enhancer.filterCss,
+            willChange: "filter",
+            transform: "translateZ(0)",
+            backfaceVisibility: "hidden",
+          } : {}),
+        }}
         playsInline
         onClick={handleVideoClick}
       >
@@ -763,6 +1067,22 @@ export function VideoPlayer({
           />
         ))}
       </video>
+
+      {/* WebGPU (Anime4K) render surface — always mounted so the renderer
+          effect can acquire the context; visually swapped in when active.
+          pointer-events-none lets taps/clicks fall through to the video. */}
+      <canvas
+        ref={canvasRef}
+        className={`absolute inset-0 w-full h-full pointer-events-none ${a4kStatus === "on" ? "" : "hidden"}`}
+        style={aspectStyle}
+      />
+
+      {/* Anime4K starting indicator */}
+      {a4kStatus === "starting" && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur text-[10px] font-bold tracking-wide text-white/90 pointer-events-none">
+          ANIME4K · WARMING UP GPU
+        </div>
+      )}
 
       {/* Loading spinner — YouTube-style border spinner */}
       {loading && !error && (
@@ -871,27 +1191,18 @@ export function VideoPlayer({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            {/* Eye toggle */}
-            <button
-              onClick={enhancer.toggleEnabled}
-              className="relative p-1.5 rounded-md hover:bg-white/15 transition-colors flex items-center justify-center"
-              aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
-              title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
-            >
-              <div className="relative w-4 h-4">
-                <Eye className={`absolute inset-0 h-4 w-4 transition-all duration-300 ${enhancer.state.enabled ? "opacity-100 scale-100 text-xan-crimson" : "opacity-0 scale-50 text-white/40"}`} />
-                <EyeOff className={`absolute inset-0 h-4 w-4 transition-all duration-300 ${enhancer.state.enabled ? "opacity-0 scale-50 text-white/40" : "opacity-100 scale-100 text-white/60"}`} />
-              </div>
-            </button>
-            {/* Enhancer settings */}
-            <button
-              onClick={() => setShowEnhancer(true)}
-              className={`p-1.5 rounded-md hover:bg-white/15 transition-colors ${enhancerActive ? "text-xan-crimson" : "text-white"}`}
-              title="Video enhancer settings (E)"
-              aria-label="Video enhancer settings"
-            >
-              <Sun className="h-4 w-4" />
-            </button>
+            {/* Cast (animex top-right) — only rendered when the browser
+                exposes the Remote Playback prompt (Chromium + Chromecast). */}
+            {CAST_SUPPORTED && (
+              <button
+                onClick={toggleCast}
+                className="p-1.5 rounded-md text-white hover:bg-white/15 transition-colors"
+                aria-label="Cast"
+                title="Cast to a device"
+              >
+                <Cast className="h-4 w-4" />
+              </button>
+            )}
             {/* Keyboard shortcuts */}
             <button
               onClick={() => setShowShortcuts(true)}
@@ -981,28 +1292,6 @@ export function VideoPlayer({
               {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-white" />}
             </button>
 
-            {/* Prev/Next (if available) */}
-            {onPrev && (
-              <button
-                onClick={onPrev}
-                className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block"
-                aria-label="Previous episode"
-                title="Previous (P)"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-            )}
-            {onNext && (
-              <button
-                onClick={onNext}
-                className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block"
-                aria-label="Next episode"
-                title="Next (N)"
-              >
-                <RotateCw className="h-4 w-4" />
-              </button>
-            )}
-
             {/* Volume — tap to expand slider (YouTube-style) */}
             <div className="flex items-center flex-shrink-0">
               <button
@@ -1055,20 +1344,72 @@ export function VideoPlayer({
             </button>
           </div>
 
-          {/* Right cluster */}
+          {/* Right cluster — animex.one order: −10s · +10s · CC · Screenshot ·
+              Settings · PiP · Fullscreen (episode prev/next live on the
+              sidebar episode grid + N/P keys, exactly like the original). */}
           <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
-            {/* Settings (gear) — multi-level menu */}
-            <div className="relative flex-shrink-0">
+            {/* −10 seconds */}
+            <button
+              onClick={() => seekBy(-10)}
+              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              aria-label="Back 10 seconds"
+              title="Back 10s (J)"
+            >
+              <span className="relative inline-flex">
+                <RotateCcw className="h-5 w-5" />
+                <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold leading-none">10</span>
+              </span>
+            </button>
+            {/* +10 seconds */}
+            <button
+              onClick={() => seekBy(10)}
+              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              aria-label="Forward 10 seconds"
+              title="Forward 10s (L)"
+            >
+              <span className="relative inline-flex">
+                <RotateCw className="h-5 w-5" />
+                <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold leading-none">10</span>
+              </span>
+            </button>
+            {/* Subtitles (CC) */}
+            <button
+              onClick={toggleSubtitles}
+              className={`p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 ${activeTrackIndex >= 0 ? "text-xan-crimson" : "text-white"}`}
+              aria-label="Toggle subtitles"
+              title={activeTrackIndex >= 0 ? "Subtitles ON" : "Subtitles OFF"}
+            >
+              <Captions className="h-5 w-5" />
+            </button>
+            {/* Screenshot */}
+            <button
+              onClick={takeScreenshot}
+              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block"
+              aria-label="Screenshot"
+              title="Save a screenshot"
+            >
+              <Camera className="h-5 w-5" />
+            </button>
+            {/* Settings (gear) — animex tabbed drawer */}
+            <button
+              onClick={() => setShowSettings((v) => !v)}
+              className={`p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 ${showSettings ? "bg-white/15" : ""}`}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+            {/* Picture-in-Picture */}
+            {PIP_SUPPORTED && (
               <button
-                onClick={() => { setShowSettings((v) => !v); setSettingsTab("main"); }}
-                className={`p-1.5 rounded hover:bg-white/15 transition-colors ${showSettings ? "bg-white/15" : ""}`}
-                aria-label="Settings"
-                title="Settings"
+                onClick={togglePip}
+                className={`p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block ${pipActive ? "text-xan-crimson" : "text-white"}`}
+                aria-label="Picture-in-picture"
+                title="Picture-in-picture (I)"
               >
-                <Settings className="h-5 w-5" />
+                <PictureInPicture2 className="h-5 w-5" />
               </button>
-            </div>
-
+            )}
             {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
@@ -1082,191 +1423,347 @@ export function VideoPlayer({
         </div>
       </div>
 
-      {/* ── Settings panel (responsive multi-level) ── */}
+      {/* ── Settings drawer (animex.one parity): persistent QUALITY / SUBTITLES /
+          SETTINGS / SERVERS tabs, plus a WebGPU-renderer sub-page inside SETTINGS ── */}
       {showSettings && (
         <div
-          className="absolute bottom-0 left-0 right-0 max-h-[36vh] text-[12px] sm:bottom-14 sm:left-auto sm:right-3 sm:w-64 sm:max-h-[60vh] sm:text-sm z-50 rounded-t-lg sm:rounded-lg bg-[#0f0f0f]/95 backdrop-blur border-t sm:border border-white/10 shadow-2xl text-white overflow-y-auto overflow-x-hidden animate-panel-up pointer-events-auto"
+          className="absolute inset-y-0 right-0 z-50 w-full sm:w-[300px] max-w-full flex flex-col bg-[#0a0a0c]/95 backdrop-blur-xl border-l border-white/10 shadow-2xl text-white animate-drawer-in pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Mobile drag handle */}
-          <div className="sm:hidden flex justify-center pt-1 pb-0.5 flex-shrink-0">
-            <div className="w-7 h-0.5 rounded-full bg-white/30" />
+          {/* Tab header */}
+          <div className="flex items-stretch border-b border-white/10 flex-shrink-0">
+            {([
+              ["quality", "Quality"],
+              ["subs", "Subtitles"],
+              ["settings", "Settings"],
+              ["servers", "Servers"],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => { setSettingsTab(id); setSettingsPage("main"); }}
+                className={`relative flex-1 px-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${settingsTab === id ? "text-white" : "text-white/40 hover:text-white/70"}`}
+              >
+                {label}
+                {settingsTab === id && (
+                  <span className="absolute left-3 right-3 bottom-0 h-0.5 rounded-full bg-xan-crimson" />
+                )}
+              </button>
+            ))}
+            <button
+              onClick={() => setShowSettings(false)}
+              className="px-3 text-white/50 hover:text-white transition-colors"
+              aria-label="Close settings"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          {settingsTab === "main" && (
-            <>
-              <div className="sm:hidden flex items-center justify-between px-3 py-1 border-b border-white/5 flex-shrink-0">
-                <span className="font-medium">Settings</span>
-                <button onClick={() => setShowSettings(false)} className="p-1 rounded hover:bg-white/10">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <button
-                onClick={() => setSettingsTab("speed")}
-                className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors"
-              >
-                <span>Playback speed</span>
-                <span className="flex items-center gap-1.5 text-white/70">
-                  {Number.isInteger(playbackRate) ? playbackRate : playbackRate.toFixed(2)}x
-                  <ChevronRight className="h-4 w-4" />
-                </span>
-              </button>
-              {qualityLevels.length > 0 && (
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
+            {/* ── QUALITY ── */}
+            {settingsTab === "quality" && (
+              <div>
+                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Quality</p>
+                {qualityLevels.length === 0 && (
+                  <p className="px-4 py-2 text-xs text-white/50">This stream has a single quality.</p>
+                )}
                 <button
-                  onClick={() => setSettingsTab("quality")}
-                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors border-t border-white/5"
+                  onClick={() => changeQuality(-1)}
+                  className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
                 >
-                  <span>Quality</span>
-                  <span className="flex items-center gap-1.5 text-white/70">
-                    {currentQuality === -1 ? "Auto" : `${qualityLevels.find(q => q.index === currentQuality)?.height}p`}
-                    <ChevronRight className="h-4 w-4" />
-                  </span>
+                  <span>Auto{autoLevelHeight > 0 ? ` (${autoLevelHeight}p)` : ""}</span>
+                  {currentQuality === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
                 </button>
-              )}
-              {(stream.tracks?.length ?? 0) > 0 && (
-                <button
-                  onClick={() => setSettingsTab("subs")}
-                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors border-t border-white/5"
-                >
-                  <span>Subtitles</span>
-                  <span className="flex items-center gap-1.5 text-white/70">
-                    {activeTrackIndex < 0
-                      ? "Off"
-                      : stream.tracks?.[activeTrackIndex]?.label || "On"}
-                    <ChevronRight className="h-4 w-4" />
-                  </span>
-                </button>
-              )}
-              <button
-                onClick={() => { setShowSettings(false); setShowShortcuts(true); }}
-                className="flex items-center justify-between w-full px-3 sm:px-4 py-1.5 sm:py-2.5 hover:bg-white/10 transition-colors border-t border-white/5"
-              >
-                <span>Keyboard shortcuts</span>
-                <ChevronRight className="h-4 w-4 text-white/70" />
-              </button>
-            </>
-          )}
-
-          {settingsTab === "speed" && (
-            <div>
-              <div className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-white/5">
-                <button onClick={() => setSettingsTab("main")} className="p-1 rounded hover:bg-white/10">
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="font-medium flex-1">Playback speed</span>
-                <button onClick={() => setShowSettings(false)} className="sm:hidden p-1 rounded hover:bg-white/10">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              {/* Speed slider */}
-              <div className="px-3 sm:px-4 py-1.5 sm:py-3 border-b border-white/5">
-                <div className="flex items-center justify-between mb-1 sm:mb-2">
-                  <span className="text-xs text-white/60">Speed</span>
-                  <span className="text-xs font-mono font-bold text-xan-crimson">
-                    {Number.isInteger(playbackRate) ? `${playbackRate}.00` : playbackRate.toFixed(2)}x
-                  </span>
-                </div>
-                <div className="relative h-4 flex items-center">
-                  <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
-                  <div
-                    className="absolute left-0 h-1 rounded-full bg-xan-crimson transition-all"
-                    style={{ width: `${((playbackRate - 0.25) / (4 - 0.25)) * 100}%` }}
-                  />
-                  <div
-                    className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-sm pointer-events-none"
-                    style={{ left: `calc(${((playbackRate - 0.25) / (4 - 0.25)) * 100}% - 5px)` }}
-                  />
-                  <input
-                    type="range" min={0.25} max={4} step={0.05}
-                    value={playbackRate}
-                    onChange={(e) => changePlaybackRate(Number(e.target.value))}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                    style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
-                  />
-                </div>
-                <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5">
-                  <span>0.25x</span><span>1x</span><span>2x</span><span>4x</span>
-                </div>
-              </div>
-              {/* Preset speeds */}
-              <div className="max-h-[130px] overflow-y-auto">
-                {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                {qualityLevels.map((lvl) => (
                   <button
-                    key={rate}
-                    onClick={() => changePlaybackRate(rate)}
-                    className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
+                    key={lvl.index}
+                    onClick={() => changeQuality(lvl.index)}
+                    className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
                   >
-                    <span>{rate}x{rate === 1 ? " (Normal)" : ""}</span>
-                    {rate === playbackRate && <Check className="h-4 w-4 text-xan-crimson" />}
+                    <span>{lvl.height}p{lvl.bitrate ? ` (${fmtBitrate(lvl.bitrate)})` : ""}</span>
+                    {currentQuality === lvl.index && <Check className="h-4 w-4 text-xan-crimson" />}
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {settingsTab === "subs" && (
-            <div>
-              <div className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-white/5">
-                <button onClick={() => setSettingsTab("main")} className="p-1 rounded hover:bg-white/10">
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="font-medium flex-1">Subtitles</span>
-                <button onClick={() => setShowSettings(false)} className="sm:hidden p-1 rounded hover:bg-white/10">
-                  <X className="h-3.5 w-3.5" />
-                </button>
+            {/* ── SUBTITLES ── */}
+            {settingsTab === "subs" && (
+              <div>
+                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Subtitles</p>
+                {(stream.tracks?.length ?? 0) === 0 ? (
+                  <p className="px-4 py-2 text-xs text-white/50">No subtitle tracks for this stream.</p>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setActiveTrackIndex(-1)}
+                      className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                    >
+                      <span>Off</span>
+                      {activeTrackIndex === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
+                    </button>
+                    {(stream.tracks ?? []).map((t, i) => (
+                      <button
+                        key={`${t.url}-${i}`}
+                        onClick={() => setActiveTrackIndex(i)}
+                        className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                      >
+                        <span className="truncate pr-3">{t.label}</span>
+                        {activeTrackIndex === i && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
-              <button
-                onClick={() => { setActiveTrackIndex(-1); setSettingsTab("main"); }}
-                className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
-              >
-                <span>Off</span>
-                {activeTrackIndex === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
-              </button>
-              {(stream.tracks ?? []).map((t, i) => (
-                <button
-                  key={`${t.url}-${i}`}
-                  onClick={() => { setActiveTrackIndex(i); setSettingsTab("main"); }}
-                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
-                >
-                  <span className="truncate pr-3">{t.label}</span>
-                  {activeTrackIndex === i && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
-                </button>
-              ))}
-            </div>
-          )}
+            )}
 
-          {settingsTab === "quality" && (
-            <div>
-              <div className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border-b border-white/5">
-                <button onClick={() => setSettingsTab("main")} className="p-1 rounded hover:bg-white/10">
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="font-medium flex-1">Quality</span>
-                <button onClick={() => setShowSettings(false)} className="sm:hidden p-1 rounded hover:bg-white/10">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <button
-                onClick={() => { changeQuality(-1); setSettingsTab("main"); }}
-                className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
-              >
-                <span>Auto{currentQuality === -1 ? " (current)" : ""}</span>
-                {currentQuality === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
-              </button>
-              {qualityLevels.map((lvl) => (
+            {/* ── SETTINGS (main) ── */}
+            {settingsTab === "settings" && settingsPage === "main" && (
+              <div className="pb-4">
+                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Playback</p>
+                <SettingToggle
+                  label="Autoplay"
+                  hint="Start playing automatically"
+                  on={settings.autoplay}
+                  onChange={(v) => updateSettings({ autoplay: v })}
+                />
+                <SettingToggle
+                  label="Smart resume"
+                  hint="Pick up where you left off"
+                  on={settings.autoResume}
+                  onChange={(v) => updateSettings({ autoResume: v })}
+                />
+                <SettingToggle
+                  label="Auto play next episode"
+                  on={settings.autoNext}
+                  onChange={(v) => updateSettings({ autoNext: v })}
+                />
+                <SettingToggle
+                  label="Auto skip intro"
+                  on={settings.skipIntro}
+                  onChange={(v) => updateSettings({ skipIntro: v })}
+                />
+                <SettingToggle
+                  label="Auto skip outro"
+                  on={settings.skipOutro}
+                  onChange={(v) => updateSettings({ skipOutro: v })}
+                />
+
+                <p className="px-4 pt-4 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Speed</p>
+                <div className="px-4 py-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[13px]">Playback speed</span>
+                    <span className="text-xs font-mono font-bold text-xan-crimson">{fmtRate(playbackRate)}x</span>
+                  </div>
+                  <div className="relative h-4 flex items-center">
+                    <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
+                    <div
+                      className="absolute left-0 h-1 rounded-full bg-xan-crimson transition-all"
+                      style={{ width: `${((playbackRate - 0.25) / (2 - 0.25)) * 100}%` }}
+                    />
+                    <div
+                      className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-sm pointer-events-none"
+                      style={{ left: `calc(${((playbackRate - 0.25) / (2 - 0.25)) * 100}% - 5px)` }}
+                    />
+                    <input
+                      type="range" min={0.25} max={2} step={0.05}
+                      value={playbackRate}
+                      onChange={(e) => changePlaybackRate(Number(e.target.value))}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                      style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5">
+                    <span>0.25x</span><span>1x</span><span>2x</span>
+                  </div>
+                </div>
+
+                <p className="px-4 pt-4 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Display</p>
                 <button
-                  key={lvl.index}
-                  onClick={() => { changeQuality(lvl.index); setSettingsTab("main"); }}
-                  className="flex items-center justify-between w-full px-3 sm:px-4 py-1 sm:py-2 hover:bg-white/10 transition-colors"
+                  onClick={() => setShowEnhancer(true)}
+                  className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
                 >
-                  <span>{lvl.height}p</span>
-                  {currentQuality === lvl.index && <Check className="h-4 w-4 text-xan-crimson" />}
+                  <span>Filters</span>
+                  <span className="flex items-center gap-1.5 text-white/70">
+                    {filtersLabel}
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </span>
                 </button>
-              ))}
-            </div>
-          )}
+                <div className="border-t border-white/5">
+                  <button
+                    onClick={() => setAspectOpen((v) => !v)}
+                    className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                  >
+                    <span>Aspect ratio</span>
+                    <span className="flex items-center gap-1.5 text-white/70">
+                      {settings.aspectRatio === "auto" ? "Auto" : settings.aspectRatio === "fill" ? "Fill" : settings.aspectRatio}
+                      <ChevronRight className={`h-3.5 w-3.5 transition-transform ${aspectOpen ? "rotate-90" : ""}`} />
+                    </span>
+                  </button>
+                  {aspectOpen && (
+                    <div className="pb-2">
+                      {([["auto", "Auto"], ["fill", "Fill"], ["16:9", "16:9"], ["4:3", "4:3"]] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          onClick={() => { updateSettings({ aspectRatio: value }); setAspectOpen(false); }}
+                          className="flex items-center justify-between w-full pl-8 pr-4 py-2 text-[12px] hover:bg-white/5 transition-colors"
+                        >
+                          <span>{label}</span>
+                          {settings.aspectRatio === value && <Check className="h-3.5 w-3.5 text-xan-crimson" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setSettingsPage("renderer")}
+                  className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors border-t border-white/5"
+                >
+                  <span>Anime4K</span>
+                  <span className="flex items-center gap-1.5 text-white/70">
+                    {settings.anime4kEnabled ? `On — ${presetLabel}` : "Off"}
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+
+                <p className="px-4 pt-4 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Audio boost</p>
+                <div className="px-4 py-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[13px]">Extra volume</span>
+                    <span className="text-xs font-mono font-bold text-xan-crimson">{settings.audioBoost}%</span>
+                  </div>
+                  <div className="relative h-4 flex items-center">
+                    <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
+                    <div
+                      className="absolute left-0 h-1 rounded-full bg-xan-crimson transition-all"
+                      style={{ width: `${(settings.audioBoost / 200) * 100}%` }}
+                    />
+                    <div
+                      className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-sm pointer-events-none"
+                      style={{ left: `calc(${(settings.audioBoost / 200) * 100}% - 5px)` }}
+                    />
+                    <input
+                      type="range" min={0} max={200} step={5}
+                      value={settings.audioBoost}
+                      onChange={(e) => updateSettings({ audioBoost: Number(e.target.value) })}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                      style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5">
+                    <span>Off</span><span>100%</span><span>200%</span>
+                  </div>
+                  <p className="text-[10px] text-white/40 mt-2 leading-snug">
+                    Boost volume above the player's normal maximum.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── SETTINGS → WEBGPU RENDERER (sub-page) ── */}
+            {settingsTab === "settings" && settingsPage === "renderer" && (
+              <div className="pb-4">
+                <button
+                  onClick={() => setSettingsPage("main")}
+                  className="flex items-center gap-1.5 px-4 py-3 text-[12px] text-white/70 hover:text-white transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Go back to Settings
+                </button>
+
+                <p className="px-4 pt-1 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">WebGPU renderer</p>
+                <SettingToggle
+                  label="Enable Anime4K"
+                  hint="Clearer anime upscaling. Uses extra GPU and battery."
+                  on={settings.anime4kEnabled}
+                  disabled={!webgpuSupported}
+                  onChange={(v) => updateSettings({ anime4kEnabled: v })}
+                />
+                {!webgpuSupported && (
+                  <p className="px-4 pb-2 text-[11px] text-amber-400/80">
+                    WebGPU is not available in this browser — try Chrome or Edge.
+                  </p>
+                )}
+                {a4kError && (
+                  <p className="px-4 pb-2 text-[11px] text-xan-crimson/90">{a4kError}</p>
+                )}
+
+                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Shader pipeline</p>
+                <p className="px-4 pb-1 text-[13px]">Preset</p>
+                {ANIME4K_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => updateSettings({ anime4kPreset: p.id })}
+                    className="flex items-center justify-between gap-3 w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                  >
+                    <span className="min-w-0">
+                      <span className="block">{p.label}</span>
+                      <span className="block text-[10px] text-white/40 leading-snug">{p.desc}</span>
+                    </span>
+                    {settings.anime4kPreset === p.id && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
+                  </button>
+                ))}
+                <p className="px-4 pt-3 text-[10px] text-white/40 leading-relaxed">
+                  Presets select a tested Anime4K shader chain. Changing the preset
+                  safely restarts the GPU renderer — playback is never interrupted.
+                </p>
+                {a4kStatus === "starting" && (
+                  <p className="px-4 pt-2 text-[11px] text-white/60">Starting the GPU renderer…</p>
+                )}
+              </div>
+            )}
+
+            {/* ── SERVERS ── */}
+            {settingsTab === "servers" && (
+              <div>
+                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Servers</p>
+                {serversLoading && (
+                  <p className="px-4 py-2 text-xs text-white/50">Resolving servers…</p>
+                )}
+                {(!servers || servers.length === 0) && !serversLoading && (
+                  <p className="px-4 py-2 text-xs text-white/50">No servers resolved yet.</p>
+                )}
+                {(servers ?? []).map((s) => (
+                  <button
+                    key={s.url}
+                    onClick={() => { onServerSelect?.(s.url); setShowSettings(false); }}
+                    className="flex items-center justify-between gap-2 w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                    title={s.group}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate">{s.label}</span>
+                      <span className="block text-[9px] font-bold tracking-wider uppercase text-white/40">{s.group}</span>
+                    </span>
+                    <span className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded ${
+                        s.type === "iframe" ? "bg-purple-500/20 text-purple-400"
+                        : s.type === "hls" ? "bg-blue-500/20 text-blue-400"
+                        : "bg-green-500/20 text-green-400"
+                      }`}>
+                        {s.type}
+                      </span>
+                      {s.active && <Check className="h-4 w-4 text-xan-crimson" />}
+                    </span>
+                  </button>
+                ))}
+                {(servers?.length ?? 0) > 0 && (
+                  <p className="px-4 pt-3 pb-2 text-[10px] text-white/40 leading-relaxed">
+                    If the current server doesn't work, try another one — playback switches instantly.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Screenshot / action toast */}
+      {toast && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[60] px-3 py-1.5 rounded-md bg-black/80 backdrop-blur text-white text-xs animate-fade-in pointer-events-none whitespace-nowrap">
+          {toast}
         </div>
       )}
 
@@ -1290,4 +1787,19 @@ function fmt(s: number): string {
   const sec = Math.floor(s % 60);
   if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+/** HLS bitrate → animex-style label: "800 kbps" / "2.8 Mbps". */
+function fmtBitrate(bps: number): string {
+  if (!isFinite(bps) || bps <= 0) return "";
+  if (bps >= 1_000_000) {
+    const mb = bps / 1_000_000;
+    return `${mb >= 10 ? Math.round(mb) : Math.round(mb * 10) / 10} Mbps`;
+  }
+  return `${Math.round(bps / 1_000)} kbps`;
+}
+
+/** 1 → "1", 1.25 → "1.25" — appended with x in the UI. */
+function fmtRate(rate: number): string {
+  return Number.isInteger(rate) ? String(rate) : String(Math.round(rate * 100) / 100);
 }

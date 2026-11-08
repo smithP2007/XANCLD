@@ -59,6 +59,20 @@ export interface XanSettings {
   pinnedSource: string | null;
   // Enhancer
   enhancerEnabled: boolean;
+  /**
+   * Player settings drawer (animex.one parity):
+   *  - autoNext   → "Auto play next episode" toggle (queue the next-episode
+   *                 overlay when the current episode ends)
+   *  - audioBoost → "Extra volume" 0–200 % Web-Audio gain above the
+   *                 player's normal maximum
+   *  - aspectRatio → video display mode (auto / fill / 16:9 / 4:3)
+   *  - anime4k    → WebGPU renderer toggle + shader-pipeline preset
+   */
+  autoNext: boolean;
+  audioBoost: number;
+  aspectRatio: "auto" | "fill" | "16:9" | "4:3";
+  anime4kEnabled: boolean;
+  anime4kPreset: "mode-a" | "mode-aa" | "mode-b" | "mode-bb" | "mode-c" | "mode-ca";
   // Expanding Title Hover engine (Part 2) — anime card titles unfold to
   // their full multi-line text on hover instead of truncating.
   expandingTitleHover: boolean;
@@ -87,6 +101,11 @@ const DEFAULTS: XanSettings = {
   disabledSources: [],
   pinnedSource: null,
   enhancerEnabled: false,
+  autoNext: false,
+  audioBoost: 0,
+  aspectRatio: "auto",
+  anime4kEnabled: false,
+  anime4kPreset: "mode-a",
   expandingTitleHover: true,
   hasSeenOnboarding: false,
   moodPreference: null,
