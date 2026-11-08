@@ -1045,11 +1045,11 @@ export function VideoPlayer({
     rateBeforeBoostRef.current = v.playbackRate > 0 ? v.playbackRate : 1;
     v.playbackRate = 2;
     setHoldBoost2x(true);
-    // 2x = skimming mode: get the chrome out of the way. The bottom bar
-    // (buttons/options) fades NOW instead of lingering; the top bar stays
-    // because it carries the time chip with the 2x marker. Without this a
-    // pending 3s hide timer plus mouse jitter kept the controls on screen
-    // for the whole hold (user report).
+    // 2x = skimming mode: get ALL the chrome out of the way. The bottom bar
+    // (buttons/options) force-fades NOW, and with showControls false the
+    // top bar (title + time chip) fades with the normal transition too.
+    // Without this a pending 3s hide timer plus held-Space auto-repeat kept
+    // the controls on screen for the whole hold (user report).
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     setShowControls(false);
     setCursorVisible(false);
@@ -1424,12 +1424,13 @@ export function VideoPlayer({
     : {};
 
   const controlsHidden = !showControls && !showSettings && !showShortcuts;
-  // The 2x hold splits visibility: the BOTTOM bar (buttons/options) must be
-  // gone while skimming, but the TOP bar stays — it carries the time chip
-  // with the 2x marker the hold is named after.
+  // During the 2x hold EVERYTHING gets out of the way (user request): the
+  // bottom bar force-hides at boost start, and the top bar — title + time
+  // chip — obeys the normal fade like every other control. The 2x chip is
+  // therefore only readable when the controls are up (e.g. mouse moved
+  // during the hold); the speed change itself is the signal while skimming.
   const bottomHidden = controlsHidden || holdBoost2x;
-  const topHidden = controlsHidden && !holdBoost2x;
-  const topControlsClass = `xan-controls ${topHidden ? "xan-controls--hidden" : ""}`;
+  const topControlsClass = `xan-controls ${controlsHidden ? "xan-controls--hidden" : ""}`;
   const bottomControlsClass = `xan-controls ${bottomHidden ? "xan-controls--hidden" : ""}`;
 
   return (

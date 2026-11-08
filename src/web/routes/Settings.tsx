@@ -807,7 +807,7 @@ export function Settings() {
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold font-display text-foreground">XANCLD</h3>
                   <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-xan-crimson/15 text-xan-crimson border border-xan-crimson/30">
-                    v1.7.2
+                    v1.7.3
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">Hono + Vite + React · Cloudflare Workers</p>
