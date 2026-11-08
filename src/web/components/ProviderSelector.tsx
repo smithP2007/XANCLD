@@ -1,21 +1,25 @@
-// ProviderSelector — the animex.one-style server picker that sits right
-// under the player. ONE grid holds EVERYTHING, named by server only:
+// ProviderSelector — the server picker under the player, styled 1:1 after
+// animex.one's original server card:
 //
 //   ┌───────────────────────────────────────────┐
-//   │  [CC] Sub            │  [Mic] Dub         │   ← segmented Sub/Dub tabs
-//   ├───────────────────────────────────────────┤
-//   │ SERVERS                            7      │
-//   │ Vidtower │ Mp4  │ Ok  │ Yuki              │
-//   │ Loli     │ Zen  │ Koto│ …                 │   ← every server, one chip each
-//   └───────────────────────────────────────────┘
+//   │ ┌───────────────┬───────────────┐         │
+//   │ │ [CC] Sub      │ [Mic] Dub     │         │  ← tabs in bg-black/40 pill
+//   │ └───────────────┴───────────────┘         │
+//   │ ANMX │ ZEN  │ KOTO│ Zoro                  │  ← grid-cols-4 gap-1
+//   │ Yuki │ Loli │ Sora│ …                     │    active = white pill,
+//   └───────────────────────────────────────────┘    inactive = bg-white/5
 //
-// Every stream any provider resolves shows up as ONE chip named after its
-// server — exactly like animex.one's servers grid. No separate "Sources"
-// cards row, no provider-family rows: a resolved stream IS a server chip
-// (click = play instantly); a server whose upstream died stays in the grid
-// with a red dot (click = retry that server); a provider that produced
-// nothing yet shows its family chip (ANMX/ZEN/KOTO) until its real
-// server-named chips arrive.
+// Original classes mirrored from animex.one (Svelte + Tailwind theme):
+//   card   → rounded-[8px] bg-[#0a0a0a] p-2.5 md:p-3
+//   tabs   → rounded-[8px] border border-white/5 bg-black/40 p-1,
+//            active bg-primary(near-white) text-primary-foreground
+//   chips  → grid grid-cols-4 gap-1,
+//            base  min-w-0 truncate rounded-[8px] px-1.5 py-1.5 text-center
+//                  text-[11px] font-semibold transition-colors
+//            active   bg-white text-zinc-900
+//            inactive bg-white/5 text-white/70 hover:bg-white/10 hover:text-white
+// Healthy chips look exactly like the original; only a dead (red) or
+// still-resolving (yellow) server gets a tiny status dot.
 
 import { Captions, Mic } from "lucide-react";
 
@@ -31,7 +35,7 @@ export interface ServerChip {
   label: string;
   /** Optional tooltip, e.g. "Soft sub, Good, Multi quality" or quality/type. */
   tip?: string;
-  /** Chip status — drives the little status dot. */
+  /** Chip status — drives the status dot (only error/loading render one). */
   status?: "idle" | "loading" | "done" | "error";
 }
 
@@ -56,11 +60,11 @@ export function ProviderSelector({
 }: ProviderSelectorProps) {
   return (
     <div
-      className="glass rounded-2xl p-3 space-y-2.5"
+      className="rounded-[8px] bg-[#0a0a0a] border border-white/5 p-2.5 md:p-3"
       data-testid="provider-selector"
     >
-      {/* Sub / Dub segmented tabs */}
-      <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/40 border border-xan-border/60">
+      {/* Sub / Dub segmented tabs — animex.one original */}
+      <div className="mb-2 flex items-center gap-1 rounded-[8px] border border-white/5 bg-black/40 p-1">
         {(["sub", "dub"] as const).map((m) => {
           const active = mode === m;
           return (
@@ -69,16 +73,16 @@ export function ProviderSelector({
               type="button"
               onClick={() => onModeChange(m)}
               aria-pressed={active}
-              className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold capitalize transition-all duration-200 ${
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-[6px] px-2 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
                 active
-                  ? "bg-white text-zinc-900 shadow-md"
-                  : "text-white/60 hover:text-white hover:bg-white/5"
+                  ? "bg-white text-zinc-900"
+                  : "text-white/50 hover:bg-white/5 hover:text-white"
               }`}
             >
               {m === "sub" ? (
-                <Captions className="h-4 w-4" />
+                <Captions className="h-3.5 w-3.5" />
               ) : (
-                <Mic className="h-4 w-4" />
+                <Mic className="h-3.5 w-3.5" />
               )}
               {m}
             </button>
@@ -86,57 +90,43 @@ export function ProviderSelector({
         })}
       </div>
 
-      {/* Servers grid — ONE server-named grid for every resolved stream */}
-      <div>
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
-            Servers
-          </span>
-          <span className="text-[10px] text-muted-foreground/50">{chips.length}</span>
-        </div>
-        <div
-          className={`grid grid-cols-4 gap-1.5 max-h-44 overflow-y-auto pr-1 no-scrollbar transition-opacity duration-200 ${
-            serversLoading ? "opacity-60" : ""
-          }`}
-        >
-          {chips.map((chip) => {
-            const active = chip.key === activeKey;
-            return (
-              <button
-                key={chip.key}
-                type="button"
-                onClick={() => onSelect(chip.key)}
-                title={chip.tip ? `${chip.label} — ${chip.tip}` : chip.label}
-                aria-pressed={active}
-                className={`relative flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-semibold transition-all duration-200 truncate ${
-                  active
-                    ? "bg-white text-zinc-900 shadow-md"
-                    : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                <span className="truncate">{chip.label}</span>
-                {/* Load status dot: green = streaming, yellow = resolving,
-                    red = this server's upstream is dead (click = retry) */}
-                {chip.status && chip.status !== "idle" && (
-                  <span
-                    className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${
-                      chip.status === "done"
-                        ? "bg-green-500"
-                        : chip.status === "loading"
-                          ? "bg-yellow-400 animate-pulse"
-                          : "bg-red-500"
-                    }`}
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
+      {/* Servers grid — animex.one original: grid-cols-4 gap-1, compact 11px chips */}
+      <div
+        className={`grid grid-cols-4 gap-1 transition-opacity duration-200 ${
+          serversLoading ? "opacity-60" : ""
+        }`}
+      >
+        {chips.map((chip) => {
+          const active = chip.key === activeKey;
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => onSelect(chip.key)}
+              title={chip.tip ? `${chip.label} — ${chip.tip}` : chip.label}
+              aria-pressed={active}
+              className={`relative min-w-0 truncate rounded-[8px] px-1.5 py-1.5 text-center text-[11px] font-semibold transition-colors ${
+                active
+                  ? "bg-white text-zinc-900"
+                  : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              {chip.label}
+              {/* Status dot — ONLY for a dead (red) or still-resolving
+                  (yellow) server, so healthy chips match the original look */}
+              {(chip.status === "error" || chip.status === "loading") && (
+                <span
+                  className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full flex-shrink-0 ${
+                    chip.status === "loading"
+                      ? "bg-yellow-400 animate-pulse"
+                      : "bg-red-500"
+                  }`}
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
-
-      <p className="text-center text-[10px] text-muted-foreground/60">
-        Servers resolve fresh per episode — availability changes per episode, just like on AnimeX.
-      </p>
     </div>
   );
 }
