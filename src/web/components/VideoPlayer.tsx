@@ -778,9 +778,16 @@ export function VideoPlayer({
   const skipIntro = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    v.currentTime = INTRO_END;
+    // Skip 85s from wherever the timeline currently is (user-requested
+    // semantics) — NOT an absolute jump to the intro-end mark. Capped at the
+    // duration so a click near the end can't overshoot into nothing.
+    v.currentTime = Math.min(
+      v.duration || Number.MAX_SAFE_INTEGER,
+      v.currentTime + INTRO_END,
+    );
     setShowSkipIntro(false);
-  }, []);
+    fireSeekRipple("+85s", "right");
+  }, [fireSeekRipple]);
 
   // M-15 FIX: seek to 1s before the end — the natural 'ended' event fires
   // right after, which keeps the onEnded → autoplay-next chain intact.
@@ -1084,12 +1091,23 @@ export function VideoPlayer({
   const pct = duration > 0 ? (current / duration) * 100 : 0;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
   const remainingTime = duration > 0 ? duration - current : 0;
-  // Icon "Skip Intro" control — actionable only while the intro is still
-  // running (duration unknown yet counts as skippable; a clip shorter than
-  // the intro window never is).
-  const introSkippable =
-    current < INTRO_END && (duration === 0 || duration > INTRO_END);
+  // Icon "Skip Intro" control — a relative +85s skip, so it is ALWAYS
+  // actionable. Crimson only while the intro window is live (a "skip now"
+  // cue); plain white afterwards, never disabled.
+  const inIntroWindow = current < INTRO_END;
   const enhancerActive = enhancer.active;
+  // Enhancer CSS filter — must be applied to BOTH display surfaces: the
+  // <video> AND the Anime4K canvas. When the WebGPU renderer is on, the
+  // canvas covers the video with re-drawn frames, so a video-only filter
+  // silently vanished (enhancer "turned off" the moment Anime4K switched on).
+  const enhancerFilterStyle: React.CSSProperties = enhancerActive
+    ? {
+        filter: enhancer.filterCss,
+        willChange: "filter",
+        transform: "translateZ(0)",
+        backfaceVisibility: "hidden",
+      }
+    : {};
 
   const controlsHidden = !showControls && !showSettings && !showShortcuts;
   const controlsClass = `xan-controls ${controlsHidden ? "xan-controls--hidden" : ""}`;
@@ -1108,12 +1126,7 @@ export function VideoPlayer({
         className="w-full h-full object-contain"
         style={{
           ...aspectStyle,
-          ...(enhancer.active ? {
-            filter: enhancer.filterCss,
-            willChange: "filter",
-            transform: "translateZ(0)",
-            backfaceVisibility: "hidden",
-          } : {}),
+          ...enhancerFilterStyle,
         }}
         playsInline
         onClick={(e) => {
@@ -1145,7 +1158,10 @@ export function VideoPlayer({
       <canvas
         ref={canvasRef}
         className={`absolute inset-0 w-full h-full pointer-events-none ${a4kStatus === "on" ? "" : "hidden"}`}
-        style={aspectStyle}
+        style={{
+          ...aspectStyle,
+          ...enhancerFilterStyle,
+        }}
       />
 
       {/* Anime4K starting indicator */}
@@ -1384,7 +1400,7 @@ export function VideoPlayer({
                   <div className="absolute left-1 right-1 h-1 rounded-full bg-white/25" />
                   <div
                     className="absolute left-1 h-1 rounded-full bg-white transition-all"
-                    style={{ width: `calc(${(muted ? 0 : volume) * 100}% * 0.85)` }}
+                    style={{ width: `${(muted ? 0 : volume) * 100}%` }}
                   />
                   <input
                     type="range" min={0} max={1} step={0.02}
@@ -1393,7 +1409,7 @@ export function VideoPlayer({
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                     onTouchStart={(e) => e.stopPropagation()}
-                    className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                    className="xan-flat absolute inset-0 w-full opacity-0 cursor-pointer"
                     aria-label="Volume"
                     style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
                   />
@@ -1442,21 +1458,17 @@ export function VideoPlayer({
               </span>
             </button>
             {/* Skip Intro — icon-only control beside the seek buttons.
-                Crimson while the intro window is live (mirrors the floating
-                pill), dimmed once passed so the row never lies about what
-                the button will do. */}
+                Relative +85s skip, always active; crimson while the intro
+                window is live as a "skip now" cue, plain white after. */}
             <button
-              onClick={() => {
-                if (introSkippable) skipIntro();
-              }}
+              onClick={skipIntro}
               className={`${CTRL_BTN} ${
-                introSkippable
+                inIntroWindow
                   ? "text-xan-crimson hover:bg-xan-crimson/15"
-                  : "text-white/30 hover:bg-transparent active:bg-transparent"
+                  : ""
               }`}
               aria-label="Skip intro"
-              aria-disabled={!introSkippable}
-              title={introSkippable ? "Skip intro" : "No intro to skip"}
+              title="Skip intro (+85s)"
             >
               <SkipForward className="h-5 w-5" />
             </button>
@@ -1656,12 +1668,17 @@ export function VideoPlayer({
                       onChange={(e) => changePlaybackRate(Number(e.target.value))}
                       onClick={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
-                      className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                      className="xan-flat absolute inset-0 w-full opacity-0 cursor-pointer"
                       style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
                     />
                   </div>
-                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5 tabular-nums">
-                    <span>0.25x</span><span>1x</span><span>2x</span>
+                  {/* Tick labels — 1x sits at its TRUE position on the 0.25–2
+                      scale (42.9%), not the midpoint the old justify-between
+                      layout forced it to. */}
+                  <div className="relative h-3 mt-1 text-[9px] text-white/30 tabular-nums">
+                    <span className="absolute left-0">0.25x</span>
+                    <span className="absolute -translate-x-1/2" style={{ left: `${((1 - 0.25) / (2 - 0.25)) * 100}%` }}>1x</span>
+                    <span className="absolute right-0">2x</span>
                   </div>
                 </div>
 
@@ -1733,7 +1750,7 @@ export function VideoPlayer({
                       onChange={(e) => updateSettings({ audioBoost: Number(e.target.value) })}
                       onClick={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
-                      className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                      className="xan-flat absolute inset-0 w-full opacity-0 cursor-pointer"
                       style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
                     />
                   </div>

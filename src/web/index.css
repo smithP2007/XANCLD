@@ -600,6 +600,26 @@ body {
 .xan-controls { transition: opacity 0.25s ease, transform 0.25s ease; }
 .xan-controls--hidden { opacity: 0; transform: translateY(6px); pointer-events: none; }
 
+/* Flat range inputs — invisible inputs that drive custom-drawn slider
+   visuals (playback speed, audio boost, control-bar volume). A native
+   thumb, even on an opacity-0 input, reserves travel inset: the browser
+   maps v∈[0,1] to x∈[thumbW/2, W−thumbW/2], so clicks land beside the
+   custom dot. Shrinking the native thumb to ~zero makes the value map
+   linearly across the FULL width — exactly what the custom fill/dot
+   (pure percentage math) assume. */
+input[type="range"].xan-flat::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 2px;
+  height: 10px;
+}
+input[type="range"].xan-flat::-moz-range-thumb {
+  width: 2px;
+  height: 10px;
+  border: none;
+  border-radius: 0;
+}
+
 @keyframes xan-play-pop {
   0% { opacity: 0; transform: scale(0.5); }
   60% { opacity: 1; transform: scale(1.08); }
