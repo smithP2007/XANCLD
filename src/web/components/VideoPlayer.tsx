@@ -1,4 +1,11 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import {
+  useRef,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  type SetStateAction,
+} from "react";
 import Hls from "hls.js";
 import {
   Play,
@@ -68,6 +75,16 @@ interface VideoPlayerProps {
   onServerSelect?: (url: string) => void;
   /** True while background providers are still resolving. */
   serversLoading?: boolean;
+  /** Injected enhancer instance (Watch page toolbar row). When provided, the
+      player uses it instead of its own so the Fullscreen / Enhancer / Eye row
+      above the player and the player internals share ONE live state. */
+  externalEnhancer?: ReturnType<typeof useVideoEnhancer>;
+  /** Controlled enhancer-panel visibility — pairs with the change callback
+      below. Omit both to keep the panel self-managed. */
+  enhancerPanelOpen?: boolean;
+  /** Panel open/close callback — pass a raw setState so the E-key's
+      functional toggle keeps working (effect deps intentionally exclude it). */
+  onEnhancerPanelOpenChange?: (value: SetStateAction<boolean>) => void;
 }
 
 interface SeekRipple {
@@ -168,6 +185,9 @@ export function VideoPlayer({
   servers,
   onServerSelect,
   serversLoading,
+  externalEnhancer,
+  enhancerPanelOpen,
+  onEnhancerPanelOpenChange,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -225,8 +245,16 @@ export function VideoPlayer({
   const [seekRipples, setSeekRipples] = useState<SeekRipple[]>([]);
   const [tapRipples, setTapRipples] = useState<TapRipple[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showEnhancer, setShowEnhancer] = useState(false);
-  const enhancer = useVideoEnhancer();
+  // Enhancer — self-contained by default, but the Watch page can inject its
+  // own instance so the toolbar row above the player (Fullscreen / Enhancer /
+  // Eye) and everything inside the player drive ONE live state.
+  const ownEnhancer = useVideoEnhancer();
+  const enhancer = externalEnhancer ?? ownEnhancer;
+  // Enhancer panel visibility — uncontrolled by default; follows the parent
+  // when enhancerPanelOpen is provided (toolbar row + E key stay in sync).
+  const [ownPanelOpen, setOwnPanelOpen] = useState(false);
+  const showEnhancer = enhancerPanelOpen ?? ownPanelOpen;
+  const setShowEnhancer = onEnhancerPanelOpenChange ?? setOwnPanelOpen;
   // ── WebGPU renderer (Anime4K) state ──
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const a4kSessionRef = useRef<{ destroy(): void } | null>(null);
@@ -1069,6 +1097,7 @@ export function VideoPlayer({
   return (
     <div
       ref={containerRef}
+      data-xan-player-root=""
       className={`relative aspect-video bg-black rounded-lg overflow-hidden border border-xan-border group select-none ${cursorVisible ? "" : "cursor-none"}`}
       onMouseMove={showControlsTemporarily}
       onMouseLeave={() => playing && setShowControls(false)}

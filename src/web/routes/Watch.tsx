@@ -102,6 +102,62 @@ function streamIdentity(s: UnifiedSource): string {
   return s.url;
 }
 
+/** Fullscreen · Enhancer · Eye row shown above the player — identical for the
+    iframe embeds (Zen/Koto) and the direct hls player: same place, same
+    buttons, same behavior. Enhancer state is owned by the Watch page and
+    injected into the player, so both surfaces stay in sync. */
+function PlayerToolbar({
+  onFullscreen,
+  enhancerActive,
+  enhancerEnabled,
+  onOpenEnhancerPanel,
+  onToggleEnhancerEnabled,
+}: {
+  onFullscreen: () => void;
+  enhancerActive: boolean;
+  enhancerEnabled: boolean;
+  onOpenEnhancerPanel: () => void;
+  onToggleEnhancerEnabled: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <button
+        onClick={onFullscreen}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium glass border border-xan-border hover:border-xan-crimson/30 text-muted-foreground hover:text-foreground transition-all"
+        title="Fullscreen"
+        aria-label="Fullscreen"
+      >
+        <Maximize className="h-3.5 w-3.5" />
+      </button>
+      <button
+        onClick={onOpenEnhancerPanel}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+          enhancerActive
+            ? "bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30"
+            : "glass text-muted-foreground hover:text-foreground border border-xan-border"
+        }`}
+      >
+        <Sun className="h-3.5 w-3.5" />
+        Enhancer
+        {enhancerActive && <span className="w-1.5 h-1.5 rounded-full bg-xan-crimson animate-pulse" />}
+      </button>
+      {/* Eye toggle — always visible, turns enhancer on/off */}
+      <button
+        onClick={onToggleEnhancerEnabled}
+        className={`p-1.5 rounded-lg text-xs font-medium transition-all border ${
+          enhancerEnabled
+            ? "bg-xan-crimson/20 text-xan-crimson border-xan-crimson/30"
+            : "glass text-muted-foreground hover:text-foreground border-xan-border"
+        }`}
+        title={enhancerEnabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
+        aria-label={enhancerEnabled ? "Turn enhancer off" : "Turn enhancer on"}
+      >
+        {enhancerEnabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
 // Check if ALL source names from a provider are disabled — if so, skip loading that provider entirely
 function isProviderFullyDisabled(prov: Provider, disabledSources: string[]): boolean {
   if (prov === "koto") return disabledSources.includes("Koto");
@@ -166,6 +222,18 @@ export function Watch() {
   // Mobile bottom-sheet episode picker (redesign plan §4)
   const [sheetOpen, setSheetOpen] = useState(false);
   const enhancer = useVideoEnhancer();
+  // Fullscreen the direct player from the toolbar row — targets the player's
+  // own root element (the same element its internal fullscreen uses), so the
+  // row button, the F key and the in-player button share one fullscreen state.
+  const toggleHlsFullscreen = useCallback(() => {
+    const el = document.querySelector<HTMLDivElement>("[data-xan-player-root]");
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      el.requestFullscreen();
+    }
+  }, []);
   const [providerStatus, setProviderStatus] = useState<Record<Provider, "idle" | "loading" | "done" | "error">>({
     allanime: "idle",
     koto: "idle",
@@ -974,51 +1042,22 @@ export function Watch() {
                   </div>
                 )}
                 {/* Enhancer toggle + eye toggle + fullscreen for iframe */}
-                <div className="flex items-center justify-end gap-2">
-                  {/* Fullscreen button for iframe */}
-                  <button
-                    onClick={() => {
-                      const container = document.getElementById("iframe-player-container");
-                      if (container) {
-                        if (document.fullscreenElement) {
-                          document.exitFullscreen();
-                        } else {
-                          container.requestFullscreen();
-                        }
+                <PlayerToolbar
+                  onFullscreen={() => {
+                    const container = document.getElementById("iframe-player-container");
+                    if (container) {
+                      if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                      } else {
+                        container.requestFullscreen();
                       }
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium glass border border-xan-border hover:border-xan-crimson/30 text-muted-foreground hover:text-foreground transition-all"
-                    title="Fullscreen"
-                    aria-label="Fullscreen"
-                  >
-                    <Maximize className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setShowEnhancer(true)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      enhancer.active
-                        ? "bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30"
-                        : "glass text-muted-foreground hover:text-foreground border border-xan-border"
-                    }`}
-                  >
-                    <Sun className="h-3.5 w-3.5" />
-                    Enhancer
-                    {enhancer.active && <span className="w-1.5 h-1.5 rounded-full bg-xan-crimson animate-pulse" />}
-                  </button>
-                  {/* Eye toggle — always visible, turns enhancer on/off */}
-                  <button
-                    onClick={enhancer.toggleEnabled}
-                    className={`p-1.5 rounded-lg text-xs font-medium transition-all border ${
-                      enhancer.state.enabled
-                        ? "bg-xan-crimson/20 text-xan-crimson border-xan-crimson/30"
-                        : "glass text-muted-foreground hover:text-foreground border-xan-border"
-                    }`}
-                    title={enhancer.state.enabled ? "Enhancer ON — click to turn off" : "Enhancer OFF — click to turn on"}
-                    aria-label={enhancer.state.enabled ? "Turn enhancer off" : "Turn enhancer on"}
-                  >
-                    {enhancer.state.enabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
+                    }
+                  }}
+                  enhancerActive={enhancer.active}
+                  enhancerEnabled={enhancer.state.enabled}
+                  onOpenEnhancerPanel={() => setShowEnhancer(true)}
+                  onToggleEnhancerEnabled={enhancer.toggleEnabled}
+                />
                 <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border border-xan-border" id="iframe-player-container">
                   <iframe
                     ref={iframeRef}
@@ -1064,27 +1103,42 @@ export function Watch() {
                 <VideoEnhancerPanel open={showEnhancer} onClose={() => setShowEnhancer(false)} />
               </div>
             ) : (
-              <VideoPlayer
-                stream={streamForPlayer}
-                title={anime ? getTitle(anime.title) : "Loading..."}
-                episode={episode}
-                settings={settings}
-                resumeTime={resumeTime}
-                onProgress={handleProgress}
-                onEnded={handleEnded}
-                onNext={hasNextEpisode ? handleNext : undefined}
-                onPrev={episode > 1 ? handlePrev : undefined}
-                autoPlayNext={autoPlayNext}
-                onAutoPlayCancel={() => setAutoPlayNext(false)}
-                nextEpisodeLabel={
-                  anime && hasNextEpisode
-                    ? `${getTitle(anime.title)} — Episode ${episode + 1}`
-                    : undefined
-                }
-                onRetry={handleRetry}
-                servers={playerServers}
-                onServerSelect={handlePlayerServerSelect}
-              />
+              <div className="space-y-2">
+                {/* Same toolbar row as the iframe path — same place, same
+                    buttons. Fullscreen targets the player's own root; enhancer
+                    state is injected into the player so every surface agrees. */}
+                <PlayerToolbar
+                  onFullscreen={toggleHlsFullscreen}
+                  enhancerActive={enhancer.active}
+                  enhancerEnabled={enhancer.state.enabled}
+                  onOpenEnhancerPanel={() => setShowEnhancer(true)}
+                  onToggleEnhancerEnabled={enhancer.toggleEnabled}
+                />
+                <VideoPlayer
+                  stream={streamForPlayer}
+                  title={anime ? getTitle(anime.title) : "Loading..."}
+                  episode={episode}
+                  settings={settings}
+                  resumeTime={resumeTime}
+                  onProgress={handleProgress}
+                  onEnded={handleEnded}
+                  onNext={hasNextEpisode ? handleNext : undefined}
+                  onPrev={episode > 1 ? handlePrev : undefined}
+                  autoPlayNext={autoPlayNext}
+                  onAutoPlayCancel={() => setAutoPlayNext(false)}
+                  nextEpisodeLabel={
+                    anime && hasNextEpisode
+                      ? `${getTitle(anime.title)} — Episode ${episode + 1}`
+                      : undefined
+                  }
+                  onRetry={handleRetry}
+                  servers={playerServers}
+                  onServerSelect={handlePlayerServerSelect}
+                  externalEnhancer={enhancer}
+                  enhancerPanelOpen={showEnhancer}
+                  onEnhancerPanelOpenChange={setShowEnhancer}
+                />
+              </div>
             )
           ) : null}
 
