@@ -21,6 +21,7 @@ import {
   Camera,
   PictureInPicture2,
   Cast,
+  SkipForward,
 } from "lucide-react";
 import type { StreamResult } from "../lib/allanime";
 import { updateSettings, type XanSettings } from "../hooks/useSettings";
@@ -1055,6 +1056,11 @@ export function VideoPlayer({
   const pct = duration > 0 ? (current / duration) * 100 : 0;
   const bufferedPct = duration > 0 ? (buffered / duration) * 100 : 0;
   const remainingTime = duration > 0 ? duration - current : 0;
+  // Icon "Skip Intro" control — actionable only while the intro is still
+  // running (duration unknown yet counts as skippable; a clip shorter than
+  // the intro window never is).
+  const introSkippable =
+    current < INTRO_END && (duration === 0 || duration > INTRO_END);
   const enhancerActive = enhancer.active;
 
   const controlsHidden = !showControls && !showSettings && !showShortcuts;
@@ -1405,6 +1411,25 @@ export function VideoPlayer({
                 <RotateCw className="h-5 w-5" />
                 <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold leading-none">10</span>
               </span>
+            </button>
+            {/* Skip Intro — icon-only control beside the seek buttons.
+                Crimson while the intro window is live (mirrors the floating
+                pill), dimmed once passed so the row never lies about what
+                the button will do. */}
+            <button
+              onClick={() => {
+                if (introSkippable) skipIntro();
+              }}
+              className={`${CTRL_BTN} ${
+                introSkippable
+                  ? "text-xan-crimson hover:bg-xan-crimson/15"
+                  : "text-white/30 hover:bg-transparent active:bg-transparent"
+              }`}
+              aria-label="Skip intro"
+              aria-disabled={!introSkippable}
+              title={introSkippable ? "Skip intro" : "No intro to skip"}
+            >
+              <SkipForward className="h-5 w-5" />
             </button>
             {/* Subtitles (CC) */}
             <button
