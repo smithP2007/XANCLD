@@ -99,7 +99,25 @@ const PIP_SUPPORTED =
 const CAST_SUPPORTED =
   typeof HTMLMediaElement !== "undefined" && "remote" in HTMLMediaElement.prototype;
 
-/** animex-style settings row with an iOS switch (used across the SETTINGS tab). */
+/** Section header inside the settings panel — tiny crimson dot + spaced caps. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-1.5 px-3 pt-3.5 pb-1.5 text-[10px] font-bold tracking-widest text-white/40 uppercase">
+      <span className="w-1 h-1 rounded-full bg-xan-crimson/80 flex-shrink-0" />
+      {children}
+    </p>
+  );
+}
+
+/** Shared row style — inset rounded hover, consistent 12px gutters. */
+const MENU_ROW =
+  "flex items-center justify-between gap-3 w-full rounded-[10px] px-3 py-2.5 text-[13px] text-white/85 hover:bg-white/[0.07] hover:text-white transition-colors text-left";
+
+/** Player control-bar button — Netflix-style 36px hit target, subtle hover. */
+const CTRL_BTN =
+  "h-9 w-9 rounded-lg grid place-items-center flex-shrink-0 text-white transition-colors hover:bg-white/10 active:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/60 outline-none";
+
+/** animex-style settings row with an iOS switch (used across the PLAYER tab). */
 function SettingToggle({ label, hint, on, onChange, disabled }: {
   label: string;
   hint?: string;
@@ -110,20 +128,22 @@ function SettingToggle({ label, hint, on, onChange, disabled }: {
   return (
     <button
       onClick={() => !disabled && onChange(!on)}
-      className="flex items-center justify-between gap-3 w-full px-4 py-2.5 text-left hover:bg-white/5 transition-colors disabled:opacity-40"
+      className={`flex items-center justify-between gap-3 w-full rounded-[10px] px-3 py-2.5 text-left hover:bg-white/[0.07] transition-colors disabled:opacity-40 disabled:hover:bg-transparent`}
       disabled={disabled}
       role="switch"
       aria-checked={on}
     >
       <span className="min-w-0">
-        <span className="block text-[13px]">{label}</span>
-        {hint && <span className="block text-[10px] text-white/40 leading-snug">{hint}</span>}
+        <span className="block text-[13px] text-white/85">{label}</span>
+        {hint && <span className="block text-[10px] text-white/40 leading-snug mt-0.5">{hint}</span>}
       </span>
       <span
-        className={`relative flex-shrink-0 w-8 h-[18px] rounded-full transition-colors ${on ? "bg-xan-crimson" : "bg-white/20"}`}
+        className={`relative flex-shrink-0 w-9 h-5 rounded-full transition-all duration-200 ${
+          on ? "bg-xan-crimson shadow-[0_0_12px_rgba(233,69,96,0.45)]" : "bg-white/[0.16]"
+        }`}
       >
         <span
-          className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-all ${on ? "left-[16px]" : "left-[2px]"}`}
+          className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${on ? "left-[18px]" : "left-[2px]"}`}
         />
       </span>
     </button>
@@ -182,10 +202,13 @@ export function VideoPlayer({
   const [playbackRate, setPlaybackRate] = useState(settings.playbackRate);
   const [showSettings, setShowSettings] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
-  // animex.one parity: the settings drawer has four persistent tabs plus an
-  // in-SETTINGS sub-page for the WebGPU renderer.
+  // Floating settings panel: four persistent tabs (Quality/Subs/Player/Servers)
+  // plus an in-PLAYER sub-page for the WebGPU renderer.
   const [settingsTab, setSettingsTab] = useState<"quality" | "subs" | "settings" | "servers">("settings");
   const [settingsPage, setSettingsPage] = useState<"main" | "renderer">("main");
+  // Tab switches restart the panel at the top — a half-scrolled list must not
+  // leak its scroll offset into the next tab's content.
+  const settingsScrollRef = useRef<HTMLDivElement>(null);
   const [aspectOpen, setAspectOpen] = useState(false);
   // Soft-subtitle selection (AnimeX per-episode sources ship VTT tracks).
   // -1 = off; otherwise the index into stream.tracks.
@@ -938,6 +961,11 @@ export function VideoPlayer({
       }
 
       switch (e.key) {
+        case "Escape":
+          // Layered dismissal: settings panel first, then overlays.
+          setShowSettings(false);
+          setShowShortcuts(false);
+          break;
         case " ":
         case "k":
           e.preventDefault();
@@ -1053,7 +1081,15 @@ export function VideoPlayer({
           } : {}),
         }}
         playsInline
-        onClick={handleVideoClick}
+        onClick={(e) => {
+          // Tapping the video while the settings panel is open dismisses the
+          // panel instead of pausing — matches YouTube/mobile player UX.
+          if (showSettings) {
+            setShowSettings(false);
+            return;
+          }
+          handleVideoClick(e);
+        }}
       >
         {/* Soft-subtitle tracks (proxied VTT from the AnimeX providers).
             Visibility is driven imperatively by activeTrackIndex. */}
@@ -1145,15 +1181,14 @@ export function VideoPlayer({
         </div>
       ))}
 
-      {/* Skip Intro button */}
+      {/* Skip Intro button — Netflix-style white pill, always readable on any frame */}
       {showSkipIntro && !loading && !error && (
         <button
           onClick={skipIntro}
-          className="absolute bottom-24 right-4 z-20 px-4 py-2 rounded-lg bg-xan-crimson/90 backdrop-blur text-white text-sm font-medium shadow-lg flex items-center gap-1.5 animate-fade-in"
+          className="absolute bottom-24 right-4 z-20 pl-4 pr-3 py-2 rounded-lg bg-white/95 hover:bg-white text-black text-[13px] font-semibold shadow-[0_4px_24px_rgba(0,0,0,0.5)] flex items-center gap-1.5 animate-fade-in transition-colors focus-visible:ring-2 focus-visible:ring-white outline-none"
         >
-          <ChevronRight className="h-4 w-4" />
-          <ChevronRight className="h-4 w-4 -ml-3" />
           Skip Intro
+          <ChevronRight className="h-4 w-4" />
         </button>
       )}
 
@@ -1162,11 +1197,10 @@ export function VideoPlayer({
       {showSkipOutro && !loading && !error && !showSkipIntro && (
         <button
           onClick={skipOutro}
-          className="absolute bottom-24 right-4 z-20 px-4 py-2 rounded-lg bg-xan-crimson/90 backdrop-blur text-white text-sm font-medium shadow-lg flex items-center gap-1.5 animate-fade-in"
+          className="absolute bottom-24 right-4 z-20 pl-4 pr-3 py-2 rounded-lg bg-white/95 hover:bg-white text-black text-[13px] font-semibold shadow-[0_4px_24px_rgba(0,0,0,0.5)] flex items-center gap-1.5 animate-fade-in transition-colors focus-visible:ring-2 focus-visible:ring-white outline-none"
         >
           Skip Outro
           <ChevronRight className="h-4 w-4" />
-          <ChevronRight className="h-4 w-4 -ml-3" />
         </button>
       )}
 
@@ -1179,12 +1213,12 @@ export function VideoPlayer({
             <p className="text-white font-semibold text-sm md:text-base truncate drop-shadow">
               {title} — Episode {episode}
             </p>
-            <div className="flex items-center gap-1.5 mt-1">
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white font-medium">
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span className="text-[10px] px-2 py-0.5 rounded-md bg-black/45 backdrop-blur-sm ring-1 ring-white/15 text-white/90 font-medium">
                 {stream.sourceName}
               </span>
               {enhancerActive && (
-                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-xan-crimson/20 text-xan-crimson border border-xan-crimson/30">
+                <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-xan-crimson/25 text-white ring-1 ring-xan-crimson/50 backdrop-blur-sm">
                   ENHANCED
                 </span>
               )}
@@ -1196,7 +1230,7 @@ export function VideoPlayer({
             {CAST_SUPPORTED && (
               <button
                 onClick={toggleCast}
-                className="p-1.5 rounded-md text-white hover:bg-white/15 transition-colors"
+                className="h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
                 aria-label="Cast"
                 title="Cast to a device"
               >
@@ -1206,7 +1240,7 @@ export function VideoPlayer({
             {/* Keyboard shortcuts */}
             <button
               onClick={() => setShowShortcuts(true)}
-              className="p-1.5 rounded-md text-white hover:bg-white/15 transition-colors"
+              className="h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
               aria-label="Keyboard shortcuts"
               title="Keyboard shortcuts (?)"
             >
@@ -1224,7 +1258,7 @@ export function VideoPlayer({
             className="pointer-events-auto"
             aria-label="Play"
           >
-            <div className="w-11 h-11 sm:w-20 sm:h-20 rounded-full bg-xan-crimson/90 hover:bg-xan-crimson flex items-center justify-center shadow-xl transition-transform hover:scale-105 animate-play-pop">
+            <div className="w-11 h-11 sm:w-20 sm:h-20 rounded-full bg-xan-crimson/95 hover:bg-xan-crimson flex items-center justify-center shadow-[0_0_48px_rgba(233,69,96,0.45),0_8px_32px_rgba(0,0,0,0.5)] ring-1 ring-white/20 transition-transform hover:scale-105 animate-play-pop">
               <Play className="h-5 w-5 sm:h-9 sm:w-9 text-white fill-white ml-0.5 sm:ml-1" />
             </div>
           </button>
@@ -1262,15 +1296,15 @@ export function VideoPlayer({
               title="Intro"
             />
           )}
-          {/* Thumb */}
+          {/* Thumb — visible on hover with a soft crimson halo */}
           <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-xan-crimson shadow-md opacity-0 group-hover/seek:opacity-100 transition-opacity pointer-events-none"
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-xan-crimson shadow-[0_0_0_4px_rgba(233,69,96,0.25)] opacity-0 scale-50 group-hover/seek:opacity-100 group-hover/seek:scale-100 transition-all pointer-events-none"
             style={{ left: `${pct}%` }}
           />
-          {/* Hover tooltip */}
+          {/* Hover tooltip — glass chip */}
           {hoverPct != null && (
             <div
-              className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded bg-black/90 text-white text-[11px] font-mono pointer-events-none whitespace-nowrap shadow-lg"
+              className="absolute -top-8 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#101014]/95 ring-1 ring-white/10 text-white text-[11px] font-mono tabular-nums pointer-events-none whitespace-nowrap shadow-lg"
               style={{ left: `${hoverPct}%` }}
             >
               {fmt(hoverTime)}
@@ -1285,7 +1319,7 @@ export function VideoPlayer({
             {/* Play/Pause */}
             <button
               onClick={togglePlay}
-              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              className={CTRL_BTN}
               aria-label={playing ? "Pause" : "Play"}
               title={playing ? "Pause (k)" : "Play (k)"}
             >
@@ -1296,7 +1330,7 @@ export function VideoPlayer({
             <div className="flex items-center flex-shrink-0">
               <button
                 onClick={() => setShowVolumeSlider((v) => !v)}
-                className="p-1.5 rounded hover:bg-white/15 transition-colors"
+                className={CTRL_BTN}
                 aria-label={muted ? "Unmute" : "Mute"}
                 title={muted ? "Unmute (M)" : "Mute (M)"}
               >
@@ -1335,7 +1369,7 @@ export function VideoPlayer({
             {/* Time display */}
             <button
               onClick={() => setTimeMode((m) => (m === "duration" ? "remaining" : "duration"))}
-              className="text-xs font-mono px-1 py-0.5 rounded hover:bg-white/15 transition-colors whitespace-nowrap flex-shrink-0 hidden sm:block"
+              className="text-xs font-mono tabular-nums px-1.5 py-1 rounded-md hover:bg-white/10 transition-colors whitespace-nowrap flex-shrink-0 hidden sm:block text-white/90"
               title="Click to toggle remaining time"
             >
               {timeMode === "duration"
@@ -1351,7 +1385,7 @@ export function VideoPlayer({
             {/* −10 seconds */}
             <button
               onClick={() => seekBy(-10)}
-              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              className={CTRL_BTN}
               aria-label="Back 10 seconds"
               title="Back 10s (J)"
             >
@@ -1363,7 +1397,7 @@ export function VideoPlayer({
             {/* +10 seconds */}
             <button
               onClick={() => seekBy(10)}
-              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              className={CTRL_BTN}
               aria-label="Forward 10 seconds"
               title="Forward 10s (L)"
             >
@@ -1375,7 +1409,7 @@ export function VideoPlayer({
             {/* Subtitles (CC) */}
             <button
               onClick={toggleSubtitles}
-              className={`p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 ${activeTrackIndex >= 0 ? "text-xan-crimson" : "text-white"}`}
+              className={`${CTRL_BTN} ${activeTrackIndex >= 0 ? "text-xan-crimson" : "text-white"}`}
               aria-label="Toggle subtitles"
               title={activeTrackIndex >= 0 ? "Subtitles ON" : "Subtitles OFF"}
             >
@@ -1384,26 +1418,28 @@ export function VideoPlayer({
             {/* Screenshot */}
             <button
               onClick={takeScreenshot}
-              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block"
+              className={`${CTRL_BTN} hidden sm:grid`}
               aria-label="Screenshot"
               title="Save a screenshot"
             >
               <Camera className="h-5 w-5" />
             </button>
-            {/* Settings (gear) — animex tabbed drawer */}
+            {/* Settings (gear) — floating panel anchored above this button.
+                The gear rotates a quarter turn while open (aria-expanded). */}
             <button
               onClick={() => setShowSettings((v) => !v)}
-              className={`p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 ${showSettings ? "bg-white/15" : ""}`}
+              className={`${CTRL_BTN} ${showSettings ? "bg-white/[0.14]" : ""}`}
               aria-label="Settings"
+              aria-expanded={showSettings}
               title="Settings"
             >
-              <Settings className="h-5 w-5" />
+              <Settings className={`h-5 w-5 transition-transform duration-300 ${showSettings ? "rotate-90" : ""}`} />
             </button>
             {/* Picture-in-Picture */}
             {PIP_SUPPORTED && (
               <button
                 onClick={togglePip}
-                className={`p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0 hidden sm:block ${pipActive ? "text-xan-crimson" : "text-white"}`}
+                className={`${CTRL_BTN} hidden sm:grid ${pipActive ? "text-xan-crimson" : "text-white"}`}
                 aria-label="Picture-in-picture"
                 title="Picture-in-picture (I)"
               >
@@ -1413,7 +1449,7 @@ export function VideoPlayer({
             {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
-              className="p-1.5 rounded hover:bg-white/15 transition-colors flex-shrink-0"
+              className={CTRL_BTN}
               aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
               title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
             >
@@ -1423,64 +1459,63 @@ export function VideoPlayer({
         </div>
       </div>
 
-      {/* ── Settings drawer (animex.one parity): persistent QUALITY / SUBTITLES /
-          SETTINGS / SERVERS tabs, plus a WebGPU-renderer sub-page inside SETTINGS ── */}
+      {/* ── Settings panel — floating glass menu anchored above the gear
+          (YouTube/Netflix placement). Segmented tabs, inset rows, thin
+          scrollbar; the control bar stays visible and clickable. ── */}
       {showSettings && (
         <div
-          className="absolute inset-y-0 right-0 z-50 w-full sm:w-[300px] max-w-full flex flex-col bg-[#0a0a0c]/95 backdrop-blur-xl border-l border-white/10 shadow-2xl text-white animate-drawer-in pointer-events-auto"
+          role="dialog"
+          aria-label="Player settings"
+          className="absolute z-50 left-3 right-3 bottom-16 sm:left-auto sm:right-3 sm:bottom-[68px] sm:w-[320px] max-h-[calc(100%-88px)] flex flex-col rounded-[14px] bg-[#101014]/[0.92] backdrop-blur-2xl ring-1 ring-white/10 shadow-[0_16px_48px_-8px_rgba(0,0,0,0.8)] text-white animate-menu-in origin-bottom-right overflow-hidden pointer-events-auto"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Tab header */}
-          <div className="flex items-stretch border-b border-white/10 flex-shrink-0">
-            {([
-              ["quality", "Quality"],
-              ["subs", "Subtitles"],
-              ["settings", "Settings"],
-              ["servers", "Servers"],
-            ] as const).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => { setSettingsTab(id); setSettingsPage("main"); }}
-                className={`relative flex-1 px-1 py-3 text-[10px] font-bold uppercase tracking-widest transition-colors ${settingsTab === id ? "text-white" : "text-white/40 hover:text-white/70"}`}
-              >
-                {label}
-                {settingsTab === id && (
-                  <span className="absolute left-3 right-3 bottom-0 h-0.5 rounded-full bg-xan-crimson" />
-                )}
-              </button>
-            ))}
+          {/* Header — segmented control + close */}
+          <div className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 flex-shrink-0">
+            <div className="flex flex-1 items-center rounded-[10px] bg-white/[0.06] p-0.5">
+              {([
+                ["quality", "Quality"],
+                ["subs", "Subs"],
+                ["settings", "Player"],
+                ["servers", "Servers"],
+              ] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => { setSettingsTab(id); setSettingsPage("main"); settingsScrollRef.current?.scrollTo({ top: 0 }); }}
+                  className={`flex-1 rounded-[8px] px-0.5 py-1.5 text-[10px] font-semibold tracking-wide text-center transition-all ${
+                    settingsTab === id
+                      ? "bg-white/[0.14] text-white shadow-sm"
+                      : "text-white/45 hover:text-white/80"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setShowSettings(false)}
-              className="px-3 text-white/50 hover:text-white transition-colors"
+              className="h-7 w-7 rounded-full grid place-items-center flex-shrink-0 text-white/50 hover:text-white hover:bg-white/10 transition-colors"
               aria-label="Close settings"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto overflow-x-hidden">
+          <div ref={settingsScrollRef} className="flex-1 overflow-y-auto overflow-x-hidden xan-menu-scroll px-1.5 pb-1.5">
             {/* ── QUALITY ── */}
             {settingsTab === "quality" && (
               <div>
-                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Quality</p>
+                <SectionLabel>Quality</SectionLabel>
                 {qualityLevels.length === 0 && (
-                  <p className="px-4 py-2 text-xs text-white/50">This stream has a single quality.</p>
+                  <p className="px-3 py-2 text-xs text-white/45">Single quality for this stream.</p>
                 )}
-                <button
-                  onClick={() => changeQuality(-1)}
-                  className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
-                >
-                  <span>Auto{autoLevelHeight > 0 ? ` (${autoLevelHeight}p)` : ""}</span>
-                  {currentQuality === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
+                <button onClick={() => changeQuality(-1)} className={MENU_ROW}>
+                  <span>Auto{autoLevelHeight > 0 ? ` · ${autoLevelHeight}p` : ""}</span>
+                  {currentQuality === -1 && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
                 </button>
                 {qualityLevels.map((lvl) => (
-                  <button
-                    key={lvl.index}
-                    onClick={() => changeQuality(lvl.index)}
-                    className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
-                  >
-                    <span>{lvl.height}p{lvl.bitrate ? ` (${fmtBitrate(lvl.bitrate)})` : ""}</span>
-                    {currentQuality === lvl.index && <Check className="h-4 w-4 text-xan-crimson" />}
+                  <button key={lvl.index} onClick={() => changeQuality(lvl.index)} className={MENU_ROW}>
+                    <span>{lvl.height}p{lvl.bitrate ? ` · ${fmtBitrate(lvl.bitrate)}` : ""}</span>
+                    {currentQuality === lvl.index && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
                   </button>
                 ))}
               </div>
@@ -1489,25 +1524,22 @@ export function VideoPlayer({
             {/* ── SUBTITLES ── */}
             {settingsTab === "subs" && (
               <div>
-                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Subtitles</p>
+                <SectionLabel>Subtitles</SectionLabel>
                 {(stream.tracks?.length ?? 0) === 0 ? (
-                  <p className="px-4 py-2 text-xs text-white/50">No subtitle tracks for this stream.</p>
+                  <p className="px-3 py-2 text-xs text-white/45">No subtitle tracks for this stream.</p>
                 ) : (
                   <>
-                    <button
-                      onClick={() => setActiveTrackIndex(-1)}
-                      className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
-                    >
+                    <button onClick={() => setActiveTrackIndex(-1)} className={MENU_ROW}>
                       <span>Off</span>
-                      {activeTrackIndex === -1 && <Check className="h-4 w-4 text-xan-crimson" />}
+                      {activeTrackIndex === -1 && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
                     </button>
                     {(stream.tracks ?? []).map((t, i) => (
                       <button
                         key={`${t.url}-${i}`}
                         onClick={() => setActiveTrackIndex(i)}
-                        className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                        className={MENU_ROW}
                       >
-                        <span className="truncate pr-3">{t.label}</span>
+                        <span className="truncate">{t.label}</span>
                         {activeTrackIndex === i && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
                       </button>
                     ))}
@@ -1518,8 +1550,8 @@ export function VideoPlayer({
 
             {/* ── SETTINGS (main) ── */}
             {settingsTab === "settings" && settingsPage === "main" && (
-              <div className="pb-4">
-                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Playback</p>
+              <div className="pb-2">
+                <SectionLabel>Playback</SectionLabel>
                 <SettingToggle
                   label="Autoplay"
                   hint="Start playing automatically"
@@ -1548,20 +1580,20 @@ export function VideoPlayer({
                   onChange={(v) => updateSettings({ skipOutro: v })}
                 />
 
-                <p className="px-4 pt-4 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Speed</p>
-                <div className="px-4 py-2">
+                <SectionLabel>Speed</SectionLabel>
+                <div className="px-3 py-1.5">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[13px]">Playback speed</span>
-                    <span className="text-xs font-mono font-bold text-xan-crimson">{fmtRate(playbackRate)}x</span>
+                    <span className="text-[13px] text-white/85">Playback speed</span>
+                    <span className="text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{fmtRate(playbackRate)}x</span>
                   </div>
                   <div className="relative h-4 flex items-center">
-                    <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
+                    <div className="absolute left-0 right-0 h-1 rounded-full bg-white/[0.14]" />
                     <div
-                      className="absolute left-0 h-1 rounded-full bg-xan-crimson transition-all"
+                      className="absolute left-0 h-1 rounded-full bg-xan-crimson shadow-[0_0_8px_rgba(233,69,96,0.5)] transition-all"
                       style={{ width: `${((playbackRate - 0.25) / (2 - 0.25)) * 100}%` }}
                     />
                     <div
-                      className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-sm pointer-events-none"
+                      className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.5)] pointer-events-none"
                       style={{ left: `calc(${((playbackRate - 0.25) / (2 - 0.25)) * 100}% - 5px)` }}
                     />
                     <input
@@ -1574,73 +1606,71 @@ export function VideoPlayer({
                       style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
                     />
                   </div>
-                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5">
+                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5 tabular-nums">
                     <span>0.25x</span><span>1x</span><span>2x</span>
                   </div>
                 </div>
 
-                <p className="px-4 pt-4 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Display</p>
+                <SectionLabel>Display</SectionLabel>
                 <button
                   onClick={() => setShowEnhancer(true)}
-                  className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                  className={MENU_ROW}
                 >
                   <span>Filters</span>
-                  <span className="flex items-center gap-1.5 text-white/70">
+                  <span className="flex items-center gap-1.5 text-white/60">
                     {filtersLabel}
                     <ChevronRight className="h-3.5 w-3.5" />
                   </span>
                 </button>
-                <div className="border-t border-white/5">
-                  <button
-                    onClick={() => setAspectOpen((v) => !v)}
-                    className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
-                  >
-                    <span>Aspect ratio</span>
-                    <span className="flex items-center gap-1.5 text-white/70">
-                      {settings.aspectRatio === "auto" ? "Auto" : settings.aspectRatio === "fill" ? "Fill" : settings.aspectRatio}
-                      <ChevronRight className={`h-3.5 w-3.5 transition-transform ${aspectOpen ? "rotate-90" : ""}`} />
-                    </span>
-                  </button>
-                  {aspectOpen && (
-                    <div className="pb-2">
-                      {([["auto", "Auto"], ["fill", "Fill"], ["16:9", "16:9"], ["4:3", "4:3"]] as const).map(([value, label]) => (
-                        <button
-                          key={value}
-                          onClick={() => { updateSettings({ aspectRatio: value }); setAspectOpen(false); }}
-                          className="flex items-center justify-between w-full pl-8 pr-4 py-2 text-[12px] hover:bg-white/5 transition-colors"
-                        >
-                          <span>{label}</span>
-                          {settings.aspectRatio === value && <Check className="h-3.5 w-3.5 text-xan-crimson" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <button
+                  onClick={() => setAspectOpen((v) => !v)}
+                  className={MENU_ROW}
+                >
+                  <span>Aspect ratio</span>
+                  <span className="flex items-center gap-1.5 text-white/60">
+                    {settings.aspectRatio === "auto" ? "Auto" : settings.aspectRatio === "fill" ? "Fill" : settings.aspectRatio}
+                    <ChevronRight className={`h-3.5 w-3.5 transition-transform ${aspectOpen ? "rotate-90" : ""}`} />
+                  </span>
+                </button>
+                {aspectOpen && (
+                  <div className="pb-1">
+                    {(["auto", "fill", "16:9", "4:3"] as const).map((value) => (
+                      <button
+                        key={value}
+                        onClick={() => { updateSettings({ aspectRatio: value }); setAspectOpen(false); }}
+                        className="flex items-center justify-between w-full pl-9 pr-3 py-2 text-[12px] text-white/70 hover:text-white rounded-[10px] hover:bg-white/[0.05] transition-colors"
+                      >
+                        <span>{value === "auto" ? "Auto" : value === "fill" ? "Fill" : value}</span>
+                        {settings.aspectRatio === value && <Check className="h-3.5 w-3.5 text-xan-crimson" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={() => setSettingsPage("renderer")}
-                  className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors border-t border-white/5"
+                  className={MENU_ROW}
                 >
                   <span>Anime4K</span>
-                  <span className="flex items-center gap-1.5 text-white/70">
+                  <span className="flex items-center gap-1.5 text-white/60">
                     {settings.anime4kEnabled ? `On — ${presetLabel}` : "Off"}
                     <ChevronRight className="h-3.5 w-3.5" />
                   </span>
                 </button>
 
-                <p className="px-4 pt-4 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Audio boost</p>
-                <div className="px-4 py-2">
+                <SectionLabel>Audio boost</SectionLabel>
+                <div className="px-3 py-1.5 pb-2.5">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[13px]">Extra volume</span>
-                    <span className="text-xs font-mono font-bold text-xan-crimson">{settings.audioBoost}%</span>
+                    <span className="text-[13px] text-white/85">Extra volume</span>
+                    <span className="text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{settings.audioBoost}%</span>
                   </div>
                   <div className="relative h-4 flex items-center">
-                    <div className="absolute left-0 right-0 h-1 rounded-full bg-white/25" />
+                    <div className="absolute left-0 right-0 h-1 rounded-full bg-white/[0.14]" />
                     <div
-                      className="absolute left-0 h-1 rounded-full bg-xan-crimson transition-all"
+                      className="absolute left-0 h-1 rounded-full bg-xan-crimson shadow-[0_0_8px_rgba(233,69,96,0.5)] transition-all"
                       style={{ width: `${(settings.audioBoost / 200) * 100}%` }}
                     />
                     <div
-                      className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-sm pointer-events-none"
+                      className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.5)] pointer-events-none"
                       style={{ left: `calc(${(settings.audioBoost / 200) * 100}% - 5px)` }}
                     />
                     <input
@@ -1653,7 +1683,7 @@ export function VideoPlayer({
                       style={{ WebkitAppearance: "none", appearance: "none", background: "transparent" }}
                     />
                   </div>
-                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5">
+                  <div className="flex justify-between text-[9px] text-white/30 mt-1 px-0.5 tabular-nums">
                     <span>Off</span><span>100%</span><span>200%</span>
                   </div>
                   <p className="text-[10px] text-white/40 mt-2 leading-snug">
@@ -1665,16 +1695,16 @@ export function VideoPlayer({
 
             {/* ── SETTINGS → WEBGPU RENDERER (sub-page) ── */}
             {settingsTab === "settings" && settingsPage === "renderer" && (
-              <div className="pb-4">
+              <div className="pb-2">
                 <button
                   onClick={() => setSettingsPage("main")}
-                  className="flex items-center gap-1.5 px-4 py-3 text-[12px] text-white/70 hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 w-full rounded-[10px] px-3 py-2.5 mt-1.5 text-[12px] font-medium text-white/70 hover:text-white hover:bg-white/[0.07] transition-colors"
                 >
                   <ChevronLeft className="h-4 w-4" />
-                  Go back to Settings
+                  Back to Player
                 </button>
 
-                <p className="px-4 pt-1 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">WebGPU renderer</p>
+                <SectionLabel>WebGPU renderer</SectionLabel>
                 <SettingToggle
                   label="Enable Anime4K"
                   hint="Clearer anime upscaling. Uses extra GPU and battery."
@@ -1683,21 +1713,20 @@ export function VideoPlayer({
                   onChange={(v) => updateSettings({ anime4kEnabled: v })}
                 />
                 {!webgpuSupported && (
-                  <p className="px-4 pb-2 text-[11px] text-amber-400/80">
+                  <p className="px-3 pb-2 text-[11px] text-amber-400/80">
                     WebGPU is not available in this browser — try Chrome or Edge.
                   </p>
                 )}
                 {a4kError && (
-                  <p className="px-4 pb-2 text-[11px] text-xan-crimson/90">{a4kError}</p>
+                  <p className="px-3 pb-2 text-[11px] text-xan-crimson/90">{a4kError}</p>
                 )}
 
-                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Shader pipeline</p>
-                <p className="px-4 pb-1 text-[13px]">Preset</p>
+                <SectionLabel>Shader pipeline</SectionLabel>
                 {ANIME4K_PRESETS.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => updateSettings({ anime4kPreset: p.id })}
-                    className="flex items-center justify-between gap-3 w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                    className={MENU_ROW}
                   >
                     <span className="min-w-0">
                       <span className="block">{p.label}</span>
@@ -1706,12 +1735,12 @@ export function VideoPlayer({
                     {settings.anime4kPreset === p.id && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
                   </button>
                 ))}
-                <p className="px-4 pt-3 text-[10px] text-white/40 leading-relaxed">
+                <p className="px-3 pt-2.5 text-[10px] text-white/40 leading-relaxed">
                   Presets select a tested Anime4K shader chain. Changing the preset
                   safely restarts the GPU renderer — playback is never interrupted.
                 </p>
                 {a4kStatus === "starting" && (
-                  <p className="px-4 pt-2 text-[11px] text-white/60">Starting the GPU renderer…</p>
+                  <p className="px-3 pt-2 text-[11px] text-white/60">Starting the GPU renderer…</p>
                 )}
               </div>
             )}
@@ -1719,18 +1748,18 @@ export function VideoPlayer({
             {/* ── SERVERS ── */}
             {settingsTab === "servers" && (
               <div>
-                <p className="px-4 pt-3 pb-1 text-[10px] font-bold tracking-widest text-white/40 uppercase">Servers</p>
+                <SectionLabel>Servers</SectionLabel>
                 {serversLoading && (
-                  <p className="px-4 py-2 text-xs text-white/50">Resolving servers…</p>
+                  <p className="px-3 py-2 text-xs text-white/50">Resolving servers…</p>
                 )}
                 {(!servers || servers.length === 0) && !serversLoading && (
-                  <p className="px-4 py-2 text-xs text-white/50">No servers resolved yet.</p>
+                  <p className="px-3 py-2 text-xs text-white/50">No servers resolved yet.</p>
                 )}
                 {(servers ?? []).map((s) => (
                   <button
                     key={s.url}
                     onClick={() => { onServerSelect?.(s.url); setShowSettings(false); }}
-                    className="flex items-center justify-between gap-2 w-full px-4 py-2.5 text-[13px] hover:bg-white/5 transition-colors"
+                    className={MENU_ROW}
                     title={s.group}
                   >
                     <span className="min-w-0">
@@ -1738,19 +1767,19 @@ export function VideoPlayer({
                       <span className="block text-[9px] font-bold tracking-wider uppercase text-white/40">{s.group}</span>
                     </span>
                     <span className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded ${
-                        s.type === "iframe" ? "bg-purple-500/20 text-purple-400"
-                        : s.type === "hls" ? "bg-blue-500/20 text-blue-400"
-                        : "bg-green-500/20 text-green-400"
+                      <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-md ${
+                        s.type === "iframe" ? "bg-purple-500/20 text-purple-300"
+                        : s.type === "hls" ? "bg-blue-500/20 text-blue-300"
+                        : "bg-green-500/20 text-green-300"
                       }`}>
                         {s.type}
                       </span>
-                      {s.active && <Check className="h-4 w-4 text-xan-crimson" />}
+                      {s.active && <Check className="h-4 w-4 text-xan-crimson flex-shrink-0" />}
                     </span>
                   </button>
                 ))}
                 {(servers?.length ?? 0) > 0 && (
-                  <p className="px-4 pt-3 pb-2 text-[10px] text-white/40 leading-relaxed">
+                  <p className="px-3 pt-2.5 pb-1.5 text-[10px] text-white/40 leading-relaxed">
                     If the current server doesn't work, try another one — playback switches instantly.
                   </p>
                 )}
@@ -1762,7 +1791,7 @@ export function VideoPlayer({
 
       {/* Screenshot / action toast */}
       {toast && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[60] px-3 py-1.5 rounded-md bg-black/80 backdrop-blur text-white text-xs animate-fade-in pointer-events-none whitespace-nowrap">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[60] px-3 py-1.5 rounded-lg bg-[#101014]/95 ring-1 ring-white/10 backdrop-blur text-white text-xs animate-fade-in pointer-events-none whitespace-nowrap shadow-xl">
           {toast}
         </div>
       )}
