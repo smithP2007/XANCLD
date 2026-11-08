@@ -26,6 +26,7 @@ import {
   X,
   Captions,
   Camera,
+  FastForward,
   PictureInPicture2,
   SkipForward,
 } from "lucide-react";
@@ -117,22 +118,26 @@ const PIP_SUPPORTED =
 /** Section header inside the settings panel — tiny crimson dot + spaced caps. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="flex items-center gap-1.5 px-3 pt-3.5 pb-1.5 text-[10px] font-bold tracking-widest text-white/40 uppercase">
+    <p className="flex items-center gap-1.5 px-2.5 pt-3 pb-1 text-[9px] font-bold tracking-widest text-white/40 uppercase sm:px-3 sm:pt-3.5 sm:pb-1.5 sm:text-[10px]">
       <span className="w-1 h-1 rounded-full bg-xan-crimson/80 flex-shrink-0" />
       {children}
     </p>
   );
 }
 
-/** Shared row style — inset rounded hover, consistent 12px gutters. */
+/** Shared row style — inset rounded hover, consistent gutters.
+ *  MOBILE SIZE PASS: slightly tighter text/padding on phones, full size sm:. */
 const MENU_ROW =
-  "flex items-center justify-between gap-3 w-full rounded-[10px] px-3 py-2.5 text-[13px] text-white/85 hover:bg-white/[0.07] hover:text-white transition-colors text-left";
+  "flex items-center justify-between gap-3 w-full rounded-[10px] px-2.5 py-2 text-[12px] text-white/85 hover:bg-white/[0.07] hover:text-white transition-colors text-left sm:px-3 sm:py-2.5 sm:text-[13px]";
 
 /** Player control-bar button — Netflix-style 36px hit target, subtle hover.
  *  xan-hud-shadow gives each icon a dark rim so it stays readable on bright
  *  frames now that the gradient backing is gone. */
 const CTRL_BTN =
-  "xan-hud-shadow h-9 w-9 rounded-lg grid place-items-center flex-shrink-0 text-white transition-colors hover:bg-white/10 active:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/60 outline-none";
+  "xan-hud-shadow h-8 w-8 sm:h-9 sm:w-9 rounded-lg grid place-items-center flex-shrink-0 text-white transition-colors hover:bg-white/10 active:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/60 outline-none";
+/* MOBILE SIZE PASS: 32px targets on phones (was 36 — the bar crowded and
+ * wrapped on narrow screens), full 36px from sm: up. Icons follow with an
+ * 18px mobile step via h-[18px] sm:h-5. */
 
 /** VTT cue text → plain display lines: strips inline markup (<c>, <i>,
  *  <00:00:01.000> timestamp tags …), unfolds ASS-style "\N" soft breaks,
@@ -190,22 +195,22 @@ function SettingToggle({ label, hint, on, onChange, disabled }: {
   return (
     <button
       onClick={() => !disabled && onChange(!on)}
-      className={`flex items-center justify-between gap-3 w-full rounded-[10px] px-3 py-2.5 text-left hover:bg-white/[0.07] transition-colors disabled:opacity-40 disabled:hover:bg-transparent`}
+      className={`flex items-center justify-between gap-3 w-full rounded-[10px] px-2.5 py-2 text-left hover:bg-white/[0.07] transition-colors disabled:opacity-40 disabled:hover:bg-transparent sm:px-3 sm:py-2.5`}
       disabled={disabled}
       role="switch"
       aria-checked={on}
     >
       <span className="min-w-0">
-        <span className="block text-[13px] text-white/85">{label}</span>
+        <span className="block text-[12px] text-white/85 sm:text-[13px]">{label}</span>
         {hint && <span className="block text-[10px] text-white/40 leading-snug mt-0.5">{hint}</span>}
       </span>
       <span
-        className={`relative flex-shrink-0 w-9 h-5 rounded-full transition-all duration-200 ${
+        className={`relative flex-shrink-0 w-8 h-[18px] rounded-full transition-all duration-200 sm:w-9 sm:h-5 ${
           on ? "bg-xan-crimson shadow-[0_0_12px_rgba(233,69,96,0.45)]" : "bg-white/[0.16]"
         }`}
       >
         <span
-          className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${on ? "left-[18px]" : "left-[2px]"}`}
+          className={`absolute top-[2px] w-3.5 h-3.5 rounded-full bg-white shadow transition-all duration-200 sm:w-4 sm:h-4 ${on ? "left-[16px] sm:left-[18px]" : "left-[2px]"}`}
         />
       </span>
     </button>
@@ -246,6 +251,17 @@ export function VideoPlayer({
   const resumeAppliedRef = useRef(false);
   const lastTapRef = useRef(0);
   const lastTapSideRef = useRef<"left" | "right" | null>(null);
+  // ─── Hold-to-2x (hold Space on desktop / long-press the video on touch) ───
+  // While held, playback runs at 2x; on release the previous rate returns.
+  const [holdBoost2x, setHoldBoost2x] = useState(false);
+  const hold2xActiveRef = useRef(false);
+  const rateBeforeBoostRef = useRef(1);
+  const spaceDownRef = useRef(false);
+  const spaceHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A long-press release fires a synthetic click — this flag swallows it so
+  // the hold doesn't ALSO register as a tap (pause / double-tap seek).
+  const suppressNextClickRef = useRef(false);
   // M-17: one-shot autoplay flag — set when a NEW stream starts loading,
   // consumed on the first loadedmetadata. Avoids force-resuming playback on
   // incidental metadata reloads (e.g. hls.js level switches) after the user
@@ -1015,6 +1031,31 @@ export function VideoPlayer({
     setPlaybackRate(rate);
   }, []);
 
+  // ─── Hold-to-2x boost ───
+  // Deliberately bypasses changePlaybackRate: the boost is a momentary
+  // gesture, so the Speed slider and persisted setting keep showing the
+  // user's real rate. Restore reads a mirror of the state so a rate change
+  // made WHILE boosting (Speed slider) wins over the boost-start snapshot.
+  const playbackRateRef = useRef(playbackRate);
+  playbackRateRef.current = playbackRate;
+
+  const startHoldBoost = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || v.paused || hold2xActiveRef.current) return;
+    hold2xActiveRef.current = true;
+    rateBeforeBoostRef.current = v.playbackRate > 0 ? v.playbackRate : 1;
+    v.playbackRate = 2;
+    setHoldBoost2x(true);
+  }, []);
+
+  const stopHoldBoost = useCallback(() => {
+    if (!hold2xActiveRef.current) return;
+    hold2xActiveRef.current = false;
+    const v = videoRef.current;
+    if (v) v.playbackRate = playbackRateRef.current > 0 ? playbackRateRef.current : 1;
+    setHoldBoost2x(false);
+  }, []);
+
   const changeQuality = useCallback((index: number) => {
     if (hlsRef.current) {
       hlsRef.current.currentLevel = index;
@@ -1199,6 +1240,23 @@ export function VideoPlayer({
           setShowShortcuts(false);
           break;
         case " ":
+          // Hold-to-2x: a quick Space tap still toggles play/pause, but while
+          // the key is HELD (≥300ms) playback boosts to 2x until release.
+          // e.repeat guards against OS auto-repeat re-arming the timer, and a
+          // paused video just plays instantly (2x means nothing while paused).
+          e.preventDefault();
+          if (e.repeat) break;
+          if (videoRef.current && !videoRef.current.paused) {
+            spaceDownRef.current = true;
+            if (spaceHoldTimerRef.current) clearTimeout(spaceHoldTimerRef.current);
+            spaceHoldTimerRef.current = setTimeout(() => {
+              spaceHoldTimerRef.current = null;
+              if (spaceDownRef.current) startHoldBoost();
+            }, 300);
+          } else {
+            togglePlay();
+          }
+          break;
         case "k":
           e.preventDefault();
           togglePlay();
@@ -1260,8 +1318,39 @@ export function VideoPlayer({
       }
       showControlsTemporarily();
     };
+    // Release of the hold: keyup ends either a quick tap (→ toggle pause) or
+    // a 2x hold (→ restore rate). Window blur while held (alt-tab etc.)
+    // force-restores so the boost can never stick.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== " ") return;
+      spaceDownRef.current = false;
+      if (spaceHoldTimerRef.current) {
+        clearTimeout(spaceHoldTimerRef.current);
+        spaceHoldTimerRef.current = null;
+        togglePlay();
+      } else {
+        stopHoldBoost();
+      }
+    };
+    const onWindowBlur = () => {
+      spaceDownRef.current = false;
+      if (spaceHoldTimerRef.current) {
+        clearTimeout(spaceHoldTimerRef.current);
+        spaceHoldTimerRef.current = null;
+      }
+      stopHoldBoost();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
+      if (spaceHoldTimerRef.current) clearTimeout(spaceHoldTimerRef.current);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      stopHoldBoost();
+    };
   }, [
     togglePlay,
     toggleMute,
@@ -1273,6 +1362,8 @@ export function VideoPlayer({
     togglePip,
     showControlsTemporarily,
     fireSeekRipple,
+    startHoldBoost,
+    stopHoldBoost,
   ]);
 
   // ─── Hover tooltip on seekbar ───
@@ -1339,7 +1430,47 @@ export function VideoPlayer({
             setShowSettings(false);
             return;
           }
+          // A long-press that just boosted to 2x must not ALSO register as a
+          // tap (pause / double-tap seek) on release.
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
           handleVideoClick(e);
+        }}
+        onTouchStart={(e) => {
+          // Hold-to-2x on touch (mobile parity of the desktop Space hold): a
+          // ≥450ms stationary press boosts playback to 2x; release restores.
+          void e;
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = setTimeout(() => {
+            longPressTimerRef.current = null;
+            startHoldBoost();
+          }, 450);
+        }}
+        onTouchMove={() => {
+          // Finger drift means scrolling/adjusting, not a deliberate hold.
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }}
+        onTouchEnd={() => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+          if (hold2xActiveRef.current) {
+            stopHoldBoost();
+            suppressNextClickRef.current = true;
+          }
+        }}
+        onTouchCancel={() => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+          if (hold2xActiveRef.current) stopHoldBoost();
         }}
       >
         {/* Soft-subtitle tracks (proxied VTT from the AnimeX providers).
@@ -1429,6 +1560,18 @@ export function VideoPlayer({
           </div>
         </div>
       ))}
+
+      {/* Hold-to-2x HUD — visible the whole time the boost is active (Space
+          held / finger pressed), not a fleeting ripple, so it reads as a
+          MODE. Centered like the seek feedback; pointer-events-none. */}
+      {holdBoost2x && (
+        <div className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30">
+          <div className="xan-hud-shadow flex items-center gap-2 rounded-full bg-black/65 px-4 py-1.5 ring-1 ring-white/15 backdrop-blur-sm text-white font-bold text-base animate-menu-in">
+            <FastForward className="h-4 w-4 text-xan-crimson" />
+            2x speed
+          </div>
+        </div>
+      )}
 
       {/* Skip Intro button — Netflix-style white pill, always readable on any frame */}
       {showSkipIntro && !loading && !error && (
@@ -1521,11 +1664,11 @@ export function VideoPlayer({
             {/* Keyboard shortcuts */}
             <button
               onClick={() => setShowShortcuts(true)}
-              className="xan-hud-shadow h-8 w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
+              className="xan-hud-shadow h-7 w-7 sm:h-8 sm:w-8 rounded-lg grid place-items-center text-white/90 hover:bg-white/15 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 outline-none"
               aria-label="Keyboard shortcuts"
               title="Keyboard shortcuts (?)"
             >
-              <Keyboard className="h-4 w-4" />
+              <Keyboard className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </button>
           </div>
         </div>
@@ -1607,7 +1750,7 @@ export function VideoPlayer({
               aria-label={playing ? "Pause" : "Play"}
               title={playing ? "Pause (k)" : "Play (k)"}
             >
-              {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-white" />}
+              {playing ? <Pause className="h-[18px] w-[18px] sm:h-5 sm:w-5" /> : <Play className="h-[18px] w-[18px] sm:h-5 sm:w-5 fill-white" />}
             </button>
 
             {/* Volume — click toggles mute (the icon always implied this and
@@ -1626,11 +1769,11 @@ export function VideoPlayer({
               title={muted ? "Unmute (M)" : "Mute (M)"}
             >
               {muted || volume === 0 ? (
-                <VolumeX className="h-5 w-5" />
+                <VolumeX className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
               ) : volume < 0.5 ? (
-                <Volume1 className="h-5 w-5" />
+                <Volume1 className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
               ) : (
-                <Volume2 className="h-5 w-5" />
+                <Volume2 className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
               )}
             </button>
           </div>
@@ -1647,7 +1790,7 @@ export function VideoPlayer({
               title="Back 10s (J)"
             >
               <span className="relative inline-flex">
-                <RotateCcw className="h-5 w-5" />
+                <RotateCcw className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
                 <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold leading-none">10</span>
               </span>
             </button>
@@ -1659,7 +1802,7 @@ export function VideoPlayer({
               title="Forward 10s (L)"
             >
               <span className="relative inline-flex">
-                <RotateCw className="h-5 w-5" />
+                <RotateCw className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
                 <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold leading-none">10</span>
               </span>
             </button>
@@ -1676,7 +1819,7 @@ export function VideoPlayer({
               aria-label="Skip intro"
               title="Skip intro (+85s)"
             >
-              <SkipForward className="h-5 w-5" />
+              <SkipForward className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
             </button>
             {/* Subtitles (CC) */}
             <button
@@ -1685,7 +1828,7 @@ export function VideoPlayer({
               aria-label="Toggle subtitles"
               title={activeTrackIndex >= 0 ? "Subtitles ON" : "Subtitles OFF"}
             >
-              <Captions className="h-5 w-5" />
+              <Captions className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
             </button>
             {/* Screenshot */}
             <button
@@ -1694,7 +1837,7 @@ export function VideoPlayer({
               aria-label="Screenshot"
               title="Save a screenshot"
             >
-              <Camera className="h-5 w-5" />
+              <Camera className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
             </button>
             {/* Settings (gear) — floating panel anchored above this button.
                 The gear rotates a quarter turn while open (aria-expanded). */}
@@ -1705,7 +1848,7 @@ export function VideoPlayer({
               aria-expanded={showSettings}
               title="Settings"
             >
-              <Settings className={`h-5 w-5 transition-transform duration-300 ${showSettings ? "rotate-90" : ""}`} />
+              <Settings className={`h-[18px] w-[18px] sm:h-5 sm:w-5 transition-transform duration-300 ${showSettings ? "rotate-90" : ""}`} />
             </button>
             {/* Picture-in-Picture */}
             {PIP_SUPPORTED && (
@@ -1715,7 +1858,7 @@ export function VideoPlayer({
                 aria-label="Picture-in-picture"
                 title="Picture-in-picture (I)"
               >
-                <PictureInPicture2 className="h-5 w-5" />
+                <PictureInPicture2 className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
               </button>
             )}
             {/* Fullscreen */}
@@ -1725,7 +1868,7 @@ export function VideoPlayer({
               aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
               title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
             >
-              {fullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+              {fullscreen ? <Minimize className="h-[18px] w-[18px] sm:h-5 sm:w-5" /> : <Maximize className="h-[18px] w-[18px] sm:h-5 sm:w-5" />}
             </button>
           </div>
         </div>
@@ -1999,10 +2142,10 @@ export function VideoPlayer({
                 />
 
                 <SectionLabel>Speed</SectionLabel>
-                <div className="px-3 py-1.5">
+                <div className="px-2.5 py-1.5 sm:px-3">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[13px] text-white/85">Playback speed</span>
-                    <span className="text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{fmtRate(playbackRate)}x</span>
+                    <span className="text-[12px] text-white/85 sm:text-[13px]">Playback speed</span>
+                    <span className="text-[10px] sm:text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{fmtRate(playbackRate)}x</span>
                   </div>
                   <div className="relative h-4 flex items-center">
                     <div className="absolute left-0 right-0 h-1 rounded-full bg-white/[0.14]" />
@@ -2081,10 +2224,10 @@ export function VideoPlayer({
                 </button>
 
                 <SectionLabel>Volume</SectionLabel>
-                <div className="px-3 py-1.5">
+                <div className="px-2.5 py-1.5 sm:px-3">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[13px] text-white/85">Player volume</span>
-                    <span className="text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{muted ? "Muted" : `${Math.round(volume * 100)}%`}</span>
+                    <span className="text-[12px] text-white/85 sm:text-[13px]">Player volume</span>
+                    <span className="text-[10px] sm:text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{muted ? "Muted" : `${Math.round(volume * 100)}%`}</span>
                   </div>
                   <div className="relative h-4 flex items-center">
                     <div className="absolute left-0 right-0 h-1 rounded-full bg-white/[0.14]" />
@@ -2117,10 +2260,10 @@ export function VideoPlayer({
                 </div>
 
                 <SectionLabel>Audio boost</SectionLabel>
-                <div className="px-3 py-1.5 pb-2.5">
+                <div className="px-2.5 py-1.5 pb-2.5 sm:px-3">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[13px] text-white/85">Extra volume</span>
-                    <span className="text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{settings.audioBoost}%</span>
+                    <span className="text-[12px] text-white/85 sm:text-[13px]">Extra volume</span>
+                    <span className="text-[10px] sm:text-[11px] font-mono font-bold tabular-nums text-xan-crimson bg-white/[0.08] rounded-md px-1.5 py-0.5">{settings.audioBoost}%</span>
                   </div>
                   <div className="relative h-4 flex items-center">
                     <div className="absolute left-0 right-0 h-1 rounded-full bg-white/[0.14]" />

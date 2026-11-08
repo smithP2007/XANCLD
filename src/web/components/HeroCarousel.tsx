@@ -10,6 +10,9 @@ interface Props {
 }
 
 const SLIDE_MS = 7000;
+/** Swipe must travel this far horizontally (and be mostly horizontal) to
+ *  count as a slide change — anything less is a tap on a button/dot. */
+const SWIPE_MIN_PX = 48;
 
 function sanitizeDescription(d: string | null | undefined): string {
   if (!d) return "";
@@ -32,7 +35,16 @@ function sanitizeDescription(d: string | null | undefined): string {
 // the banner is narrower on wide displays.
 export function HeroCarousel({ anime, onActiveChange }: Props) {
   const [active, setActive] = useState(0);
+  // MOBILE FIX: hover-pause used to listen to raw mouseenter/leave — on touch
+  // devices the FIRST tap fires an emulated mouseenter, so after a single tap
+  // anywhere on the hero (Play, dots, arrows…) hoverPaused stuck true and
+  // auto-rotation silently died for the rest of the session ("the carousel
+  // behaves weirdly on mobile"). The handlers now no-op unless the device
+  // really has a hover-capable fine pointer.
   const [hoverPaused, setHoverPaused] = useState(false);
+  const [touching, setTouching] = useState(false);
+  const canHoverRef = useRef(false);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   // BUG 3 FIX: the auto-advance timer used to keep cycling while the browser
   // tab was backgrounded — switching back landed mid-slide-jump. A
   // visibilitychange listener freezes rotation whenever the tab is hidden
@@ -40,12 +52,23 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
   const [isTabHidden, setIsTabHidden] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Track hover capability (reacts to the user plugging in/out a mouse).
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const sync = () => {
+      canHoverRef.current = mq.matches;
+    };
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
+
   // BUG 2 FIX: cap the carousel at 8 slides. The API can hand back up to 20
   // items; 20 pagination dots in one unwrapped row collided with the info
   // column on narrow viewports. 8 is the sweet spot (marketing-real estate:
   // nobody clicks dot #14) and the dots row now ALSO wraps defensively.
   const slides = anime.slice(0, 8);
-  const paused = hoverPaused || isTabHidden;
+  const paused = hoverPaused || isTabHidden || touching;
 
   const go = useCallback(
     (dir: 1 | -1) => setActive((i) => (i + dir + slides.length) % slides.length),
@@ -147,18 +170,45 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
     >
       <div
         className="relative h-[52vh] min-h-[380px] overflow-hidden rounded-[24px] border border-xan-border md:h-[56vh] md:max-h-[560px] md:min-h-[430px] md:rounded-[32px]"
-        onMouseEnter={() => setHoverPaused(true)}
-        onMouseLeave={() => setHoverPaused(false)}
+        onMouseEnter={() => canHoverRef.current && setHoverPaused(true)}
+        onMouseLeave={() => canHoverRef.current && setHoverPaused(false)}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          if (!t) return;
+          swipeStartRef.current = { x: t.clientX, y: t.clientY };
+          setTouching(true);
+        }}
+        onTouchEnd={(e) => {
+          setTouching(false);
+          const s = swipeStartRef.current;
+          swipeStartRef.current = null;
+          if (!s) return;
+          const t = e.changedTouches[0];
+          if (!t) return;
+          const dx = t.clientX - s.x;
+          const dy = t.clientY - s.y;
+          // Horizontal swipe → prev/next slide (vertical scrolls stay scrolls).
+          if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            go(dx < 0 ? 1 : -1);
+          }
+        }}
+        onTouchCancel={() => {
+          setTouching(false);
+          swipeStartRef.current = null;
+        }}
       >
-        {/* Backdrop art — slow Ken Burns */}
+        {/* Backdrop art — slow Ken Burns. MOBILE FIX: the banner used to stay
+            mounted UNDER the poster overlay on phones, so every slide down-
+            loaded and animated TWO full-bleed images while only one was
+            visible (slower loads, double paint). The banner is desktop-only
+            now; mobile renders just the sharper poster crop. */}
         <div key={current.id} className="absolute inset-0">
           <img
             src={banner}
             alt=""
             aria-hidden
-            className="absolute inset-0 h-full w-full object-cover animate-ken-burns"
+            className="absolute inset-0 hidden h-full w-full object-cover animate-ken-burns md:block"
           />
-          {/* Sharper poster fallback on mobile where banners can crop badly */}
           <img
             src={poster}
             alt=""
@@ -221,10 +271,14 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
           </div>
         </div>
 
-        {/* ─── MOBILE — info stack at the bottom of the card ─── */}
+        {/* ─── MOBILE — info stack at the bottom of the card ───
+            MOBILE FIX: the stack sat only 56px (pb-14) above the card edge
+            while the progress dots hovered at 80px — the dots row physically
+            overlapped the Play/Details buttons and stole their taps. The
+            stack now clears the dots/arrows row below it. */}
         <div
           key={`m-${current.id}`}
-          className="relative flex h-full flex-col justify-end px-5 pb-14 animate-hero-info md:hidden"
+          className="relative flex h-full flex-col justify-end px-5 pb-[4.25rem] animate-hero-info md:hidden"
         >
           <span className="mb-2.5 inline-flex w-fit items-center gap-1.5 rounded-full border border-xan-crimson/40 bg-xan-crimson/15 px-3 py-1 text-[9px] font-extrabold uppercase tracking-[0.2em] text-xan-crimson">
             #{active + 1} Trending
@@ -244,48 +298,51 @@ export function HeroCarousel({ anime, onActiveChange }: Props) {
           <div className="mt-4">{actionButtons}</div>
         </div>
 
-        {/* Progress segments — bottom-left inside the card (repositioned).
-            BUG 2 FIX: `flex-wrap` + `max-w-[55vw]` keep up to 8 dots inside
-            the safe zone on narrow viewports instead of colliding with the
-            info column, and the mobile bottom offset rises to bottom-20 so
-            the cluster clears the fixed glass bottom nav
-            (calc(4rem + env(safe-area-inset-bottom))).
+        {/* Progress segments — bottom-left inside the card.
+            MOBILE FIX: dots now sit in one bottom row beside the arrows,
+            BELOW the info stack — the old bottom-20 row physically overlapped
+            the Play/Details buttons and stole their taps. Each dot also got
+            an invisible before:-inset-y hit expansion (4px-tall targets were
+            practically untappable).
+            BUG 2 FIX: `flex-wrap` keeps up to 8 dots inside the safe zone on
+            narrow viewports.
             v4.3 LIVELY: the active segment fills w-4→w-9 over exactly the
             7s auto-advance window (animation restarts each slide change and
             while unpaused — the timer resets on the same triggers, so they
             stay in sync). Paused: static full bar reads as "held". */}
-        <div className="absolute bottom-20 left-6 z-20 flex max-w-[55vw] flex-wrap items-center gap-1.5 md:bottom-7 md:left-8">
+        <div className="absolute bottom-6 left-5 right-[6.75rem] z-20 flex flex-wrap items-center gap-1.5 md:bottom-7 md:left-8 md:right-auto md:max-w-[55vw]">
           {slides.map((s, i) => (
             <button
               key={s.id}
               onClick={() => goTo(i)}
               aria-label={`Go to slide ${i + 1}`}
-              className={`h-1 rounded-full transition-all duration-500 ${
+              className={`relative h-1 rounded-full transition-all duration-500 before:absolute before:inset-x-0 before:inset-y-[-10px] before:content-[""] ${
                 i === active
                   ? `w-9 bg-gradient-to-r from-xan-crimson to-xan-violet ${!paused && slides.length > 1 ? "animate-seg-fill" : ""}`
-                  : "w-4 bg-white/25 hover:bg-white/50"
+                  : "w-4 bg-white/25 before:hover:bg-white/10 hover:bg-white/50"
               }`}
             />
           ))}
         </div>
 
-        {/* Arrow cluster — bottom-right inside the card (repositioned).
-            BUG 2 FIX: mobile bottom offset raised to bottom-20 (clears the
-            fixed glass bottom nav bar + safe-area inset); desktop unchanged. */}
-        <div className="absolute bottom-20 right-4 z-20 flex items-center gap-2 md:bottom-6 md:right-6">
+        {/* Arrow cluster — bottom-right inside the card.
+            MOBILE FIX: shares the bottom row with the dots and shrinks to
+            36px on phones (was floating at bottom-20 where it collided with
+            the info buttons on narrow phones); desktop unchanged. */}
+        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 md:bottom-6 md:right-6">
           <button
             onClick={() => go(-1)}
             aria-label="Previous slide"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur transition-colors hover:bg-black/70 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur transition-colors hover:bg-black/70 hover:text-white md:h-10 md:w-10"
           >
-            <ChevronLeft className="h-4.5 w-4.5" />
+            <ChevronLeft className="h-4 w-4 md:h-4.5 md:w-4.5" />
           </button>
           <button
             onClick={() => go(1)}
             aria-label="Next slide"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur transition-colors hover:bg-black/70 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/80 backdrop-blur transition-colors hover:bg-black/70 hover:text-white md:h-10 md:w-10"
           >
-            <ChevronRight className="h-4.5 w-4.5" />
+            <ChevronRight className="h-4 w-4 md:h-4.5 md:w-4.5" />
           </button>
         </div>
       </div>

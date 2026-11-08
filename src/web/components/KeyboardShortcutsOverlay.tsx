@@ -8,6 +8,7 @@ interface Props {
 
 const SHORTCUTS: { keys: string[]; action: string }[] = [
   { keys: ["Space", "K"], action: "Play / Pause" },
+  { keys: ["Space (hold)"], action: "2x speed while held" },
   { keys: ["J"], action: "Rewind 10s" },
   { keys: ["L"], action: "Forward 10s" },
   { keys: ["←"], action: "Rewind 5s" },
